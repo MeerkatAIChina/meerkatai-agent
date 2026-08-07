@@ -43,6 +43,7 @@ export type SensitivityClassifier = (
     text: string;
     scopeId: string;
     orgScopeId: string;
+    surface?: string;
     hook: "user_input";
   },
   signal?: AbortSignal,
@@ -67,12 +68,14 @@ turn 开始
   │    输出: SecurityScreenVerdict
   │
   ├─ 2. [NEW] 敏感度分类器（CLASSIFIER_URL 已配置时无条件执行，否则跳过）
-  │    输入: { text: userMessage + 最近 3 条消息原文, scopeId, orgScopeId }
+  │    输入: { text: userMessage + 最近 3 条消息原文, scopeId, orgScopeId, surface }
   │    输出: SensitivityVerdict | null
   │
   └─ 3. [NEW] 消费 route
-      if verdict.route → input.model = verdict.route.model
-      if verdict.route.sessionPin →
+      if verdict.route →
+        input.harness = verdict.route.harnessId  // 成对覆盖，避免 org 默认 harness 不兼容
+        input.model   = verdict.route.model
+      if verdict.route?.sessionPin →
         setRuntimeSelectionLatest(scopeId, {
           harnessId: verdict.route.harnessId,
           modelId: verdict.route.model,
@@ -95,8 +98,12 @@ turn 开始
 
 ### 部署前提
 
-- `CLASSIFIER_URL` 环境变量指向 sidecar 地址。未设置时 orchestrator 跳过分类
-- 目标 harness（默认 `pi`）必须在 org 的 `approvedHarnesses` 列表中
+- `CLASSIFIER_URL` — sidecar 地址。未设置时 orchestrator 跳过分类
+- `CLASSIFIER_FALLBACK_MODEL` — sidecar 不可用时的兜底模型（具体 modelId，如 `meerkat-triz-v1`）
+- `CLASSIFIER_FALLBACK_HARNESS` — 兜底 harness（如 `pi`）
+- 目标 harness 必须在 org 的 `approvedHarnesses` 列表中
+
+sidecar 不可达/超时/5xx 时，core 直接用 `CLASSIFIER_FALLBACK_MODEL` + `CLASSIFIER_FALLBACK_HARNESS` 做 route 覆盖 + pin，语义和 sidecar 返回 L1 完全一致。core 不持有逻辑名→具体 id 的映射——fallback 直接配具体值。
 
 ---
 
@@ -116,7 +123,7 @@ deploy/layers/<org>/classifier/
     context/
       scope_labels.ts   # scope → 默认敏感级映射
     semantic/
-      classifier.ts     # 语义分类（调用独立分类模型）
+      classifier.ts     # 语义分类（首选 Meerkat-TRIZ-v1，验收不达标换独立分类模型）
   package.json
   Dockerfile
 ```
@@ -248,9 +255,9 @@ deploy/layers/<org>/classifier/
 
 | 场景 | 行为 | 审计 |
 |------|------|------|
-| Sidecar 连接拒绝 | → L1, `local-secure` | `classifier.unavailable` |
-| Sidecar 超时（2s） | → L1, `local-secure` | `classifier.timeout` |
-| Sidecar 返回 5xx | → L1, `local-secure` | `classifier.error` |
+| Sidecar 连接拒绝 | → 按 `CLASSIFIER_FALLBACK_*` 路由 + pin | `classifier.unavailable` |
+| Sidecar 超时（2s） | → 按 `CLASSIFIER_FALLBACK_*` 路由 + pin | `classifier.timeout` |
+| Sidecar 返回 5xx | → 按 `CLASSIFIER_FALLBACK_*` 路由 + pin | `classifier.error` |
 | 语义层不可用 | → L2（有真人：确认；无真人：降 L1, `local-secure`） | `classifier.semantic_unavailable` |
 | `local-secure` 也挂了 | 阻断，返回错误 | `route.unavailable` |
 
@@ -261,7 +268,7 @@ deploy/layers/<org>/classifier/
 | 隐私级 | 有真人 | 无真人（cron/monitor） |
 |--------|--------|----------------------|
 | L1 | 强制 `local-secure` | 强制 `local-secure` |
-| L2 | 挂起等确认 | 降级 L1, `local-secure` |
+| L2 | 挂起等确认（首版降 L1） | 降级 L1, `local-secure` |
 | L3 + TRIZ | `meerkat-triz-v1` | `meerkat-triz-v1` |
 | L3 + general | 通用模型 | 通用模型 |
 
@@ -375,8 +382,8 @@ requiredCapabilities: []
 
 | 测试目标 | 覆盖内容 |
 |---------|---------|
-| orchestrator 消费 route | 起假 sidecar → 发 turn → 断言 `input.model` 被覆盖（参照 `test/custom-provider-e2e.test.ts` 的 fake server 模式） |
-| fail-to-local 三分支 | Sidecar 拒绝/超时/5xx → 断言走 `local-secure` |
+| orchestrator 消费 route | 起假 sidecar → 发 turn → 断言 `input.harness` + `input.model` 被成对覆盖 |
+| fail-to-local 三分支 | Sidecar 拒绝/超时/5xx → 断言 `CLASSIFIER_FALLBACK_*` 路由生效 + pin |
 | CLASSIFIER_URL 未设置 | 断言跳过分类，turn 正常执行 |
 | Pin 写入/解除 | L1 turn → 断言 `setRuntimeSelectionLatest` 被调用；用户手工切模型 → 断言覆盖 |
 
