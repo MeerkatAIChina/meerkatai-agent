@@ -300,7 +300,7 @@ git commit -m "feat: add sensitivity classifier HTTP client"
 | `actor.id` | handleTurn 参数 `input.actor.id` | 已存在 |
 | `deps.config?.setRuntimeSelectionLatest` | `ScopedConfigStore` 方法 | 已存在 |
 
-`buildClassifyText` 中所需的历史消息：从 `visibleHistory: SessionEntry[]`（handleTurn 内部变量，在 security screen 附近已可用）取最近 3 条 role 为 `"user"` 或 `"assistant"` 且 `text` 非空的条目。
+`buildClassifyText` 中所需的历史消息：从 `visibleHistory: SessionEntry[]`（handleTurn 内部变量，L1854 定义）取最近 3 条 role 为 `"user"` 或 `"assistant"` 且 `text` 非空的条目。
 
 - [ ] **Step 1: 在 config.ts 中新增环境变量解析**
 
@@ -338,7 +338,7 @@ classifierFallbackHarness?: string;
 
 - [ ] **Step 4: 在 orchestrator handleTurn 中插入分类逻辑**
 
-插入点：security screen verdict 消费完成后（`quarantineScreenedInput` 赋值附近，约 L638）、`runTurn` 调用前（L2061）。分类器独立于 security screener 调用——不受 posture 门控。
+插入点：`visibleHistory` 定义之后（L1854 之后）、`input.model` 被消费之前（L2000 `...(input.model ? { model: input.model } : {})` 之前）。实际窗口约 L1860–1999。这个位置保证 `visibleHistory` 在作用域内，且离 `runTurn` 足够近，pin 写入和 harness/model 覆写之间不被中间逻辑干扰。分类器独立于 security screener 调用——不受 posture 门控。
 
 ```typescript
 let sensitivityVerdict: SensitivityVerdict | null = null;
@@ -400,10 +400,22 @@ if (deps.sensitivityClassifier) {
     });
 
     if (sensitivityVerdict.route.sessionPin) {
-      await deps.config?.setRuntimeSelectionLatest(scopeId, {
-        harnessId: sensitivityVerdict.route.harnessId,
-        modelId: sensitivityVerdict.route.model,
-      });
+      if (deps.config) {
+        await deps.config.setRuntimeSelectionLatest(scopeId, {
+          harnessId: sensitivityVerdict.route.harnessId,
+          modelId: sensitivityVerdict.route.model,
+        });
+      } else {
+        deps.auditLog.record({
+          at: Date.now(),
+          principalId: actor.id,
+          action: "classifier.pin_dropped",
+          resource: sensitivityVerdict.route.policy,
+          scopeLabel: scopeId,
+          status: "error",
+          detail: "ScopedConfigStore unavailable; pin not persisted",
+        });
+      }
     }
   }
 }
@@ -921,7 +933,7 @@ export async function runPipeline(input: PipelineInput): Promise<ClassifyRespons
 
   try {
     const semantic = await classifySemantic(input.text);
-    if (semantic.level === "L1") {
+    if (semantic.level === "L1" || semantic.level === "L2") {
       const route = resolveRoute("local-secure");
       if (route) route.session_pin = true;
       return { level: "L1", domain: semantic.domain, route };
@@ -1115,29 +1127,22 @@ curl -X POST http://localhost:<port>/v1/admin/skill-packs \
 
 ### Task 12: 端到端回归
 
-- [ ] **Step 1: 分类器跳过（无 CLASSIFIER_URL）**
+- [ ] **Step 1: 全链路集成测试（含跳过/fallback/pin 断言）**
 
 ```bash
-CLASSIFIER_URL= node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts
+node --experimental-test-module-mocks --test test/sensitivity-classifier-integration.test.ts
 ```
 
-- [ ] **Step 2: fail-to-local**
+集成测试文件内包含 fake sidecar server，通过 `testConfig` 控制 `CLASSIFIER_URL` 有/无、`CLASSIFIER_FALLBACK_*` 有/无来覆盖回归场景。环境变量注入通过 `buildApp(cfg)` 而非进程级 `env`。
 
-```bash
-CLASSIFIER_URL=http://localhost:19999/classify \
-CLASSIFIER_FALLBACK_MODEL=meerkat-triz-v1 \
-CLASSIFIER_FALLBACK_HARNESS=pi \
-node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts
-```
-
-- [ ] **Step 3: 全项目 typecheck + lint**
+- [ ] **Step 2: 全项目 typecheck + lint**
 
 ```bash
 npx tsc --noEmit
 npx eslint src/ test/
 ```
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 3: 提交**
 
 ```bash
 git add -A && git commit -m "chore: end-to-end regression verification"

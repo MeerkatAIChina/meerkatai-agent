@@ -1,4 +1,4 @@
-# qm 二开设计文档
+# v1.0 设计文档
 
 ## 概述
 
@@ -153,7 +153,7 @@ deploy/layers/<org>/classifier/
   "route": {
     "policy": "local-secure",
     "model": "meerkat-triz-v1",
-    "harnessId": "pi",
+    "harness_id": "pi",
     "session_pin": true
   }
 }
@@ -168,7 +168,7 @@ deploy/layers/<org>/classifier/
   "route": {
     "policy": "meerkat-triz-v1",
     "model": "meerkat-triz-v1",
-    "harnessId": "pi",
+    "harness_id": "pi",
     "session_pin": false
   }
 }
@@ -184,13 +184,13 @@ deploy/layers/<org>/classifier/
 ```
 
 | 字段 | 含义 | Core 行为 |
-|------|------|----------|
+| ------ | ------ | ---------- |
 | `level` | 隐私敏感级 L1/L2/L3 | 决定是否 pin、是否需确认 |
 | `domain` | 领域命中 triz/general | 审计 |
-| `route` | 可选，不存在时不干预 | 存在时消费 model/harnessId/sessionPin |
+| `route` | 可选，不存在时不干预 | 存在时消费 model/harness_id/session_pin |
 | `route.policy` | 逻辑名 | 仅进审计日志，core 不做逻辑名解析 |
 | `route.model` | 已解析的具体 modelId | 直接设到 `requested.modelId` |
-| `route.harnessId` | 对应 harness | pin 时写入 `setRuntimeSelectionLatest` |
+| `route.harness_id` | 对应 harness | pin 时写入 `setRuntimeSelectionLatest` |
 | `route.session_pin` | 是否钉住会话 | 写入 scope 级 runtime selection（durable） |
 
 路由映射在 sidecar 内完成解析，响应中 `route.model` 是具体模型 id——`resolveRuntimeChoice` 的 `modelSupportedByHarness` 和白名单校验可直接消费。
@@ -254,7 +254,7 @@ deploy/layers/<org>/classifier/
 ### 降级策略
 
 | 场景 | 行为 | 审计 |
-|------|------|------|
+| ------ | ------ | ------ |
 | Sidecar 连接拒绝 | → 按 `CLASSIFIER_FALLBACK_*` 路由 + pin | `classifier.unavailable` |
 | Sidecar 超时（2s） | → 按 `CLASSIFIER_FALLBACK_*` 路由 + pin | `classifier.timeout` |
 | Sidecar 返回 5xx | → 按 `CLASSIFIER_FALLBACK_*` 路由 + pin | `classifier.error` |
@@ -266,7 +266,7 @@ deploy/layers/<org>/classifier/
 ### 无人确认 turn
 
 | 隐私级 | 有真人 | 无真人（cron/monitor） |
-|--------|--------|----------------------|
+| -------- | -------- | ---------------------- |
 | L1 | 强制 `local-secure` | 强制 `local-secure` |
 | L2 | 挂起等确认（首版降 L1） | 降级 L1, `local-secure` |
 | L3 + TRIZ | `meerkat-triz-v1` | `meerkat-triz-v1` |
@@ -284,7 +284,7 @@ deploy/layers/<org>/classifier/
 ### 验收标准
 
 | 指标 | 目标 | 方法 |
-|------|------|------|
+| ------ | ------ | ------ |
 | PII 规则覆盖 | ≥ 5 类（身份证/手机号/银行卡/邮箱/地址） | 单元测试 |
 | 语义层准确率 | ≥ 85% | 50-100 条标注样本 |
 | 语义层时延 | P95 ≤ 500ms | 压测 |
@@ -305,7 +305,7 @@ deploy/layers/<org>/classifier/
 ### 领域包清单
 
 | Skill 名 | 描述 | 触发场景 / 不适用 |
-|----------|------|------------------|
+| ---------- | ------ | ------------------ |
 | `triz-innovation` | TRIZ 矛盾矩阵分析、技术进化趋势、物场模型 | 产品创新攻关；不适用于纯市场分析 |
 | `product-concept` | 消费品概念生成与验证框架 | 新品立项、概念测试；不适用于已有产品改款 |
 | `market-valuation` | 市场规模估算、商业价值 TAM/SAM/SOM | 机会评估；不适用于已上市产品销售预测 |
@@ -339,7 +339,7 @@ requiredCapabilities: []
 ### 验收标准
 
 | 指标 | 目标 | 方法 |
-|------|------|------|
+| ------ | ------ | ------ |
 | 命中准确率 | ≥ 90% | 每个领域 30-50 条（含正例+负例），负例 = 像但不该命中的问法 |
 | 误命中率 | 0 | 负例中任何一个被误命中即为不通过 |
 | 未命中率 | ≤ 5% | 正例漏掉（Agent 没读 skill）的比例 |
@@ -373,7 +373,7 @@ requiredCapabilities: []
 ### 单元测试
 
 | 测试目标 | 文件 | 覆盖内容 |
-|---------|------|---------|
+| --------- | ------ | --------- |
 | `SensitivityVerdict` 解析 | `test/sensitivity-classifier.test.ts` | 合法响应、缺少字段、level 非法值、route 可选 |
 | PII 正则 | `deploy/layers/<org>/classifier/tests/pii.test.ts` | 5 类 PII 命中/漏检，边界值 |
 | 管线编排 | `deploy/layers/<org>/classifier/tests/pipeline.test.ts` | 规则层早停、上下文层判断、降级路径 |
@@ -381,7 +381,7 @@ requiredCapabilities: []
 ### 集成测试
 
 | 测试目标 | 覆盖内容 |
-|---------|---------|
+| --------- | --------- |
 | orchestrator 消费 route | 起假 sidecar → 发 turn → 断言 `input.harness` + `input.model` 被成对覆盖 |
 | fail-to-local 三分支 | Sidecar 拒绝/超时/5xx → 断言 `CLASSIFIER_FALLBACK_*` 路由生效 + pin |
 | CLASSIFIER_URL 未设置 | 断言跳过分类，turn 正常执行 |
