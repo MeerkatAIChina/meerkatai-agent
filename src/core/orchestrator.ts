@@ -58,6 +58,7 @@ import {
   UNSCREENED_REASON,
   unscreenedNotice,
 } from "../security/security-posture.ts";
+import type { SensitivityVerdict } from "../security/sensitivity-classifier.ts";
 import { commandApprovalId } from "./approval-id.ts";
 import { createPerTurnStrategy } from "../memory/strategies/per-turn.ts";
 import { DEFAULT_MEMORY_POLICY, recallMemoryScopes, writableMemoryScope } from "../memory/policy.ts";
@@ -1852,6 +1853,78 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           await deps.harness.turns.resetSession?.(session.id);
         }
         const visibleHistory = filterHistory(forModelContext(rawEntries, { includeSecurityTainted: false }));
+        if (deps.sensitivityClassifier) {
+          const recentForClassify = visibleHistory
+            .filter((e) => e.type === "user" || e.type === "assistant")
+            .slice(-3);
+          const classifyParts = [input.text];
+          for (const e of recentForClassify) {
+            const text = (e.payload as { text?: string } | null)?.text;
+            if (text) classifyParts.push(text);
+          }
+          let classifyText = classifyParts.join("\n");
+          if (classifyText.length > 16_000) classifyText = classifyText.slice(0, 16_000);
+          let sensitivityVerdict: SensitivityVerdict | null = null;
+          try {
+            sensitivityVerdict = await deps.sensitivityClassifier(
+              {
+                text: classifyText,
+                scopeId,
+                orgScopeId: resolution.orgScopeId,
+                ...(input.surface ? { surface: input.surface } : {}),
+                hook: "user_input",
+              },
+              input.cancel,
+            );
+          } catch (err) {
+            swallow("orchestrator: sensitivity classify", err);
+          }
+          if (!sensitivityVerdict && deps.classifierFallbackModel && deps.classifierFallbackHarness) {
+            deps.auditLog.record({
+              at: Date.now(),
+              principalId: actor.id,
+              action: "classifier.unavailable",
+              resource: "sensitivity-classifier",
+              scopeLabel: scopeId,
+              status: "fallback",
+            });
+            sensitivityVerdict = {
+              level: "L1",
+              domain: "general",
+              route: {
+                policy: "fallback",
+                model: deps.classifierFallbackModel,
+                harnessId: deps.classifierFallbackHarness,
+                sessionPin: true,
+              },
+            };
+          }
+          if (sensitivityVerdict?.route) {
+            input.harness = sensitivityVerdict.route.harnessId;
+            input.model = sensitivityVerdict.route.model;
+            deps.auditLog.record({
+              at: Date.now(),
+              principalId: actor.id,
+              action: "classifier.route",
+              resource: sensitivityVerdict.route.policy,
+              scopeLabel: scopeId,
+              status: "routed",
+              detail: JSON.stringify({
+                level: sensitivityVerdict.level,
+                domain: sensitivityVerdict.domain,
+                model: sensitivityVerdict.route.model,
+                harnessId: sensitivityVerdict.route.harnessId,
+                sessionPin: sensitivityVerdict.route.sessionPin,
+              }),
+            });
+            if (sensitivityVerdict.route.sessionPin) {
+              await deps.config?.setRuntimeSelectionLatest(scopeId, {
+                harnessId: sensitivityVerdict.route.harnessId,
+                modelId: sensitivityVerdict.route.model,
+              });
+            }
+          }
+        }
         const maxEntrySeq = rawEntries.length ? rawEntries[rawEntries.length - 1]!.seq : -1;
         const rehydrateTape = (messages: readonly unknown[]) => {
           let readableHandles: Awaited<ReturnType<typeof deps.acl.handlesForAudience>> | undefined;

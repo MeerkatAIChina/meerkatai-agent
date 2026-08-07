@@ -94,6 +94,9 @@ export interface Config {
   seedSkills: boolean;
   skillsSeedDir: string;
   pluginSkillDirs: string[];
+  classifierUrl?: string;
+  classifierFallbackModel?: string;
+  classifierFallbackHarness?: string;
   deploymentLayerDir?: string;
   layerEnv?: Readonly<Record<string, string | undefined>>;
   snapshotStore: "local" | "s3";
@@ -684,6 +687,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     numEnvStrict("RUN_MAX_AGE_MS", env.RUN_MAX_AGE_MS) ??
     (turnWallClockMs > 0 ? 2 * turnWallClockMs : CONFIG_DEFAULTS.runMaxAgeMs);
   const slack = slackPluginConfigFromEnv(env);
+  const classifierUrl = env.CLASSIFIER_URL?.trim() || undefined;
+  const classifierFallbackModel = env.CLASSIFIER_FALLBACK_MODEL?.trim() || undefined;
+  const classifierFallbackHarness = env.CLASSIFIER_FALLBACK_HARNESS?.trim() || undefined;
+  if ((classifierFallbackModel === undefined) !== (classifierFallbackHarness === undefined)) {
+    throw new Error("CLASSIFIER_FALLBACK_MODEL and CLASSIFIER_FALLBACK_HARNESS must both be set or both absent");
+  }
   return {
     production: env.NODE_ENV === "production",
     allowUnauthenticatedCore: boolEnvStrict("ALLOW_UNAUTHENTICATED_CORE", env.ALLOW_UNAUTHENTICATED_CORE) ?? false,
@@ -797,6 +806,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     seedSkills: boolEnvStrict("SEED_SKILLS", env.SEED_SKILLS) ?? true,
     skillsSeedDir: resolve(env.SKILLS_SEED_DIR ?? "./skills-seed"),
     pluginSkillDirs: csvPaths(env.PLUGIN_SKILLS_DIRS) ?? defaultPluginSkillDirs(),
+    ...(classifierUrl ? { classifierUrl } : {}),
+    ...(classifierFallbackModel ? { classifierFallbackModel } : {}),
+    ...(classifierFallbackHarness ? { classifierFallbackHarness } : {}),
     ...(env.DEPLOYMENT_LAYER ? { deploymentLayerDir: resolve(env.DEPLOYMENT_LAYER) } : {}),
     layerEnv: { ...env },
     memoryRecall: parseMemoryRecallMode(env.MEMORY_RECALL),

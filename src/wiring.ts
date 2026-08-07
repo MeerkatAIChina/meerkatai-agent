@@ -172,6 +172,7 @@ import { createPiHarness, piHarnessConfigOptions } from "./harness/pi-harness.ts
 import { createHarnessRouter, resolveRuntimeChoiceDurable } from "./harness/harness-router.ts";
 import type { Harness } from "./harness/harness.ts";
 import { createSecurityScreenProxy, type SecurityScreener } from "./security/security-screener.ts";
+import { createSensitivityClassifier } from "./security/sensitivity-classifier.ts";
 import { createMemoryTaskStore } from "./tasks/memory-task-store.ts";
 import { createPostgresTaskStore } from "./tasks/postgres-task-store.ts";
 import type { TaskStore } from "./tasks/task-store.ts";
@@ -940,6 +941,9 @@ export function buildApp(
       shadow: config.securityScreenProxy!.shadow,
     });
   }
+  const sensitivityClassifier = config.classifierUrl
+    ? createSensitivityClassifier({ url: config.classifierUrl, timeoutMs: 2_000 })
+    : undefined;
   const orchestratorDeps: OrchestratorDeps = {
     identity,
     resolution,
@@ -966,6 +970,9 @@ export function buildApp(
     approvalSummaryTimeoutMs: config.approvalSummaryTimeoutMs,
     securityScreenTimeoutMs: config.securityScreenTimeoutMs,
     ...(securityScreener ? { securityScreener } : {}),
+    ...(sensitivityClassifier ? { sensitivityClassifier } : {}),
+    ...(config.classifierFallbackModel ? { classifierFallbackModel: config.classifierFallbackModel } : {}),
+    ...(config.classifierFallbackHarness ? { classifierFallbackHarness: config.classifierFallbackHarness } : {}),
     backgroundJobTtlMs: config.backgroundJobTtlMs,
     backgroundJobTtlMaxMs: config.backgroundJobTtlMaxMs,
     ...(config.signingSecret ? { signingSecret: config.signingSecret } : {}),

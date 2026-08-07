@@ -30,6 +30,7 @@ import type { ConnectorStatusCache } from "../../credentials/connector-status.ts
 import type { ModelGateway } from "../../model/model-gateway.ts";
 import type { AuditLog } from "../../audit/audit-log.ts";
 import type { SecurityScreener } from "../../security/security-screener.ts";
+import type { SensitivityClassifier } from "../../security/sensitivity-classifier.ts";
 import type { RateLimiter } from "../../ratelimit/rate-limiter.ts";
 import type { BudgetTracker } from "../../ratelimit/budget.ts";
 import type { AwsRoleBroker } from "../../auth/aws-role-broker.ts";
@@ -111,6 +112,9 @@ export interface OrchestratorDeps {
   approvalSummaryTimeoutMs?: number;
   securityScreenTimeoutMs?: number;
   securityScreener?: SecurityScreener;
+  sensitivityClassifier?: SensitivityClassifier;
+  classifierFallbackModel?: string;
+  classifierFallbackHarness?: string;
   backgroundJobTtlMs?: number;
   backgroundJobTtlMaxMs?: number;
   harness: Harness;
