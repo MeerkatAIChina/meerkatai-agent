@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { detectPii } from "./rules/pii.ts";
 import { detectTrizKeywords } from "./rules/triz_keywords.ts";
 import { checkScopeSensitivity } from "./context/scope_labels.ts";
+import { classifySemantic } from "./semantic/classifier.ts";
 import type { ClassifyResponse, RouteConfig } from "./types.ts";
 
 let routes: RouteConfig = {};
@@ -21,7 +22,7 @@ export interface PipelineInput {
   scopeId: string;
 }
 
-export function runPipeline(input: PipelineInput): ClassifyResponse {
+export async function runPipeline(input: PipelineInput): Promise<ClassifyResponse> {
   const pii = detectPii(input.text);
   if (pii) {
     const route = resolveRoute("local-secure");
@@ -40,6 +41,26 @@ export function runPipeline(input: PipelineInput): ClassifyResponse {
     const route = resolveRoute("local-secure");
     if (route) route.session_pin = true;
     return { level: scope, domain: "general", route };
+  }
+
+  try {
+    const semantic = await classifySemantic(input.text);
+    if (semantic.level === "L1" || semantic.level === "L2") {
+      const route = resolveRoute("local-secure");
+      if (route) route.session_pin = true;
+      return { level: "L1", domain: semantic.domain, route };
+    }
+    if (semantic.domain === "triz") {
+      const route = resolveRoute("meerkat-triz-v1");
+      return { level: "L3", domain: "triz", route };
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message === "semantic classifier not configured") {
+      return { level: "L3", domain: "general" };
+    }
+    const route = resolveRoute("local-secure");
+    if (route) route.session_pin = true;
+    return { level: "L1", domain: "general", route };
   }
 
   return { level: "L3", domain: "general" };
