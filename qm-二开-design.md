@@ -6,79 +6,97 @@
 
 1. **模型路由** — 数据敏感度自动分类 + 通用模型/本地模型双轨路由
 2. **业务领域包** — 消费品行业 Skills（TRIZ、产品概念、电商文案等）
-3. **全插件化** — 所有二开逻辑在 `deploy/layers/<org>/` 内，核心改动 ~40 行
+3. **全插件化** — 所有二开逻辑在 `deploy/layers/<org>/` 内，核心改动 <100 行
+
+---
 
 ## 第一节：Core Seam
 
 ### 设计原则
 
-- 核心不感知分类逻辑，只提供 verdict 透传 + modelId 覆盖
-- 分类调用独立于 security screener（不共用 screenPayload 构造）
+- 核心不感知分类逻辑。分类器是独立模块，类型和调用路径均不与 security screener 耦合
 - 路由分类不受 security posture 门控（dangerous/auto/strict 均执行）
+- 分类器未配置时（无 `CLASSIFIER_URL`），整个路径跳过，qm 正常运行
 - 利用现有 `requested.modelId` 覆盖位和 `setRuntimeSelectionLatest` pin 机制
+- 无 route 响应 = 不干预模型选择，走 org 默认解析
 
-### SecurityScreenVerdict 扩展
+### 新增文件：`src/security/sensitivity-classifier.ts`
 
-`src/security/security-posture.ts` 约 +6 行：
+独立的类型定义 + HTTP client + 响应解析。与 `security-screener.ts` 共享 transport 形态（JSON POST → sidecar）但不共享任何解析逻辑。
 
 ```typescript
-export interface SecurityScreenVerdict {
-  decision: "auto" | "strict";
-  reason?: string;
-  unscreened?: boolean;
+// src/security/sensitivity-classifier.ts
+
+export interface SensitivityVerdict {
+  level: "L1" | "L2" | "L3";
+  domain: "triz" | "general";
   route?: {
-    policy?: string;       // 逻辑名，仅审计
-    model?: string;        // 已解析的具体 modelId
-    harnessId?: string;    // pin 所需
-    sessionPin?: boolean;  // 钉住会话
+    policy: string;
+    model: string;
+    harnessId: string;
+    sessionPin: boolean;
   };
 }
+
+export type SensitivityClassifier = (
+  input: {
+    text: string;
+    scopeId: string;
+    orgScopeId: string;
+    hook: "user_input";
+  },
+  signal?: AbortSignal,
+) => Promise<SensitivityVerdict | null>;
 ```
 
-### 分类响应解析
+`SensitivityVerdict` 是独立类型——安全 verdict 和路由 verdict 是两回事。`SecurityScreenVerdict` 不动。
 
-`src/security/security-screener.ts` `classification()` 函数约 +10 行：
+### 分类输入构造
 
-sidecar 响应中的 `route` 字段透传到 verdict。分类器独立于 security screener 调用，解析逻辑也独立——与 screener 共享 transport 形态但**不共享 score→decision 推导路径**。分类响应使用显式 `level` 枚举字段，不走 `score >= threshold → strict` 的 screener 语义。
+用户消息本体 + 最近 3 条会话消息原文，各自截断，总上限 16k 字符（对齐现有 `MAX_SECURITY_SCREEN_CHARS`）。不做摘要——不做第二次模型调用。
 
 ### Orchestrator 集成
 
-`src/core/orchestrator.ts` 约 +25 行：
+`src/core/orchestrator.ts` 约 +30 行：
 
-```
+```text
 turn 开始
   │
   ├─ 1. [现有] security screener（posture 门控）
-  │    输入: screenPayload(externalData)  ← 不可信外部数据
+  │    输入: screenPayload(externalData)
   │    输出: SecurityScreenVerdict
   │
-  ├─ 2. [NEW] 敏感度分类器（分类器已配置时无条件执行，未配置则跳过）
-  │    输入: { text: userMessage, scopeId, history }
-  │    历史: 最近 3 个 turn 的 user/assistant 消息摘要
-  │    输出: 分类响应（level + domain + route）
+  ├─ 2. [NEW] 敏感度分类器（CLASSIFIER_URL 已配置时无条件执行，否则跳过）
+  │    输入: { text: userMessage + 最近 3 条消息原文, scopeId, orgScopeId }
+  │    输出: SensitivityVerdict | null
   │
   └─ 3. [NEW] 消费 route
-      if route.model → input.model = route.model  (requested.modelId 覆盖)
-      if route.sessionPin → setRuntimeSelectionLatest(scopeId, {harnessId, modelId})
+      if verdict.route → input.model = verdict.route.model
+      if verdict.route.sessionPin →
+        setRuntimeSelectionLatest(scopeId, {
+          harnessId: verdict.route.harnessId,
+          modelId: verdict.route.model,
+        })
+      if !verdict.route → 不干预（走 org 默认）
 ```
 
 ### 约束与注记
 
-1. **Pin 必须带 harnessId**。`setRuntimeSelectionLatest` 存 `{harnessId, modelId}` 对。自定义模型仅对 pi/opencode/mock harness 可用（`modelSupportedByHarness`），部署时需确保目标 harness 在 org 的 `approvedHarnesses` 列表中，否则 `resolveRuntimeChoice` 抛 `runtime pi/meerkat-triz-v1 is not approved`。
-
-2. **Unpin 语义**。用户显式切换模型即覆盖 pin（同一 `setRuntimeSelectionLatest` 槽位）；新会话不继承 pin（pin 写在会话 scope 上）。无需额外机制。
-
-3. **Proxy 路径与 LLM screener 路径不对称**。`route` 字段仅在 proxy 路径（`classification()`）有解析；LLM screener 路径（`SECURITY_SCREEN_SYSTEM_PROMPT` + `parseSecurityScreenVerdict`）不产 route。上游化时需讨论两条路径的语义统一。
+1. **Pin 必须带 harnessId**。`setRuntimeSelectionLatest` 存 `{harnessId, modelId}` 对。自定义模型仅对 pi/opencode/mock harness 可用（`modelSupportedByHarness`），部署时需确保目标 harness 在 org 的 `approvedHarnesses` 列表中。
+2. **Unpin 语义**。用户显式切换模型即覆盖 pin；新会话不继承 pin（pin 写在会话 scope 上）。无需额外机制。
+3. **无 route = 不干预**。L3 + general 时 sidecar 不返回 `route` 字段，core 不做任何模型覆盖，走 org 默认的 `resolveRuntimeChoice`。
 
 ### 不改动的文件
 
+- `src/security/security-posture.ts` — 不动，`SecurityScreenVerdict` 不加字段
+- `src/security/security-screener.ts` — 不动，分类器独立解析
 - `src/sessions/session-store.ts` — 不动，pin 复用已有 `ScopedConfigStore`
 - `src/harness/harness-router.ts` — 不动，`requested.modelId` 覆盖和白名单校验已原生支持
 
 ### 部署前提
 
-- `CLASSIFIER_URL` 环境变量指向 sidecar 地址。未设置时 orchestrator 跳过分类（仅用通用模型），不影响 qm 正常运行
-- 目标 harness（默认 `pi`）必须在 org 的 `approvedHarnesses` 列表中（`qm.config.jsonc` 配置项）
+- `CLASSIFIER_URL` 环境变量指向 sidecar 地址。未设置时 orchestrator 跳过分类
+- 目标 harness（默认 `pi`）必须在 org 的 `approvedHarnesses` 列表中
 
 ---
 
@@ -86,7 +104,7 @@ turn 开始
 
 ### 部署位置
 
-```
+```text
 deploy/layers/<org>/classifier/
   src/
     server.ts           # HTTP sidecar 入口
@@ -98,7 +116,7 @@ deploy/layers/<org>/classifier/
     context/
       scope_labels.ts   # scope → 默认敏感级映射
     semantic/
-      classifier.ts     # 语义分类（调用 Meerkat-TRIZ-v1 或独立分类模型）
+      classifier.ts     # 语义分类（调用独立分类模型）
   package.json
   Dockerfile
 ```
@@ -109,7 +127,7 @@ deploy/layers/<org>/classifier/
 
 ```json
 {
-  "text": "用户消息本体 + 近期历史摘要",
+  "text": "用户消息本体 + 最近 3 条会话消息原文（各自截断，总上限 16k 字符）",
   "hook": "user_input",
   "metadata": {
     "scope_id": "personal:xxx",
@@ -119,7 +137,7 @@ deploy/layers/<org>/classifier/
 }
 ```
 
-**响应**：
+**响应**（L1 示例）：
 
 ```json
 {
@@ -134,10 +152,35 @@ deploy/layers/<org>/classifier/
 }
 ```
 
+**响应**（L3 + TRIZ，能力路由，无 pin）：
+
+```json
+{
+  "level": "L3",
+  "domain": "triz",
+  "route": {
+    "policy": "meerkat-triz-v1",
+    "model": "meerkat-triz-v1",
+    "harnessId": "pi",
+    "session_pin": false
+  }
+}
+```
+
+**响应**（L3 + general，默认不干预）：
+
+```json
+{
+  "level": "L3",
+  "domain": "general"
+}
+```
+
 | 字段 | 含义 | Core 行为 |
 |------|------|----------|
 | `level` | 隐私敏感级 L1/L2/L3 | 决定是否 pin、是否需确认 |
 | `domain` | 领域命中 triz/general | 审计 |
+| `route` | 可选，不存在时不干预 | 存在时消费 model/harnessId/sessionPin |
 | `route.policy` | 逻辑名 | 仅进审计日志，core 不做逻辑名解析 |
 | `route.model` | 已解析的具体 modelId | 直接设到 `requested.modelId` |
 | `route.harnessId` | 对应 harness | pin 时写入 `setRuntimeSelectionLatest` |
@@ -164,13 +207,14 @@ deploy/layers/<org>/classifier/
 ```
 
 将来本地部署了通用模型，只需改配置：
+
 ```jsonc
 "local-secure": { "harnessId": "pi", "modelId": "qwen-7b", "providerId": "meerkat" }
 ```
 
 ### 三级分类管线
 
-```
+```text
 用户消息
   │
   ├─ Layer 1: 规则层 (< 1ms)
@@ -192,13 +236,13 @@ deploy/layers/<org>/classifier/
 隐私级 × 领域命中 = 路由决策：
 
 | 隐私级 | 领域 | 触发条件 | policy | model | Pin | 确认 |
-|--------|------|---------|--------|-------|-----|------|
+| ------ | ---- | -------- | ------ | ----- | --- | ---- |
 | L1 | - | PII / scope 白名单 / 语义高置信 | `local-secure` | meerkat-triz-v1 | ✅ | 无 |
 | L2 | - | 语义中置信 | `local-secure` | meerkat-triz-v1 | ❌ | 需确认（首版降 L1） |
 | L3 | TRIZ | TRIZ 关键词 / 语义命中 | `meerkat-triz-v1` | meerkat-triz-v1 | ❌ | 无 |
-| L3 | general | 默认 | `general` | 通用模型 | ❌ | 无 |
+| L3 | general | 默认 | 无 route | 不干预 | - | - |
 
-关键区别：TRIZ 是**能力路由**不是隐私路由。TRIZ 命中但无敏感数据 → 直接走 TRIZ 模型，不 pin、不确认——下一条消息可能是电商文案，自动回通用模型。
+关键区别：TRIZ 是**能力路由**不是隐私路由。TRIZ 命中但无敏感数据 → 直接走 TRIZ 模型，不 pin、不确认——下一条消息可能是电商文案，自动回通用模型。L3 + general 不返回 route，core 不干预模型选择。
 
 ### 降级策略
 
@@ -304,10 +348,45 @@ requiredCapabilities: []
 
 ---
 
+## 已知限制
+
+1. **mid-turn tool_response 不分类**。分类仅在 turn 开始的 `user_input` 执行。Agent 中途调工具获取的敏感数据（查订单库、读内部文档）不经过分类器，直接进入模型上下文。涉及的数据出口：
+   - Agent 查询了含敏感字段的工具输出，内容被注入后续 prompt
+   - 文件下载、数据库查询结果直接作为 tool_result 传给模型
+   首版不做 mid-turn 分类。缓解措施：scope 白名单覆盖高敏感项目/频道的所有 turn；后续版本可复用 screener 的 `tool_response` hook trigger（security-screener.ts:8），在 tool_result 被注入模型前触发二次分类。
+
+2. **L2 确认交互首版不做**。有真人场景下 L2 也暂时降级 L1，后续独立工作项。
+
+3. **分类器语义层依赖 TRIZ 模型质量**。Meerkat-TRIZ-v1 是领域微调模型，zero-shot 通用判别能力可能退化。验收标准中已包含回退方案（换独立分类模型）。
+
+---
+
+## 测试计划
+
+### 单元测试
+
+| 测试目标 | 文件 | 覆盖内容 |
+|---------|------|---------|
+| `SensitivityVerdict` 解析 | `test/sensitivity-classifier.test.ts` | 合法响应、缺少字段、level 非法值、route 可选 |
+| PII 正则 | `deploy/layers/<org>/classifier/tests/pii.test.ts` | 5 类 PII 命中/漏检，边界值 |
+| 管线编排 | `deploy/layers/<org>/classifier/tests/pipeline.test.ts` | 规则层早停、上下文层判断、降级路径 |
+
+### 集成测试
+
+| 测试目标 | 覆盖内容 |
+|---------|---------|
+| orchestrator 消费 route | 起假 sidecar → 发 turn → 断言 `input.model` 被覆盖（参照 `test/custom-provider-e2e.test.ts` 的 fake server 模式） |
+| fail-to-local 三分支 | Sidecar 拒绝/超时/5xx → 断言走 `local-secure` |
+| CLASSIFIER_URL 未设置 | 断言跳过分类，turn 正常执行 |
+| Pin 写入/解除 | L1 turn → 断言 `setRuntimeSelectionLatest` 被调用；用户手工切模型 → 断言覆盖 |
+
+---
+
 ## 全局约束
 
-1. **所有二开逻辑在 `deploy/layers/<org>/` 下**，核心仅改动 verdict 透传 + orchestrator 调用点（~40 行）
-2. **版本可随上游升级**：核心改动是 seam 扩展（加字段、加调用），不与现有逻辑冲突；合并冲突概率极低
+1. **所有二开逻辑在 `deploy/layers/<org>/` 下**，核心仅新增 `sensitivity-classifier.ts` + orchestrator 调用点（<100 行）
+2. **版本可随上游升级**：核心改动是纯新增模块，不修改现有文件的核心逻辑；合并冲突概率极低
 3. **L2 确认交互首版不做**，后续独立工作项
-4. **Meerkat-TRIZ-v1** 通过 Admin API 注册为 Custom Provider（OpenAI 兼容协议）
-5. **分类器语义层可用率**列为运维监控指标
+4. **mid-turn tool_response 分类首版不做**，见已知限制
+5. **Meerkat-TRIZ-v1** 通过 Admin API 注册为 Custom Provider（OpenAI 兼容协议）
+6. **分类器语义层可用率**列为运维监控指标
