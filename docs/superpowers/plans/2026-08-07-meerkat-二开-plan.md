@@ -4,9 +4,9 @@
 
 **Goal:** 在 qm private fork 上实现敏感度自动分类 + 本地/通用模型双轨路由 + 消费品行业 Skill Pack 导入。
 
-**Architecture:** 核心新增独立模块 `sensitivity-classifier.ts`（类型 + HTTP client + 解析），orchestrator 在安全筛查后、harness 调用前执行分类，消费 route verdict 覆盖 harness/model。分类器本体作为 sidecar 部署在 `deploy/layers/meerkat/classifier/`，Skill Pack 作为独立 git repo 通过 admin API 导入。
+**Architecture:** 核心新增独立模块 `sensitivity-classifier.ts`（类型 + HTTP client + 解析），orchestrator 在安全筛查后、harness 调用前执行分类，消费 route verdict 覆写到 `input.harness` 和 `input.model`（均为 `OrchestratorInput` 已有字段）。分类器本体作为 sidecar 部署在 `deploy/layers/meerkat/classifier/`，Skill Pack 作为独立 git repo 通过 `/v1/admin/skill-packs` 导入。
 
-**Tech Stack:** TypeScript (core), Node.js + Fastify (sidecar), qm custom provider + skill-pack 机制
+**Tech Stack:** TypeScript (core), node:test + node:assert/strict (core 测试), Fastify (sidecar), qm custom provider + skill-pack 机制
 
 ## Global Constraints
 
@@ -18,6 +18,9 @@
 - Meerkat-TRIZ-v1 通过 Admin API 注册为 Custom Provider（OpenAI 兼容协议）
 - Pin 写 `setRuntimeSelectionLatest`（Postgres durable），不用内存版
 - 审计记录始终同时记 `policy`（逻辑名）和 `modelId`（解析后）
+- Wire 格式：JSON 字段用 snake_case（`session_pin`），TS 内部类型用 camelCase（`sessionPin`）
+- 测试框架：`node:test` + `node:assert/strict`（core）；sidecar 可用 vitest（独立 package）
+- 代码零注释（AGENTS.md 规则），计划示例代码中的中文注释仅供实施者理解，提交前须清除
 
 ---
 
@@ -27,14 +30,15 @@
 
 **Files:**
 - Create: `src/security/sensitivity-classifier.ts`
+- Create: `test/sensitivity-classifier.test.ts`
 
 **Interfaces:**
-- Produces: `SensitivityVerdict`, `SensitivityClassifier`, `parseSensitivityVerdict()`, `createSensitivityClassifier()`
+- Produces: `SensitivityVerdict` type, `SensitivityClassifier` type, `parseSensitivityVerdict()`
 
 - [ ] **Step 1: 写类型定义和解析函数**
 
 ```typescript
-// src/security/sensitivity-classifier.ts
+import { randomUUID } from "node:crypto";
 
 export interface SensitivityVerdict {
   level: "L1" | "L2" | "L3";
@@ -63,31 +67,32 @@ export function parseSensitivityVerdict(body: string): SensitivityVerdict | null
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const obj = parsed as Record<string, unknown>;
 
-  const level = obj.level;
+  const level = obj["level"];
   if (typeof level !== "string" || !VALID_LEVELS.has(level)) return null;
-  const domain = obj.domain;
+  const domain = obj["domain"];
   if (typeof domain !== "string" || !VALID_DOMAINS.has(domain)) return null;
 
-  const route = obj.route;
+  const route = obj["route"];
   if (route === undefined || route === null) {
-    return { level: level as "L1" | "L2" | "L3", domain: domain as "triz" | "general" };
+    return { level: level as SensitivityVerdict["level"], domain: domain as SensitivityVerdict["domain"] };
   }
   if (typeof route !== "object" || Array.isArray(route)) return null;
   const r = route as Record<string, unknown>;
 
-  if (typeof r.policy !== "string" || !ROUTE_KEY_RE.test(r.policy)) return null;
-  if (typeof r.model !== "string" || !MODEL_ID_RE.test(r.model)) return null;
-  if (typeof r.harnessId !== "string" || !HARNESS_ID_RE.test(r.harnessId)) return null;
-  if (typeof r.sessionPin !== "boolean") return null;
+  // wire 格式是 snake_case，parser 读 snake_case
+  if (typeof r["policy"] !== "string" || !ROUTE_KEY_RE.test(r["policy"])) return null;
+  if (typeof r["model"] !== "string" || !MODEL_ID_RE.test(r["model"])) return null;
+  if (typeof r["harness_id"] !== "string" || !HARNESS_ID_RE.test(r["harness_id"])) return null;
+  if (typeof r["session_pin"] !== "boolean") return null;
 
   return {
-    level: level as "L1" | "L2" | "L3",
-    domain: domain as "triz" | "general",
+    level: level as SensitivityVerdict["level"],
+    domain: domain as SensitivityVerdict["domain"],
     route: {
-      policy: r.policy,
-      model: r.model,
-      harnessId: r.harnessId,
-      sessionPin: r.sessionPin,
+      policy: r["policy"],
+      model: r["model"],
+      harnessId: r["harness_id"],
+      sessionPin: r["session_pin"],
     },
   };
 }
@@ -96,62 +101,53 @@ export function parseSensitivityVerdict(body: string): SensitivityVerdict | null
 - [ ] **Step 2: 写单元测试**
 
 ```typescript
-// test/sensitivity-classifier.test.ts
-import { describe, it, expect } from "vitest";
-import { parseSensitivityVerdict } from "../src/security/sensitivity-classifier.js";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { parseSensitivityVerdict } from "../src/security/sensitivity-classifier.ts";
 
-describe("parseSensitivityVerdict", () => {
-  it("parses a full L1 verdict with route", () => {
-    const json = JSON.stringify({
-      level: "L1",
-      domain: "triz",
-      route: { policy: "local-secure", model: "meerkat-triz-v1", harnessId: "pi", sessionPin: true },
-    });
-    const result = parseSensitivityVerdict(json);
-    expect(result).toEqual({
-      level: "L1",
-      domain: "triz",
-      route: { policy: "local-secure", model: "meerkat-triz-v1", harnessId: "pi", sessionPin: true },
-    });
+test("parseSensitivityVerdict parses full L1 verdict with route", () => {
+  const json = JSON.stringify({
+    level: "L1",
+    domain: "triz",
+    route: { policy: "local-secure", model: "meerkat-triz-v1", harness_id: "pi", session_pin: true },
   });
+  const result = parseSensitivityVerdict(json);
+  assert.deepStrictEqual(result, {
+    level: "L1",
+    domain: "triz",
+    route: { policy: "local-secure", model: "meerkat-triz-v1", harnessId: "pi", sessionPin: true },
+  });
+});
 
-  it("parses L3+general with no route", () => {
-    const json = JSON.stringify({ level: "L3", domain: "general" });
-    const result = parseSensitivityVerdict(json);
-    expect(result).toEqual({ level: "L3", domain: "general" });
-  });
+test("parseSensitivityVerdict parses L3+general with no route", () => {
+  const result = parseSensitivityVerdict(JSON.stringify({ level: "L3", domain: "general" }));
+  assert.deepStrictEqual(result, { level: "L3", domain: "general" });
+});
 
-  it("rejects invalid level", () => {
-    expect(parseSensitivityVerdict(JSON.stringify({ level: "L4", domain: "general" }))).toBeNull();
-  });
+test("parseSensitivityVerdict rejects invalid level", () => {
+  assert.strictEqual(parseSensitivityVerdict(JSON.stringify({ level: "L4", domain: "general" })), null);
+});
 
-  it("rejects route with missing harnessId", () => {
-    const json = JSON.stringify({
-      level: "L1", domain: "triz",
-      route: { policy: "x", model: "x", sessionPin: false },
-    });
-    expect(parseSensitivityVerdict(json)).toBeNull();
+test("parseSensitivityVerdict rejects route missing harness_id", () => {
+  const json = JSON.stringify({
+    level: "L1", domain: "triz",
+    route: { policy: "x", model: "x", session_pin: false },
   });
+  assert.strictEqual(parseSensitivityVerdict(json), null);
+});
 
-  it("rejects non-JSON", () => {
-    expect(parseSensitivityVerdict("not json")).toBeNull();
-  });
+test("parseSensitivityVerdict rejects non-JSON", () => {
+  assert.strictEqual(parseSensitivityVerdict("not json"), null);
 });
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [ ] **Step 3: 跑测试确认通过**
 
 ```bash
-npx vitest run test/sensitivity-classifier.test.ts
+node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
-
-```bash
-npx vitest run test/sensitivity-classifier.test.ts
-```
-
-- [ ] **Step 5: 提交**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add src/security/sensitivity-classifier.ts test/sensitivity-classifier.test.ts
@@ -160,16 +156,17 @@ git commit -m "feat: add SensitivityVerdict type and parser"
 
 ---
 
-### Task 2: HTTP Client — 调用 sidecar + 超时处理
+### Task 2: HTTP Client
 
 **Files:**
 - Modify: `src/security/sensitivity-classifier.ts`
+- Modify: `test/sensitivity-classifier.test.ts`
 
 **Interfaces:**
 - Consumes: `SensitivityVerdict`, `parseSensitivityVerdict()` (Task 1)
 - Produces: `SensitivityClassifier` type, `createSensitivityClassifier()`
 
-- [ ] **Step 1: 写 createSensitivityClassifier 函数**
+- [ ] **Step 1: 追加 createSensitivityClassifier**
 
 ```typescript
 // 追加到 src/security/sensitivity-classifier.ts
@@ -211,8 +208,7 @@ export function createSensitivityClassifier(opts: {
         }),
         signal: combined,
       });
-    } catch (err) {
-      // 连接拒绝/超时/DNS 失败 → 返回 null，由调用方按 fallback 处理
+    } catch {
       return null;
     }
 
@@ -230,42 +226,43 @@ export function createSensitivityClassifier(opts: {
 }
 ```
 
-- [ ] **Step 2: 写 client 单元测试（mock fetch）**
+- [ ] **Step 2: 追加 client 测试（mock fetch）**
 
 ```typescript
 // 追加到 test/sensitivity-classifier.test.ts
-import { createSensitivityClassifier } from "../src/security/sensitivity-classifier.js";
+import { createSensitivityClassifier } from "../src/security/sensitivity-classifier.ts";
 
-describe("createSensitivityClassifier", () => {
-  it("returns parsed verdict on success", async () => {
-    const mockFetch = async (_url: string, _opts: RequestInit) =>
-      new Response(JSON.stringify({ level: "L1", domain: "triz", route: { policy: "local-secure", model: "m", harnessId: "pi", sessionPin: true } }), { status: 200 });
-    const classify = createSensitivityClassifier({ url: "http://localhost", timeoutMs: 2000, fetch: mockFetch as typeof fetch });
-    const result = await classify({ text: "test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
-    expect(result?.level).toBe("L1");
-    expect(result?.route?.policy).toBe("local-secure");
-  });
+test("createSensitivityClassifier returns parsed verdict on 200", async () => {
+  const mockFetch = async (_url: string, _opts: RequestInit) =>
+    new Response(JSON.stringify({
+      level: "L1", domain: "triz",
+      route: { policy: "local-secure", model: "m", harness_id: "pi", session_pin: true },
+    }), { status: 200 });
+  const classify = createSensitivityClassifier({ url: "http://localhost", timeoutMs: 2000, fetch: mockFetch as typeof fetch });
+  const result = await classify({ text: "test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
+  assert.strictEqual(result?.level, "L1");
+  assert.strictEqual(result?.route?.policy, "local-secure");
+});
 
-  it("returns null on connection refused", async () => {
-    const mockFetch = async () => { throw new Error("connect ECONNREFUSED"); };
-    const classify = createSensitivityClassifier({ url: "http://localhost", timeoutMs: 2000, fetch: mockFetch as typeof fetch });
-    const result = await classify({ text: "test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
-    expect(result).toBeNull();
-  });
+test("createSensitivityClassifier returns null on connection refused", async () => {
+  const mockFetch = async () => { throw new Error("connect ECONNREFUSED"); };
+  const classify = createSensitivityClassifier({ url: "http://localhost", timeoutMs: 2000, fetch: mockFetch as typeof fetch });
+  const result = await classify({ text: "test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
+  assert.strictEqual(result, null);
+});
 
-  it("returns null on non-200", async () => {
-    const mockFetch = async () => new Response("error", { status: 500 });
-    const classify = createSensitivityClassifier({ url: "http://localhost", timeoutMs: 2000, fetch: mockFetch as typeof fetch });
-    const result = await classify({ text: "test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
-    expect(result).toBeNull();
-  });
+test("createSensitivityClassifier returns null on 500", async () => {
+  const mockFetch = async () => new Response("error", { status: 500 });
+  const classify = createSensitivityClassifier({ url: "http://localhost", timeoutMs: 2000, fetch: mockFetch as typeof fetch });
+  const result = await classify({ text: "test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
+  assert.strictEqual(result, null);
 });
 ```
 
-- [ ] **Step 3: 跑测试确认通过**
+- [ ] **Step 3: 跑测试**
 
 ```bash
-npx vitest run test/sensitivity-classifier.test.ts
+node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts
 ```
 
 - [ ] **Step 4: 提交**
@@ -283,68 +280,70 @@ git commit -m "feat: add sensitivity classifier HTTP client"
 - Modify: `src/core/orchestrator.ts`
 - Modify: `src/wiring.ts`
 - Modify: `src/config.ts`
+- Modify: `src/core/orchestrator/types.ts`
 
 **Interfaces:**
 - Consumes: `SensitivityClassifier` type, `createSensitivityClassifier()` (Task 2)
-- Produces: orchestrator 在 security screen 后调用分类器，覆盖 `input.harness` + `input.model`
+- Trigger: orchestrator 在 security screen verdict 消费后、`input.harness` / `input.model` 被 spread 到 `runTurn` 前
+- Produces: 分类 verdict → 覆写 `input.harness` + `input.model`；sidecar 不可达 → fallback
+
+#### 标识符对照（基于 orchestrator.ts 实码）
+
+| 计划用名 | orchestrator.ts 实际值 | 来源 |
+|---------|----------------------|------|
+| `scopeId` | L468 `deps.resolution.scopeFor(conversation, actor)` | 已存在 |
+| `resolution.orgScopeId` | L478 同名字段 | 已存在 |
+| `input.harness` | `TurnRequest.harness?` (types.ts:402) | 已存在，可覆写 |
+| `input.model` | `TurnRequest.model?` (types.ts:401) | 已存在，可覆写 |
+| `input.cancel` | L2064 `input.cancel` (AbortSignal) | 已存在 |
+| `input.surface` | `TurnRequest.surface` (types.ts:368) | 已存在 |
+| `actor.id` | handleTurn 参数 `input.actor.id` | 已存在 |
+| `deps.config?.setRuntimeSelectionLatest` | `ScopedConfigStore` 方法 | 已存在 |
+
+`buildClassifyText` 中所需的历史消息：从 `visibleHistory: SessionEntry[]`（handleTurn 内部变量，在 security screen 附近已可用）取最近 3 条 role 为 `"user"` 或 `"assistant"` 且 `text` 非空的条目。
 
 - [ ] **Step 1: 在 config.ts 中新增环境变量解析**
 
-```typescript
-// 在 config.ts 的 resolveConfig 函数中追加（参照 ANTHROPIC_BASE_URL 等同模式）:
-const classifierUrl = env["CLASSIFIER_URL"]?.trim() || undefined;
-const classifierFallbackModel = env["CLASSIFIER_FALLBACK_MODEL"]?.trim() || undefined;
-const classifierFallbackHarness = env["CLASSIFIER_FALLBACK_HARNESS"]?.trim() || undefined;
-
-// fallback 对必须成对出现或都不出现
-if ((classifierFallbackModel && !classifierFallbackHarness) || (!classifierFallbackModel && classifierFallbackHarness)) {
-  throw new Error("CLASSIFIER_FALLBACK_MODEL and CLASSIFIER_FALLBACK_HARNESS must both be set or both absent");
-}
+```
+参照 ANTHROPIC_BASE_URL 等已有 env var 解析模式，在 config.ts 的 resolveConfig 中追加:
+  classifierUrl = env["CLASSIFIER_URL"]?.trim() 或 undefined
+  classifierFallbackModel = env["CLASSIFIER_FALLBACK_MODEL"]?.trim() 或 undefined
+  classifierFallbackHarness = env["CLASSIFIER_FALLBACK_HARNESS"]?.trim() 或 undefined
+  fallback 对必须成对出现或都不出现，否则抛 Error
 ```
 
-- [ ] **Step 2: 在 wiring.ts 中构造分类器实例并注入 deps**
+- [ ] **Step 2: 在 wiring.ts 中构造分类器并注入 deps**
 
 ```typescript
-// wiring.ts 中（参照 security screener 的构造位置）:
-import { createSensitivityClassifier } from "../security/sensitivity-classifier.js";
+// wiring.ts — 在 createOrchestrator(deps) 调用前追加:
+import { createSensitivityClassifier } from "../security/sensitivity-classifier.ts";
 
-// 在 createOrchestrator(deps) 之前:
 const sensitivityClassifier = config.classifierUrl
-  ? createSensitivityClassifier({
-      url: config.classifierUrl,
-      timeoutMs: 2000,
-    })
+  ? createSensitivityClassifier({ url: config.classifierUrl, timeoutMs: 2000 })
   : undefined;
-
-const deps: OrchestratorDeps = {
-  // ... existing deps
-  sensitivityClassifier,
-  classifierFallbackModel: config.classifierFallbackModel,
-  classifierFallbackHarness: config.classifierFallbackHarness,
-};
 ```
 
-- [ ] **Step 3: 在 OrchestratorDeps 中新增字段**
+在 `OrchestratorDeps` 对象中追加三个字段: `sensitivityClassifier`, `classifierFallbackModel`, `classifierFallbackHarness`。
+
+- [ ] **Step 3: 在 OrchestratorDeps 接口中新增字段**
 
 ```typescript
-// src/core/orchestrator/types.ts — 在 OrchestratorDeps 接口中追加:
+// src/core/orchestrator/types.ts — 在 OrchestratorDeps 接口追加:
+import type { SensitivityClassifier } from "../../security/sensitivity-classifier.ts";
+
 sensitivityClassifier?: SensitivityClassifier;
 classifierFallbackModel?: string;
 classifierFallbackHarness?: string;
 ```
 
-- [ ] **Step 4: 在 orchestrator handleTurn 中集成分类调用**
+- [ ] **Step 4: 在 orchestrator handleTurn 中插入分类逻辑**
 
-在 `handleTurn` 中，security screen 执行之后、`runTurn` 之前，插入分类逻辑。找到 security screen 调用段（约 line 622-632），在其后追加：
+插入点：security screen verdict 消费完成后（`quarantineScreenedInput` 赋值附近，约 L638）、`runTurn` 调用前（L2061）。分类器独立于 security screener 调用——不受 posture 门控。
 
 ```typescript
-// 插入位置：security screen verdict 消费之后
-// 约在 quarantineScreenedInput 处理完后
-
-// NEW: 敏感度分类（独立于 security screener，无条件执行）
 let sensitivityVerdict: SensitivityVerdict | null = null;
 if (deps.sensitivityClassifier) {
-  const classifyText = buildClassifyText(input, recentHistory); // 用户消息 + 最近 3 条原文，总上限 16k
+  const classifyText = buildClassifyText(input.text, visibleHistory);
   try {
     sensitivityVerdict = await deps.sensitivityClassifier({
       text: classifyText,
@@ -354,11 +353,10 @@ if (deps.sensitivityClassifier) {
       hook: "user_input",
     }, input.cancel);
   } catch {
-    // classify 内部已 catch 网络错误，这里 catch 意外异常
+    // swallow — classify 内部已 catch 网络错误，此处兜底
   }
 
   if (!sensitivityVerdict) {
-    // sidecar 不可达 → 走 fallback
     if (deps.classifierFallbackModel && deps.classifierFallbackHarness) {
       deps.auditLog.record({
         at: Date.now(),
@@ -382,9 +380,8 @@ if (deps.sensitivityClassifier) {
   }
 
   if (sensitivityVerdict?.route) {
-    // 成对覆盖 harness + model，避免 org 默认 harness 不兼容自定义模型
-    runtime.harness = sensitivityVerdict.route.harnessId;
-    runtime.model = sensitivityVerdict.route.model;
+    input.harness = sensitivityVerdict.route.harnessId;
+    input.model = sensitivityVerdict.route.model;
 
     deps.auditLog.record({
       at: Date.now(),
@@ -412,125 +409,106 @@ if (deps.sensitivityClassifier) {
 }
 ```
 
-`buildClassifyText` 辅助函数：
+`buildClassifyText` 辅助函数（放在 `handleTurn` 内或 orchestrator 文件顶层）：
 
 ```typescript
-function buildClassifyText(
-  input: OrchestratorInput,
-  recentHistory: SessionEntry[],
-): string {
+function buildClassifyText(userMessage: string, entries: SessionEntry[]): string {
   const MAX_CHARS = 16_000;
-  const parts: string[] = [input.text];
-  // 取最近 3 条 user/assistant 消息
-  const recent = recentHistory
+  const parts: string[] = [userMessage];
+  const recent = entries
     .filter((e) => e.role === "user" || e.role === "assistant")
     .slice(-3);
-  for (const entry of recent) {
-    if (entry.text) parts.push(entry.text);
+  for (const e of recent) {
+    if (e.text) parts.push(e.text);
   }
   let combined = parts.join("\n");
-  if (combined.length > MAX_CHARS) {
-    combined = combined.slice(0, MAX_CHARS);
-  }
+  if (combined.length > MAX_CHARS) combined = combined.slice(0, MAX_CHARS);
   return combined;
 }
 ```
 
-- [ ] **Step 5: 写集成测试 — orchestrator 消费 route**
+- [ ] **Step 5: 写集成测试 — 全链路：分类 → route 覆写 + pin 写入**
+
+参照 `test/custom-provider-e2e.test.ts` 的 `buildApp` + `createInsecureTestServer` + fake HTTP upstream 模式：
 
 ```typescript
-// test/sensitivity-classifier-integration.test.ts
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import http from "node:http";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { createInsecureTestServer } from "../src/api/server.ts";
+import { buildApp } from "../src/wiring.ts";
+import { testConfig } from "./support/test-config.ts";
 
-describe("sensitivity classifier integration", () => {
-  let server: http.Server;
-  let requestCount = 0;
-
-  beforeAll(async () => {
-    server = http.createServer((req, res) => {
-      requestCount++;
-      let body = "";
-      req.on("data", (chunk) => { body += chunk; });
-      req.on("end", () => {
-        const parsed = JSON.parse(body);
-        if (parsed.text.includes("L1_TRIGGER")) {
-          res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({
-            level: "L1",
-            domain: "general",
-            route: { policy: "local-secure", model: "test-model", harnessId: "pi", sessionPin: true },
-          }));
-        } else {
-          res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify({ level: "L3", domain: "general" }));
-        }
-      });
-    });
-    await new Promise<void>((resolve) => server.listen(0, resolve));
+test("classifier route overrides harness and model on L1", async () => {
+  const sidecar = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      level: "L1",
+      domain: "general",
+      route: { policy: "local-secure", model: "meerkat-triz-v1", harness_id: "pi", session_pin: true },
+    }));
   });
+  await new Promise<void>((resolve) => sidecar.listen(0, resolve));
+  const sidecarPort = (sidecar.address() as AddressInfo).port;
 
-  afterAll(() => { server.close(); });
-
-  it("routes to local model when sidecar returns L1 route", async () => {
-    // 启动 classifier client 指向上面的 fake server
-    // 验证 classify() 返回的 verdict 包含 route
-    const port = (server.address() as any).port;
-    const classify = createSensitivityClassifier({ url: `http://localhost:${port}/classify`, timeoutMs: 2000 });
-    const result = await classify({ text: "L1_TRIGGER test", scopeId: "s", orgScopeId: "o", hook: "user_input" });
-    expect(result?.level).toBe("L1");
-    expect(result?.route?.model).toBe("test-model");
+  const cfg = testConfig({
+    CLASSIFIER_URL: `http://localhost:${sidecarPort}/classify`,
+    CLASSIFIER_FALLBACK_MODEL: "fallback-model",
+    CLASSIFIER_FALLBACK_HARNESS: "pi",
   });
+  const app = await buildApp(cfg);
+  const server = createInsecureTestServer(app);
+  await server.listen();
 
-  it("does not route when sidecar returns L3 with no route", async () => {
-    const port = (server.address() as any).port;
-    const classify = createSensitivityClassifier({ url: `http://localhost:${port}/classify`, timeoutMs: 2000 });
-    const result = await classify({ text: "normal message", scopeId: "s", orgScopeId: "o", hook: "user_input" });
-    expect(result?.level).toBe("L3");
-    expect(result?.route).toBeUndefined();
-  });
+  // 发一条触发 L1 的消息，断言 turn 使用了 meerkat-triz-v1 模型
+  // 实现：通过 admin API 查询 session 的 runtime selection 已被 pin
+
+  await server.close();
+  sidecar.close();
 });
 ```
+
+精确断言留待实施时参照 `test/custom-provider-e2e.test.ts` 的 `buildApp` 返回值和 admin endpoint 补齐。核心覆盖项：
+
+- L1 sidecar 响应 → `input.harness` + `input.model` 被成对覆写
+- sidecar 不可达 → fallback 对生效
+- `CLASSIFIER_URL` 未设置 → 分类跳过
+- Pin → `setRuntimeSelectionLatest` 被调用
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add src/security/sensitivity-classifier.ts src/core/orchestrator.ts src/core/orchestrator/types.ts src/wiring.ts src/config.ts test/sensitivity-classifier-integration.test.ts
-git commit -m "feat: integrate sensitivity classifier into orchestrator with fallback"
+git add src/security/sensitivity-classifier.ts src/core/orchestrator.ts src/core/orchestrator/types.ts src/wiring.ts src/config.ts test/sensitivity-classifier.test.ts test/sensitivity-classifier-integration.test.ts
+git commit -m "feat: integrate sensitivity classifier into orchestrator"
 ```
 
 ---
 
-### Task 4: Typescript 编译 + Lint 验证
+### Task 4: Typecheck + Lint
 
-**Files:**
-- 无新增，验证 Phase 1 所有文件
-
-- [ ] **Step 1: 运行 typecheck**
+- [ ] **Step 1: Typecheck**
 
 ```bash
 npx tsc --noEmit
 ```
-预期：无 type error。
 
-- [ ] **Step 2: 运行 lint**
+- [ ] **Step 2: Lint**
 
 ```bash
-npx eslint src/security/sensitivity-classifier.ts src/core/orchestrator.ts test/sensitivity-classifier.test.ts test/sensitivity-classifier-integration.test.ts
+npx eslint src/security/sensitivity-classifier.ts src/core/orchestrator.ts src/core/orchestrator/types.ts src/wiring.ts src/config.ts test/sensitivity-classifier.test.ts test/sensitivity-classifier-integration.test.ts
 ```
-预期：无 lint error。如有自动修复项，执行 `npx eslint --fix`。
 
-- [ ] **Step 3: 运行相关单元测试**
+- [ ] **Step 3: 全量测试**
 
 ```bash
-npx vitest run test/sensitivity-classifier.test.ts test/sensitivity-classifier-integration.test.ts
+node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts test/sensitivity-classifier-integration.test.ts
 ```
-预期：全部通过。
 
-- [ ] **Step 4: 提交（如有 lint fix）**
+- [ ] **Step 4: 提交（如有 fix）**
 
 ```bash
-git add -u && git commit -m "chore: fix lint"
+git add -u && git commit -m "chore: fix typecheck and lint"
 ```
 
 ---
@@ -543,48 +521,34 @@ git add -u && git commit -m "chore: fix lint"
 - Create: `deploy/layers/meerkat/classifier/package.json`
 - Create: `deploy/layers/meerkat/classifier/tsconfig.json`
 - Create: `deploy/layers/meerkat/classifier/Dockerfile`
+- Create: `deploy/layers/meerkat/classifier/src/server.ts` (占位)
 
-- [ ] **Step 1: 创建 package.json**
+- [ ] **Step 1: 初始化项目**
 
-```jsonc
+`package.json`:
+```json
 {
   "name": "meerkat-classifier",
   "private": true,
   "type": "module",
-  "scripts": {
-    "start": "tsx src/server.ts",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "fastify": "^5.0.0"
-  },
-  "devDependencies": {
-    "tsx": "^4.0.0",
-    "typescript": "^5.7.0",
-    "vitest": "^2.0.0"
-  }
+  "scripts": { "start": "tsx src/server.ts", "test": "node --test src/**/*.test.ts" },
+  "dependencies": { "fastify": "^5.0.0" },
+  "devDependencies": { "tsx": "^4.0.0", "typescript": "^5.7.0" }
 }
 ```
 
-- [ ] **Step 2: 创建 tsconfig.json**
-
-```jsonc
+`tsconfig.json`:
+```json
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "outDir": "dist",
-    "rootDir": "src"
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
+    "strict": true, "esModuleInterop": true, "outDir": "dist", "rootDir": "src"
   },
   "include": ["src"]
 }
 ```
 
-- [ ] **Step 3: 创建 Dockerfile**
-
+`Dockerfile`:
 ```dockerfile
 FROM node:22-alpine
 WORKDIR /app
@@ -595,40 +559,22 @@ EXPOSE 8080
 CMD ["node", "--import", "tsx", "src/server.ts"]
 ```
 
-- [ ] **Step 4: 创建占位 server.ts**
+占位 `src/server.ts` — Fastify 监听 8080，`POST /classify` 返回 501。
 
-```typescript
-// deploy/layers/meerkat/classifier/src/server.ts
-import Fastify from "fastify";
-
-const PORT = parseInt(process.env["PORT"] ?? "8080", 10);
-
-const app = Fastify({ logger: true });
-
-app.post("/classify", async (_req, reply) => {
-  // Phase 2 后续 task 实现
-  return reply.status(501).send({ error: "not implemented" });
-});
-
-app.listen({ port: PORT, host: "0.0.0.0" }, (err) => {
-  if (err) throw err;
-});
-```
-
-- [ ] **Step 5: 安装依赖并验证启动**
+- [ ] **Step 2: 安装依赖并验证启动**
 
 ```bash
-cd deploy/layers/meerkat/classifier && npm install && npx tsx src/server.ts &
+cd deploy/layers/meerkat/classifier && npm install
+npx tsx src/server.ts &
 sleep 2
-curl -X POST http://localhost:8080/classify -H "content-type: application/json" -d '{}'
-# 预期: 501 "not implemented"
+curl -s -X POST http://localhost:8080/classify -H "content-type: application/json" -d '{}'
 kill %1
 ```
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 3: 提交**
 
 ```bash
-git add deploy/layers/meerkat/classifier/
+git add deploy/layers/meerkat/
 git commit -m "feat: scaffold classifier sidecar project"
 ```
 
@@ -642,10 +588,10 @@ git commit -m "feat: scaffold classifier sidecar project"
 - Create: `deploy/layers/meerkat/classifier/src/rules/pii.test.ts`
 
 **Interfaces:**
-- Produces: `detectPii(text: string): { level: "L1"; reason: string } | null`
-- Produces: `detectTrizKeywords(text: string): { level: "L3"; domain: "triz"; reason: string } | null`
+- Produces: `detectPii(text) => { level: "L1"; reason: string } | null`
+- Produces: `detectTrizKeywords(text) => { level: "L3"; domain: "triz"; reason: string } | null`
 
-- [ ] **Step 1: 写 PII 检测**
+- [ ] **Step 1: PII 检测**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/rules/pii.ts
@@ -654,21 +600,21 @@ const PII_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\b\d{15}(?:\d{2}[\dxX])?\b/, label: "cn_id_card" },
   { pattern: /\b1[3-9]\d{9}\b/, label: "cn_phone" },
   { pattern: /\b\d{16,19}\b/, label: "bank_card" },
-  { pattern: /\b[\w.-]+@[\w.-]+\.\w{2,}\b/, label: "email" },
-  { pattern: /\b(?:(?:省|市|区|县|镇|路|街|巷|号|栋|单元|室|层|楼)){2,}/, label: "cn_address" },
+  { pattern: /[\w.-]+@[\w.-]+\.\w{2,}/, label: "email" },
+  { pattern: /[路街巷]\s*\d{1,6}号/, label: "cn_address" },
 ];
 
 export function detectPii(text: string): { level: "L1"; reason: string } | null {
   for (const { pattern, label } of PII_PATTERNS) {
-    if (pattern.test(text)) {
-      return { level: "L1", reason: `pii:${label}` };
-    }
+    if (pattern.test(text)) return { level: "L1", reason: `pii:${label}` };
   }
   return null;
 }
 ```
 
-- [ ] **Step 2: 写 TRIZ 关键词检测**
+注: 地址正则从 `\b(?:(?:省|市|区...` 改为 `[路街巷]\s*\d{1,6}号`，避免 `\b` 对中文无效及「市区」等普通词误报。
+
+- [ ] **Step 2: TRIZ 关键词**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/rules/triz_keywords.ts
@@ -685,44 +631,47 @@ const TRIZ_KEYWORDS = [
 export function detectTrizKeywords(text: string): { level: "L3"; domain: "triz"; reason: string } | null {
   const lower = text.toLowerCase();
   for (const kw of TRIZ_KEYWORDS) {
-    if (lower.includes(kw.toLowerCase())) {
-      return { level: "L3", domain: "triz", reason: `triz_kw:${kw}` };
-    }
+    if (lower.includes(kw.toLowerCase())) return { level: "L3", domain: "triz", reason: `triz_kw:${kw}` };
   }
   return null;
 }
 ```
 
-- [ ] **Step 3: 写 PII 单元测试**
+- [ ] **Step 3: PII 测试（node:test 风格，含负例）**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/rules/pii.test.ts
-import { describe, it, expect } from "vitest";
-import { detectPii } from "./pii.js";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { detectPii } from "./pii.ts";
 
-describe("detectPii", () => {
-  it("detects phone number", () => {
-    expect(detectPii("请联系 13800138000")?.reason).toBe("pii:cn_phone");
-  });
-  it("detects ID card", () => {
-    expect(detectPii("身份证 320102199001011234")?.reason).toBe("pii:cn_id_card");
-  });
-  it("detects bank card", () => {
-    expect(detectPii("卡号 6222021234567890123")?.reason).toBe("pii:bank_card");
-  });
-  it("detects email", () => {
-    expect(detectPii("邮箱 test@example.com 请查收")?.reason).toBe("pii:email");
-  });
-  it("returns null for clean text", () => {
-    expect(detectPii("今天天气很好")).toBeNull();
-  });
+test("detects phone number", () => {
+  assert.strictEqual(detectPii("请联系 13800138000")?.reason, "pii:cn_phone");
+});
+test("detects ID card", () => {
+  assert.strictEqual(detectPii("身份证 320102199001011234")?.reason, "pii:cn_id_card");
+});
+test("detects bank card", () => {
+  assert.strictEqual(detectPii("卡号 6222021234567890123")?.reason, "pii:bank_card");
+});
+test("detects email", () => {
+  assert.strictEqual(detectPii("test@example.com")?.reason, "pii:email");
+});
+test("detects address with street number", () => {
+  assert.strictEqual(detectPii("中山路 100号")?.reason, "pii:cn_address");
+});
+test("does not match common words", () => {
+  assert.strictEqual(detectPii("市区重建计划"), null);
+});
+test("returns null for clean text", () => {
+  assert.strictEqual(detectPii("今天天气很好"), null);
 });
 ```
 
-- [ ] **Step 4: 跑 PII 测试**
+- [ ] **Step 4: 跑测试**
 
 ```bash
-cd deploy/layers/meerkat/classifier && npx vitest run src/rules/pii.test.ts
+cd deploy/layers/meerkat/classifier && node --test src/rules/pii.test.ts
 ```
 
 - [ ] **Step 5: 提交**
@@ -738,15 +687,12 @@ git commit -m "feat: add PII detection and TRIZ keyword rules"
 
 **Files:**
 - Create: `deploy/layers/meerkat/classifier/src/context/scope_labels.ts`
-- Create: `deploy/layers/meerkat/classifier/src/pipeline.ts`
 - Create: `deploy/layers/meerkat/classifier/src/types.ts`
 - Create: `deploy/layers/meerkat/classifier/src/routes.jsonc`
+- Create: `deploy/layers/meerkat/classifier/src/pipeline.ts`
+- Create: `deploy/layers/meerkat/classifier/src/pipeline.test.ts`
 
-**Interfaces:**
-- Consumes: `detectPii()`, `detectTrizKeywords()` (Task 6)
-- Produces: `runPipeline(input) => ClassifyResponse`
-
-- [ ] **Step 1: 定义共享类型**
+- [ ] **Step 1: 共享类型**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/types.ts
@@ -754,73 +700,53 @@ git commit -m "feat: add PII detection and TRIZ keyword rules"
 export interface ClassifyRequest {
   text: string;
   hook: "user_input";
-  metadata: {
-    scope_id: string;
-    org_scope_id: string;
-    surface?: string;
-  };
+  metadata: { scope_id: string; org_scope_id: string; surface?: string };
 }
 
 export interface ClassifyResponse {
   level: "L1" | "L2" | "L3";
   domain: "triz" | "general";
-  route?: {
-    policy: string;
-    model: string;
-    harnessId: string;
-    sessionPin: boolean;
-  };
+  route?: { policy: string; model: string; harness_id: string; session_pin: boolean };
 }
 
 export interface RouteConfig {
-  [policy: string]: {
-    harnessId: string;
-    modelId: string;
-    providerId: string;
-  };
+  [policy: string]: { harnessId: string; modelId: string; providerId: string };
 }
 ```
 
-- [ ] **Step 2: 写上下文层**
+注: `ClassifyResponse` 的 wire 字段用 snake_case。
+
+- [ ] **Step 2: 上下文层**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/context/scope_labels.ts
 
-const HIGH_SENSITIVITY_SCOPES = new Set<string>();
-// 部署时配置: process.env["HIGH_SENSITIVITY_SCOPES"]?.split(",")...
-
-export function checkScopeSensitivity(scopeId: string): "L1" | "L2" | null {
-  if (HIGH_SENSITIVITY_SCOPES.has(scopeId)) return "L1";
-  return null;
+let highSensitivityScopes = new Set<string>();
+export function setHighSensitivityScopes(scopes: string[]): void {
+  highSensitivityScopes = new Set(scopes);
+}
+export function checkScopeSensitivity(scopeId: string): "L1" | null {
+  return highSensitivityScopes.has(scopeId) ? "L1" : null;
 }
 ```
 
-- [ ] **Step 3: 写 routes.jsonc**
+- [ ] **Step 3: routes.jsonc**
 
 ```jsonc
-// deploy/layers/meerkat/classifier/src/routes.jsonc
 {
-  "local-secure": {
-    "harnessId": "pi",
-    "modelId": "meerkat-triz-v1",
-    "providerId": "meerkat"
-  },
-  "meerkat-triz-v1": {
-    "harnessId": "pi",
-    "modelId": "meerkat-triz-v1",
-    "providerId": "meerkat"
-  }
+  "local-secure": { "harnessId": "pi", "modelId": "meerkat-triz-v1", "providerId": "meerkat" },
+  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "meerkat-triz-v1", "providerId": "meerkat" }
 }
 ```
 
-- [ ] **Step 4: 写管线编排**
+- [ ] **Step 4: 管线编排（同步版，不含语义层）**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/pipeline.ts
-import { detectPii } from "./rules/pii.js";
-import { detectTrizKeywords } from "./rules/triz_keywords.js";
-import { checkScopeSensitivity } from "./context/scope_labels.js";
-import type { ClassifyResponse, RouteConfig } from "./types.js";
+import { detectPii } from "./rules/pii.ts";
+import { detectTrizKeywords } from "./rules/triz_keywords.ts";
+import { checkScopeSensitivity } from "./context/scope_labels.ts";
+import type { ClassifyResponse, RouteConfig } from "./types.ts";
 import { readFileSync } from "node:fs";
 
 let routes: RouteConfig = {};
@@ -832,25 +758,16 @@ export function loadRoutes(path: string): void {
 function resolveRoute(policy: string): ClassifyResponse["route"] {
   const cfg = routes[policy];
   if (!cfg) return undefined;
-  return {
-    policy,
-    model: cfg.modelId,
-    harnessId: cfg.harnessId,
-    sessionPin: false,
-  };
+  return { policy, model: cfg.modelId, harness_id: cfg.harnessId, session_pin: false };
 }
 
-export interface PipelineInput {
-  text: string;
-  scopeId: string;
-}
+export interface PipelineInput { text: string; scopeId: string; }
 
 export function runPipeline(input: PipelineInput): ClassifyResponse {
-  // Layer 1: 规则层
   const pii = detectPii(input.text);
   if (pii) {
     const route = resolveRoute("local-secure");
-    if (route) route.sessionPin = true;
+    if (route) route.session_pin = true;
     return { level: "L1", domain: "general", route };
   }
 
@@ -860,67 +777,60 @@ export function runPipeline(input: PipelineInput): ClassifyResponse {
     return { level: "L3", domain: "triz", route };
   }
 
-  // Layer 2: 上下文层
-  const scopeLevel = checkScopeSensitivity(input.scopeId);
-  if (scopeLevel) {
+  const scope = checkScopeSensitivity(input.scopeId);
+  if (scope) {
     const route = resolveRoute("local-secure");
-    if (route) route.sessionPin = true;
-    return { level: scopeLevel, domain: "general", route };
+    if (route) route.session_pin = true;
+    return { level: scope, domain: "general", route };
   }
 
-  // Layer 3: 语义层（Phase 2 Task 8 实现）
-  // 暂返回默认 L3
   return { level: "L3", domain: "general" };
 }
 ```
 
-- [ ] **Step 5: 写管线单元测试**
+- [ ] **Step 5: 管线测试**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/pipeline.test.ts
-import { describe, it, expect, beforeAll } from "vitest";
-import { runPipeline, loadRoutes } from "./pipeline.js";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { runPipeline, loadRoutes } from "./pipeline.ts";
+import { writeFileSync } from "node:fs";
 
-const TEST_ROUTES = {
+const ROUTES = {
   "local-secure": { harnessId: "pi", modelId: "test-local", providerId: "test" },
   "meerkat-triz-v1": { harnessId: "pi", modelId: "test-triz", providerId: "test" },
 };
 
-beforeAll(() => {
-  writeFileSync("/tmp/test-routes.json", JSON.stringify(TEST_ROUTES));
+test("runPipeline routes PII to local-secure with pin", () => {
+  writeFileSync("/tmp/test-routes.json", JSON.stringify(ROUTES));
   loadRoutes("/tmp/test-routes.json");
+  const result = runPipeline({ text: "卡号 6222021234567890123", scopeId: "s" });
+  assert.strictEqual(result.level, "L1");
+  assert.strictEqual(result.route?.policy, "local-secure");
+  assert.strictEqual(result.route?.session_pin, true);
+  assert.strictEqual(result.route?.harness_id, "pi");
 });
 
-describe("runPipeline", () => {
-  it("routes PII to local-secure with pin", () => {
-    const result = runPipeline({ text: "卡号 6222021234567890123", scopeId: "s" });
-    expect(result.level).toBe("L1");
-    expect(result.route?.policy).toBe("local-secure");
-    expect(result.route?.sessionPin).toBe(true);
-  });
+test("runPipeline routes TRIZ to meerkat-triz-v1 without pin", () => {
+  const result = runPipeline({ text: "用矛盾矩阵分析这个技术矛盾", scopeId: "s" });
+  assert.strictEqual(result.level, "L3");
+  assert.strictEqual(result.domain, "triz");
+  assert.strictEqual(result.route?.session_pin, false);
+});
 
-  it("routes TRIZ keywords to meerkat-triz-v1 without pin", () => {
-    const result = runPipeline({ text: "用矛盾矩阵分析这个技术矛盾", scopeId: "s" });
-    expect(result.level).toBe("L3");
-    expect(result.domain).toBe("triz");
-    expect(result.route?.policy).toBe("meerkat-triz-v1");
-    expect(result.route?.sessionPin).toBe(false);
-  });
-
-  it("returns L3+general for clean text", () => {
-    const result = runPipeline({ text: "今天天气很好", scopeId: "s" });
-    expect(result.level).toBe("L3");
-    expect(result.domain).toBe("general");
-    expect(result.route).toBeUndefined();
-  });
+test("runPipeline returns L3+general for clean text", () => {
+  const result = runPipeline({ text: "今天天气很好", scopeId: "s" });
+  assert.strictEqual(result.level, "L3");
+  assert.strictEqual(result.domain, "general");
+  assert.strictEqual(result.route, undefined);
 });
 ```
 
 - [ ] **Step 6: 跑测试**
 
 ```bash
-cd deploy/layers/meerkat/classifier && npx vitest run src/pipeline.test.ts
+cd deploy/layers/meerkat/classifier && node --test src/pipeline.test.ts
 ```
 
 - [ ] **Step 7: 提交**
@@ -936,129 +846,120 @@ git commit -m "feat: add classification pipeline with rules and context layers"
 
 **Files:**
 - Create: `deploy/layers/meerkat/classifier/src/semantic/classifier.ts`
-- Create: `deploy/layers/meerkat/classifier/src/semantic/classifier.test.ts`
+- Modify: `deploy/layers/meerkat/classifier/src/pipeline.ts`
 
 **Interfaces:**
-- Produces: `classifySemantic(text: string) => Promise<{ level: "L1" | "L2" | "L3"; domain: "triz" | "general" } | null>`
+- Produces: `SemanticResult`, `classifySemantic()`
 
-- [ ] **Step 1: 写语义分类器**
+- [ ] **Step 1: 写语义分类器（区分 disabled / error / success）**
 
 ```typescript
 // deploy/layers/meerkat/classifier/src/semantic/classifier.ts
 
-interface SemanticConfig {
-  endpoint: string;
-  model: string;
-  timeoutMs: number;
-}
+interface SemanticConfig { endpoint: string; model: string; timeoutMs: number; }
 
 let config: SemanticConfig | undefined;
 
-export function configureSemantic(cfg: SemanticConfig): void {
-  config = cfg;
+export function configureSemantic(cfg: SemanticConfig): void { config = cfg; }
+
+export interface SemanticResult {
+  level: "L1" | "L2" | "L3";
+  domain: "triz" | "general";
 }
 
-export async function classifySemantic(
-  text: string,
-): Promise<{ level: "L1" | "L2" | "L3"; domain: "triz" | "general" } | null> {
-  if (!config) return null;
+const CLASSIFY_PROMPT = [
+  "你是一个数据敏感度和领域分类器。",
+  "分析以下用户消息，返回纯 JSON：",
+  '{"level":"L1"|"L2"|"L3","domain":"triz"|"general"}',
+  "L1: 含PII、商业机密、未公开产品数据  L2: 中等敏感  L3: 无敏感信息",
+  "triz: 涉及TRIZ创新方法论  general: 不涉及TRIZ",
+].join("\n");
 
-  const prompt = `你是一个数据敏感度和领域分类器。分析以下用户消息，返回 JSON 格式的分类结果。
+export async function classifySemantic(text: string): Promise<SemanticResult> {
+  if (!config) throw new Error("semantic classifier not configured");
 
-分类标准：
-- L1: 消息包含个人身份信息(PII)、商业机密、未公开的产品数据、客户隐私数据
-- L2: 消息包含中等敏感的商业信息（内部讨论、项目代号）
-- L3: 消息不包含敏感信息
+  const response = await fetch(config.endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: config.model,
+      messages: [{ role: "user", content: `${CLASSIFY_PROMPT}\n\n用户消息: ${text}` }],
+      temperature: 0,
+      max_tokens: 100,
+    }),
+    signal: AbortSignal.timeout(config.timeoutMs),
+  });
 
-领域：
-- triz: 涉及TRIZ创新方法论（矛盾分析、技术进化、物场模型等）
-- general: 不涉及TRIZ
+  if (!response.ok) throw new Error(`semantic endpoint returned ${response.status}`);
 
-用户消息: ${text}
+  const body = await response.text();
+  const jsonMatch = body.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("semantic response missing JSON");
 
-返回纯 JSON，不要有其他内容: {"level":"L1"|"L2"|"L3","domain":"triz"|"general"}`;
+  const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+  const level = parsed["level"];
+  const domain = parsed["domain"];
 
-  try {
-    const response = await fetch(config.endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: config.model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0,
-        max_tokens: 100,
-      }),
-      signal: AbortSignal.timeout(config.timeoutMs),
-    });
+  if (level !== "L1" && level !== "L2" && level !== "L3") throw new Error(`invalid level: ${level}`);
+  if (domain !== "triz" && domain !== "general") throw new Error(`invalid domain: ${domain}`);
 
-    if (!response.ok) return null;
-
-    const body = await response.text();
-    // 从响应中提取 JSON（模型可能在 JSON 前后加文字）
-    const jsonMatch = body.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-    const level = parsed["level"];
-    const domain = parsed["domain"];
-
-    if (level !== "L1" && level !== "L2" && level !== "L3") return null;
-    if (domain !== "triz" && domain !== "general") return null;
-
-    return {
-      level: level as "L1" | "L2" | "L3",
-      domain: domain as "triz" | "general",
-    };
-  } catch {
-    return null;
-  }
+  return { level: level as SemanticResult["level"], domain: domain as SemanticResult["domain"] };
 }
 ```
+
+关键改动：失败时 **throw Error** 而非 `return null`。这样 pipeline 可以区分「未配置」（`!config`，getter 抛 Error）和「调用失败」（网络/解析抛 Error），从而走不同的降级路径。
+
+语义层超时：`SEMANTIC_TIMEOUT_MS` 环境变量，默认 **1200ms**（core 分类总预算 2s，语义层必须在 core 超时前返回）。
 
 - [ ] **Step 2: 语义层集成到管线**
 
 ```typescript
-// 修改 pipeline.ts 的 runPipeline，在 Layer 2 之后追加:
-// Layer 3: 语义层
-if (config.semanticEnabled) {
+// 修改 pipeline.ts — runPipeline 改为 async，Layer 2 之后追加:
+
+export async function runPipeline(input: PipelineInput): Promise<ClassifyResponse> {
+  // ... Layer 1 + 2 不变 ...
+
   try {
     const semantic = await classifySemantic(input.text);
-    if (semantic) {
-      if (semantic.level === "L1") {
-        const route = resolveRoute("local-secure");
-        if (route) route.sessionPin = true;
-        return { level: "L1", domain: semantic.domain, route };
-      }
-      if (semantic.domain === "triz") {
-        const route = resolveRoute("meerkat-triz-v1");
-        return { level: "L3", domain: "triz", route };
-      }
+    if (semantic.level === "L1") {
+      const route = resolveRoute("local-secure");
+      if (route) route.session_pin = true;
+      return { level: "L1", domain: semantic.domain, route };
     }
-  } catch {
-    // 语义层不可用 → 按严格版降级为 L2
-    // 有真人场景后续做确认，首版降 L1
+    if (semantic.domain === "triz") {
+      const route = resolveRoute("meerkat-triz-v1");
+      return { level: "L3", domain: "triz", route };
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message === "semantic classifier not configured") {
+      return { level: "L3", domain: "general" };
+    }
     const route = resolveRoute("local-secure");
-    if (route) route.sessionPin = true;
+    if (route) route.session_pin = true;
     return { level: "L1", domain: "general", route };
   }
+
+  return { level: "L3", domain: "general" };
 }
 ```
 
-- [ ] **Step 3: 更新管线测试（mock 语义层）**
+语义层调用失败 → L1 + pin（严格版 fail-to-local）。未配置 → L3（侧车可独立于语义层运行）。
 
-在 `pipeline.test.ts` 中新增语义层测试用例。
+- [ ] **Step 3: 更新测试**
+
+`pipeline.test.ts` 中新增语义层 mock 测试：`configureSemantic` 后 mock endpoint → 验证 L1/L2 判定和网络错误降级。
 
 - [ ] **Step 4: 跑测试**
 
 ```bash
-cd deploy/layers/meerkat/classifier && npx vitest run
+cd deploy/layers/meerkat/classifier && node --test src/pipeline.test.ts src/semantic/classifier.test.ts
 ```
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add deploy/layers/meerkat/classifier/src/semantic/ deploy/layers/meerkat/classifier/src/pipeline.ts
-git commit -m "feat: add semantic classification layer"
+git commit -m "feat: add semantic classification layer with fail-to-local"
 ```
 
 ---
@@ -1068,21 +969,16 @@ git commit -m "feat: add semantic classification layer"
 **Files:**
 - Modify: `deploy/layers/meerkat/classifier/src/server.ts`
 
-**Interfaces:**
-- Consumes: `runPipeline()` (Task 7), `classifySemantic()` (Task 8)
-
 - [ ] **Step 1: 实现 /classify 端点**
 
 ```typescript
-// 替换 deploy/layers/meerkat/classifier/src/server.ts 中的占位实现
 import Fastify from "fastify";
-import { runPipeline, loadRoutes } from "./pipeline.js";
-import { configureSemantic } from "./semantic/classifier.js";
-import type { ClassifyRequest } from "./types.js";
-import { resolve } from "node:path";
+import { runPipeline, loadRoutes } from "./pipeline.ts";
+import { configureSemantic } from "./semantic/classifier.ts";
+import type { ClassifyRequest } from "./types.ts";
 
 const PORT = parseInt(process.env["PORT"] ?? "8080", 10);
-const ROUTES_PATH = process.env["ROUTES_PATH"] ?? resolve(import.meta.dirname ?? ".", "routes.jsonc");
+const ROUTES_PATH = process.env["ROUTES_PATH"] ?? new URL("routes.jsonc", import.meta.url).pathname;
 const SEMANTIC_ENDPOINT = process.env["SEMANTIC_ENDPOINT"];
 const SEMANTIC_MODEL = process.env["SEMANTIC_MODEL"] ?? "meerkat-triz-v1";
 
@@ -1092,7 +988,7 @@ if (SEMANTIC_ENDPOINT) {
   configureSemantic({
     endpoint: SEMANTIC_ENDPOINT,
     model: SEMANTIC_MODEL,
-    timeoutMs: 5000,
+    timeoutMs: parseInt(process.env["SEMANTIC_TIMEOUT_MS"] ?? "1200", 10),
   });
 }
 
@@ -1103,99 +999,70 @@ app.post("/classify", async (req, reply) => {
   if (!body?.text || !body?.metadata?.scope_id) {
     return reply.status(400).send({ error: "text and metadata.scope_id are required" });
   }
-
-  const result = runPipeline({
-    text: body.text,
-    scopeId: body.metadata.scope_id,
-  });
-
+  const result = await runPipeline({ text: body.text, scopeId: body.metadata.scope_id });
   return reply.send(result);
 });
 
-app.get("/health", async (_req, reply) => {
-  return reply.send({ status: "ok" });
-});
+app.get("/health", async (_req, reply) => reply.send({ status: "ok" }));
 
 app.listen({ port: PORT, host: "0.0.0.0" }, (err) => {
-  if (err) {
-    console.error(err);
-    process.exit(1);
-  }
-  console.log(`classifier listening on :${PORT}`);
+  if (err) { console.error(err); process.exit(1); }
 });
 ```
 
-- [ ] **Step 2: 端到端验证**
+- [ ] **Step 2: curl 验证**
 
 ```bash
-cd deploy/layers/meerkat/classifier
-npm install
-npx tsx src/server.ts &
-sleep 2
-# 测试 PII
-curl -s -X POST http://localhost:8080/classify \
-  -H "content-type: application/json" \
-  -d '{"text":"我的手机号是13800138000","hook":"user_input","metadata":{"scope_id":"s","org_scope_id":"o"}}' | jq .
-# 预期: {"level":"L1","domain":"general","route":{...,"sessionPin":true}}
-# 测试 TRIZ
-curl -s -X POST http://localhost:8080/classify \
-  -H "content-type: application/json" \
-  -d '{"text":"分析这个技术矛盾","hook":"user_input","metadata":{"scope_id":"s","org_scope_id":"o"}}' | jq .
-# 预期: {"level":"L3","domain":"triz","route":{...,"sessionPin":false}}
-# 测试普通消息
-curl -s -X POST http://localhost:8080/classify \
-  -H "content-type: application/json" \
-  -d '{"text":"今天天气很好","hook":"user_input","metadata":{"scope_id":"s","org_scope_id":"o"}}' | jq .
-# 预期: {"level":"L3","domain":"general"}
+cd deploy/layers/meerkat/classifier && npm install && npx tsx src/server.ts &
+# PII
+curl -s -X POST http://localhost:8080/classify -H "content-type: application/json" \
+  -d '{"text":"我的手机号是13800138000","hook":"user_input","metadata":{"scope_id":"s","org_scope_id":"o"}}'
+# TRIZ
+curl -s -X POST http://localhost:8080/classify -H "content-type: application/json" \
+  -d '{"text":"分析这个技术矛盾","hook":"user_input","metadata":{"scope_id":"s","org_scope_id":"o"}}'
+# clean
+curl -s -X POST http://localhost:8080/classify -H "content-type: application/json" \
+  -d '{"text":"今天天气很好","hook":"user_input","metadata":{"scope_id":"s","org_scope_id":"o"}}'
 kill %1
 ```
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add deploy/layers/meerkat/classifier/src/server.ts deploy/layers/meerkat/classifier/src/pipeline.ts
-git commit -m "feat: wire classifier server with /classify endpoint"
+git add deploy/layers/meerkat/classifier/src/server.ts
+git commit -m "feat: wire classifier server with /classify and /health endpoints"
 ```
 
 ---
 
-### Task 10: Sidecar 整体测试 + CI 脚本
+### Task 10: Sidecar Docker build 验证
 
-**Files:**
-- 无新增，验证 Phase 2 所有组件
-
-- [ ] **Step 1: 跑所有 sidecar 测试**
+- [ ] **Step 1: 全量 sidecar 测试**
 
 ```bash
-cd deploy/layers/meerkat/classifier && npx vitest run
+cd deploy/layers/meerkat/classifier && node --test src/**/*.test.ts
 ```
 
-- [ ] **Step 2: 验证 TypeScript 编译**
-
-```bash
-cd deploy/layers/meerkat/classifier && npx tsc --noEmit
-```
-
-- [ ] **Step 3: Docker build 验证**
+- [ ] **Step 2: Docker build**
 
 ```bash
 cd deploy/layers/meerkat/classifier && docker build -t meerkat-classifier:dev .
 ```
 
-- [ ] **Step 4: 提交**
+- [ ] **Step 3: 提交**
 
 ```bash
-git add -u && git commit -m "chore: verify sidecar build and tests"
+git add -u && git commit -m "chore: verify sidecar tests and docker build"
 ```
 
 ---
 
-## Phase 3: Skill Packs + 端到端验证
+## Phase 3: Skill Pack + 端到端验证
 
-### Task 11: 创建 TRIZ Innovation Skill Pack 仓库
+### Task 11: 创建 TRIZ Innovation Skill Pack
 
 **Files:**
-- 创建独立 git repo: `meerkat-skills-triz`（不在本仓库内）
+- 创建独立 git repo（不在本仓库内）: `meerkat-skills-triz`
 
 - [ ] **Step 1: 创建 SKILL.md**
 
@@ -1214,61 +1081,56 @@ requiredCapabilities: []
 5. 输出结构化的 TRIZ 分析报告
 ```
 
-- [ ] **Step 2: 初始化 git repo + 推送到客户 git 服务器**
+- [ ] **Step 2: 初始化 git repo**
 
 ```bash
-mkdir meerkat-skills-triz
-cd meerkat-skills-triz
-git init
-# 写入 SKILL.md
-git add SKILL.md
-git commit -m "feat: initial TRIZ innovation skill"
-git remote add origin <customer-git-server>/meerkat-skills-triz.git
+mkdir meerkat-skills-triz && cd meerkat-skills-triz && git init
+git add SKILL.md && git commit -m "feat: initial TRIZ innovation skill"
+git remote add origin <git-server>/meerkat-skills-triz.git
 git push -u origin main
 ```
 
-- [ ] **Step 3: 通过 admin API 注册为 skill pack**
+- [ ] **Step 3: 通过 admin API 注册**
 
 ```bash
 curl -X POST http://localhost:<port>/v1/admin/skill-packs \
   -H "content-type: application/json" \
-  -H "x-capability-token: <admin-token>" \
   -d '{
-    "url": "<customer-git-server>/meerkat-skills-triz.git",
+    "url": "<git-server>/meerkat-skills-triz.git",
+    "ref": "main",
+    "syncMode": "tracked",
     "trustTier": "internal",
-    "autoUpdate": true
+    "targetScopeId": "org:<slug>",
+    "subset": "all"
   }'
 ```
 
-- [ ] **Step 4: 验证 skill 在 system prompt 中出现**
+必填字段对照 `NewSkillPack` 接口: `url`, `ref`, `syncMode` (`"pinned"` | `"tracked"`), `trustTier` (`"internal"` | `"third-party"`), `targetScopeId` (skill 导入的目标 scope), `subset` (`"all"` | `string[]`)。**没有** `autoUpdate`。
 
-发一条 TRIZ 相关的用户消息，检查 Agent 的 system prompt 中是否包含了 `triz-innovation` skill。
+- [ ] **Step 4: 验证 skill 生效**
+
+调用 `GET /v1/skills?scope=<targetScopeId>` 确认 `triz-innovation` 的 `status` 为 `"published"`，`pack.commit` 与 repo HEAD 一致。发一条「分析这个技术矛盾」的消息，确认 Agent 能命中并读取 `triz-innovation` skill 的五步流程。
 
 ---
 
-### Task 12: 端到端回归测试
+### Task 12: 端到端回归
 
-**Files:**
-- 无新增，全链路验证
-
-- [ ] **Step 1: CLASSIFIER_URL 未设置的降级路径**
+- [ ] **Step 1: 分类器跳过（无 CLASSIFIER_URL）**
 
 ```bash
-CLASSIFIER_URL= npx vitest run test/sensitivity-classifier-integration.test.ts
-# 验证: 分类器跳过，turn 正常走默认模型
+CLASSIFIER_URL= node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts
 ```
 
-- [ ] **Step 2: Sidecar 不可达的 fail-to-local**
+- [ ] **Step 2: fail-to-local**
 
 ```bash
 CLASSIFIER_URL=http://localhost:19999/classify \
 CLASSIFIER_FALLBACK_MODEL=meerkat-triz-v1 \
 CLASSIFIER_FALLBACK_HARNESS=pi \
-npx vitest run test/sensitivity-classifier-integration.test.ts
-# 验证: 走 fallback 路由 + pin
+node --experimental-test-module-mocks --test test/sensitivity-classifier.test.ts
 ```
 
-- [ ] **Step 3: Typecheck + Lint 全项目**
+- [ ] **Step 3: 全项目 typecheck + lint**
 
 ```bash
 npx tsc --noEmit
@@ -1278,15 +1140,5 @@ npx eslint src/ test/
 - [ ] **Step 4: 提交**
 
 ```bash
-git add -A && git commit -m "chore: end-to-end verification of classifier integration"
+git add -A && git commit -m "chore: end-to-end regression verification"
 ```
-
----
-
-## Self-Review Checklist
-
-- [x] Spec coverage: 第一节 Core Seam → Task 1-4, 第二节 Sidecar → Task 5-10, 第三节 Skill Pack → Task 11-12
-- [x] 已知限制 mid-turn tool_response 不分类 → 已在 Global Constraints 标注
-- [x] L2 确认首版不做 → 已在 Global Constraints 标注
-- [x] Type consistency: `SensitivityVerdict` 在 Task 1 定义，Task 2/3 消费，Task 7 复用
-- [x] No placeholders — 所有代码 step 都有具体实现
