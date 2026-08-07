@@ -9,8 +9,7 @@ export interface SensitivityVerdict {
   };
 }
 
-const VALID_LEVELS = new Set(["L1", "L2", "L3"]);
-const VALID_DOMAINS = new Set(["triz", "general"]);
+const VALID_LEVELS = new Set(["L1", "L2", "L3"]);const VALID_DOMAINS = new Set(["triz", "general"]);
 const ROUTE_KEY_RE = /^[a-z][a-z0-9-]{0,63}$/;
 const MODEL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,199}$/;
 const HARNESS_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
@@ -51,5 +50,59 @@ export function parseSensitivityVerdict(body: string): SensitivityVerdict | null
       harnessId: r["harness_id"],
       sessionPin: r["session_pin"],
     },
+  };
+}
+
+export type SensitivityClassifier = (
+  input: {
+    text: string;
+    scopeId: string;
+    orgScopeId: string;
+    surface?: string;
+    hook: "user_input";
+  },
+  signal?: AbortSignal,
+) => Promise<SensitivityVerdict | null>;
+
+export function createSensitivityClassifier(opts: {
+  url: string;
+  timeoutMs: number;
+  fetch?: typeof fetch;
+}): SensitivityClassifier {
+  const request = opts.fetch ?? fetch;
+  return async (input, signal) => {
+    const timeout = AbortSignal.timeout(opts.timeoutMs);
+    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+
+    let response: Response;
+    try {
+      response = await request(opts.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          text: input.text,
+          hook: input.hook,
+          metadata: {
+            scope_id: input.scopeId,
+            org_scope_id: input.orgScopeId,
+            ...(input.surface ? { surface: input.surface } : {}),
+          },
+        }),
+        signal: combined,
+      });
+    } catch {
+      return null;
+    }
+
+    if (!response.ok) return null;
+
+    let body: string;
+    try {
+      body = await response.text();
+    } catch {
+      return null;
+    }
+
+    return parseSensitivityVerdict(body);
   };
 }
