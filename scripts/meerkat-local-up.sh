@@ -31,13 +31,15 @@ curl -sf -m 60 -X POST "http://localhost:8081/v1/admin/skill-packs/$PID_PACK/imp
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
   -d '{"selected":"all"}' >/dev/null && echo "skill pack ok ($PID_PACK)"
 
+echo "== org base model =="
+curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/base-model" \
+  -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
+  -d '{"modelId":"kimi-k2.6"}' >/dev/null && echo "base model ok"
+
 echo "== web-ui :8096 =="
 (cd plugins/web-ui && CORE_API_URL=http://localhost:8081 CORE_ORG_ID=meerkat PORT=8096 nohup node server/index.ts > /tmp/meerkat-webui.log 2>&1 &)
 sleep 5
 curl -sf -m 5 -o /dev/null http://localhost:8096/ && echo "web-ui ok"
 
 echo
-echo "open http://localhost:8096 and sign in with any id."
-echo "per-user default model (once per user, replace <id>):"
-echo '  curl -X PUT http://localhost:8081/v1/runtime-config -H "content-type: application/json" \'
-echo '    -d '"'"'{"principalId":"<id>","scopeId":"personal:<id>","harnessId":"pi","modelId":"kimi-k2.6"}'"'"
+echo "open http://localhost:8096 and sign in with any id — org base model is already kimi-k2.6."
