@@ -54,6 +54,9 @@ echo "== org base model =="
 curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/base-model" \
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
   -d '{"modelId":"kimi-k2.6"}' >/dev/null && echo "base model ok"
+curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/webui-models" \
+  -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
+  -d '{"ids":["kimi-k2.6"]}' >/dev/null && echo "webui models ok"
 
 echo "== web-ui :8096 =="
 (cd plugins/web-ui && CORE_API_URL=http://localhost:8081 CORE_ORG_ID=meerkat PORT=8096 nohup node server/index.ts > /tmp/meerkat-webui.log 2>&1 &)
