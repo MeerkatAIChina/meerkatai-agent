@@ -34,6 +34,20 @@ export function getBaseModel(id: string, fallback?: { name: string; provider: st
     const template = getModel("openrouter", "openrouter/auto" as Parameters<typeof getModel>[1]) as PiModel | undefined;
     if (template) return cloneModel(template, id, fallback.name);
   }
+  if (fallback) {
+    return {
+      id,
+      name: fallback.name,
+      provider: fallback.provider,
+      api: "openai-completions",
+      baseUrl: "",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128_000,
+      maxTokens: 8_192,
+    } as PiModel;
+  }
   throw new Error(`Unsupported model: ${id}`);
 }
 
