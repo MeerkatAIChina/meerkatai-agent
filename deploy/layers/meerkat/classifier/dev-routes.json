@@ -1,0 +1,4 @@
+{
+  "local-secure": { "harnessId": "mock", "modelId": "claude-sonnet-5", "providerId": "dev" },
+  "meerkat-triz-v1": { "harnessId": "mock", "modelId": "claude-sonnet-5", "providerId": "dev" }
+}
