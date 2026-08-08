@@ -76,3 +76,12 @@
 - **决策**：首版中，L2 一律降级按 L1 处理（含真人场景）；分类仅在 turn 开始的 `user_input` 执行，turn 中途工具返回的敏感数据不经分类。
 - **理由**：L2 的「挂起 → 推送确认 → 恢复」交互是工作量最大的单项，对标 ToolApproval 模式另立工作项；mid-turn 分类涉及 harness 上下文切换，复杂度高。
 - **后果（已声明的风险）**：Agent 中途经工具获取的敏感数据可能进入通用模型上下文。缓解：scope 白名单把高敏感项目/频道的所有 turn 强制钉在本地模型。后续版本可复用 screener 的 `tool_response` hook 在 tool_result 注入模型前做二次分类。
+
+## ADR-009：CLASSIFIER_URL 配置为完整端点路径；skill pack fetcher 不走系统代理
+
+- **状态**：已接受（实施中发现并确认）
+- **背景**：端到端联调时 core 请求打到 sidecar 根路径 `POST /` 返回 404；同一台机器上 core 的 git fetcher 克隆 GitHub 失败（Empty reply from server）。
+- **决策**：
+  1. `CLASSIFIER_URL` 约定为**完整端点 URL**（如 `http://classifier:8080/classify`），core client 原样 POST，不拼接路径——部署文档与 `.env` 示例必须带路径；
+  2. skill pack fetcher 显式清空 `http.proxy`、锁定 DNS 解析结果、禁重定向（`src/skills/pack-fetcher.ts`），这是 SSRF 防护的有意设计，**不为其开口子**；需要走代理才能访问外网 git 的环境，改用内网 git 镜像或本地路径注册（非 production 下 `allowLocalRepos` 生效）。
+- **后果**：运维侧两个易错点显性化；`deploy/layers/meerkat/dev-e2e.ts` 默认用本地路径注册、可用 `PACK_URL` 环境变量切换到 GitHub 地址（直连网络下）。
