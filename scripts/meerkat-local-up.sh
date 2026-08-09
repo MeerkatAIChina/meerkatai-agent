@@ -11,7 +11,15 @@ if [ ! -f "$HOME/.docker/cli-plugins/docker-buildx.exe" ] && [ -f "$DOCKER_BIN/.
   cp "$DOCKER_BIN/../cli-plugins/docker-buildx.exe" "$HOME/.docker/cli-plugins/"
 fi
 
-KIMI_KEY="${MEERKAT_KIMI_KEY:?set MEERKAT_KIMI_KEY to your Kimi Code key (sk-kimi-...)}"
+# shellcheck disable=SC1091
+[ -f .env ] && source .env
+KIMI_KEY="${MEERKAT_KIMI_KEY:?set MEERKAT_KIMI_KEY in .env or the environment (sk-kimi-...)}"
+
+for p in 8090 8081 8096; do
+  OLD=$(netstat -ano | grep ":$p" | grep LISTENING | awk '{print $5}' | head -1)
+  [ -n "$OLD" ] && taskkill //F //PID "$OLD" >/dev/null 2>&1 || true
+done
+sleep 1
 
 # shellcheck disable=SC1091
 source deploy/layers/meerkat/models.conf
