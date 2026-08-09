@@ -41,9 +41,10 @@ fi
 echo "== sidecar :8090 =="
 printf '{\n  "local-secure": { "harnessId": "pi", "modelId": "%s", "providerId": "%s" },\n  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "%s", "providerId": "%s" }\n}\n' \
   "$ROUTE_MODEL_ID" "$ROUTE_PROVIDER_ID" "$ROUTE_MODEL_ID" "$ROUTE_PROVIDER_ID" > deploy/layers/meerkat/classifier/local-routes.json
-(cd deploy/layers/meerkat/classifier && ROUTES_PATH=local-routes.json PORT=8090 nohup node_modules/.bin/tsx src/server.ts > /tmp/meerkat-sidecar.log 2>&1 &)
+(cd deploy/layers/meerkat/classifier && ROUTES_PATH=local-routes.json PORT=8090 SEMANTIC_ENDPOINT="${SEMANTIC_ENDPOINT:-}" SEMANTIC_MODEL="${SEMANTIC_MODEL:-meerkat-triz-v1}" nohup node_modules/.bin/tsx src/server.ts > /tmp/meerkat-sidecar.log 2>&1 &)
 sleep 3
 curl -sf -m 5 http://localhost:8090/health >/dev/null && echo "sidecar ok"
+if [ -n "${SEMANTIC_ENDPOINT:-}" ]; then echo "semantic classifier on ($SEMANTIC_MODEL)"; else echo "semantic classifier off (set SEMANTIC_ENDPOINT in models.conf to enable)"; fi
 
 echo "== core :8081 =="
 nohup node --env-file-if-exists=.env src/index.ts > /tmp/meerkat-core.log 2>&1 &
