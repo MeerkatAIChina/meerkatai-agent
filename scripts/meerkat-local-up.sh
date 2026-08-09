@@ -57,7 +57,11 @@ for conf in deploy/layers/meerkat/providers/*.conf; do
     # shellcheck disable=SC1090
     source "$conf"
     KEY_VAR="$(printf '%s' "$PROVIDER_ID" | tr 'a-z-' 'A-Z_')_API_KEY"
-    API_KEY="${!KEY_VAR:?set $KEY_VAR in .env for provider $PROVIDER_ID}"
+    API_KEY="${!KEY_VAR:-}"
+    if [ -z "$API_KEY" ]; then
+      echo "provider $PROVIDER_ID skipped (set $KEY_VAR in .env to enable)"
+      exit 0
+    fi
     printf '{"name":"%s","protocol":"%s","baseUrl":"%s","models":%s,"apiKey":"%s"}' \
       "$PROVIDER_NAME" "$PROTOCOL" "$BASE_URL" "$MODELS_JSON" "$API_KEY" > /tmp/provider-$PROVIDER_ID.json
     curl -sf -m 20 -X PUT "http://localhost:8081/v1/admin/custom-providers/$PROVIDER_ID" \
