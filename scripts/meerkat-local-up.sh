@@ -13,6 +13,11 @@ fi
 
 KIMI_KEY="${MEERKAT_KIMI_KEY:?set MEERKAT_KIMI_KEY to your Kimi Code key (sk-kimi-...)}"
 
+# shellcheck disable=SC1091
+source deploy/layers/meerkat/models.conf
+: "${MODEL_ID:?models.conf: MODEL_ID required}"
+: "${PROVIDER_ID:?models.conf: PROVIDER_ID required}"
+
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   if ! docker image inspect qm-sandbox-local:latest >/dev/null 2>&1; then
     echo "== build sandbox images (first run, slow) =="
@@ -36,8 +41,9 @@ sleep 8
 grep -q "listening on :8081" /tmp/meerkat-core.log && echo "core ok"
 
 echo "== register custom provider =="
-printf '{"name":"Kimi Code","protocol":"openai","baseUrl":"https://api.kimi.com/coding/v1","models":[{"id":"kimi-k2.6","name":"Kimi K2.6","contextWindow":262144,"maxTokens":32768}],"apiKey":"%s"}' "$KIMI_KEY" > /tmp/provider.json
-curl -sf -m 20 -X PUT http://localhost:8081/v1/admin/custom-providers/kimi-code \
+printf '{"name":"%s","protocol":"%s","baseUrl":"%s","models":[{"id":"%s","name":"%s","contextWindow":%s,"maxTokens":%s}],"apiKey":"%s"}' \
+  "$PROVIDER_NAME" "$PROTOCOL" "$BASE_URL" "$MODEL_ID" "$MODEL_NAME" "$CONTEXT_WINDOW" "$MAX_TOKENS" "$KIMI_KEY" > /tmp/provider.json
+curl -sf -m 20 -X PUT "http://localhost:8081/v1/admin/custom-providers/$PROVIDER_ID" \
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
   --data-binary @/tmp/provider.json >/dev/null && echo "provider ok"
 
@@ -53,10 +59,10 @@ curl -sf -m 60 -X POST "http://localhost:8081/v1/admin/skill-packs/$PID_PACK/imp
 echo "== org base model =="
 curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/base-model" \
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-  -d '{"modelId":"kimi-k2.6"}' >/dev/null && echo "base model ok"
+  -d "{\"modelId\":\"$MODEL_ID\"}" >/dev/null && echo "base model ok"
 curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/webui-models" \
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-  -d '{"ids":["kimi-k2.6"]}' >/dev/null && echo "webui models ok"
+  -d "{\"ids\":[\"$MODEL_ID\"]}" >/dev/null && echo "webui models ok"
 
 echo "== web-ui :8096 =="
 (cd plugins/web-ui && CORE_API_URL=http://localhost:8081 CORE_ORG_ID=meerkat PORT=8096 nohup node server/index.ts > /tmp/meerkat-webui.log 2>&1 &)
@@ -64,4 +70,4 @@ sleep 5
 curl -sf -m 5 -o /dev/null http://localhost:8096/ && echo "web-ui ok"
 
 echo
-echo "open http://localhost:8096 and sign in with any id — org base model is already kimi-k2.6."
+echo "open http://localhost:8096 and sign in with any id — org base model is $MODEL_ID."
