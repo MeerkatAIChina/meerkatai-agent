@@ -1,4 +1,4 @@
 {
-  "local-secure": { "harnessId": "pi", "modelId": "kimi-k2.6", "providerId": "kimi-code" },
-  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "kimi-k2.6", "providerId": "kimi-code" }
+  "local-secure": { "harnessId": "pi", "modelId": "kimi-k3", "providerId": "kimi-code" },
+  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "kimi-k3", "providerId": "kimi-code" }
 }

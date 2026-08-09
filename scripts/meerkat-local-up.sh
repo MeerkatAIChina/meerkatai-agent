@@ -39,6 +39,8 @@ else
 fi
 
 echo "== sidecar :8090 =="
+printf '{\n  "local-secure": { "harnessId": "pi", "modelId": "%s", "providerId": "%s" },\n  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "%s", "providerId": "%s" }\n}\n' \
+  "$MODEL_ID" "$PROVIDER_ID" "$MODEL_ID" "$PROVIDER_ID" > deploy/layers/meerkat/classifier/local-routes.json
 (cd deploy/layers/meerkat/classifier && ROUTES_PATH=local-routes.json PORT=8090 nohup node_modules/.bin/tsx src/server.ts > /tmp/meerkat-sidecar.log 2>&1 &)
 sleep 3
 curl -sf -m 5 http://localhost:8090/health >/dev/null && echo "sidecar ok"
