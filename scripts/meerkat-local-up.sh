@@ -73,14 +73,20 @@ for conf in deploy/layers/meerkat/providers/*.conf; do
   ALL_MODEL_IDS="$ALL_MODEL_IDS $(cat "/tmp/models-$(basename "$conf" .conf).txt" 2>/dev/null)"
 done
 
-echo "== register + import skill pack =="
-PACK=$(curl -sf -m 30 -X POST http://localhost:8081/v1/admin/skill-packs \
-  -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-  -d '{"url":"/E:/projects/meerkatai-agent/skill-pack-staging","ref":"main","trustTier":"internal","subset":"all"}')
-PID_PACK=$(printf '%s' "$PACK" | python -c "import json,sys; print(json.load(sys.stdin)['pack']['id'])")
-curl -sf -m 60 -X POST "http://localhost:8081/v1/admin/skill-packs/$PID_PACK/import" \
-  -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-  -d '{"selected":"all"}' >/dev/null && echo "skill pack ok ($PID_PACK)"
+echo "== register + import skill packs =="
+# shellcheck disable=SC1091
+source deploy/layers/meerkat/skillpacks.conf
+for entry in "${SKILLPACKS[@]}"; do
+  PACK_URL="${entry%%|*}"
+  PACK_REF="${entry#*|}"; [ "$PACK_REF" = "$PACK_URL" ] && PACK_REF="main"
+  PACK=$(curl -sf -m 30 -X POST http://localhost:8081/v1/admin/skill-packs \
+    -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
+    -d "{\"url\":\"$PACK_URL\",\"ref\":\"$PACK_REF\",\"trustTier\":\"internal\",\"subset\":\"all\"}") || { echo "warn: skill pack register failed ($PACK_URL)"; continue; }
+  PID_PACK=$(printf '%s' "$PACK" | python -c "import json,sys; print(json.load(sys.stdin)['pack']['id'])")
+  curl -sf -m 120 -X POST "http://localhost:8081/v1/admin/skill-packs/$PID_PACK/import" \
+    -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
+    -d '{"selected":"all"}' >/dev/null && echo "skill pack ok ($PACK_URL#$PACK_REF)" || echo "warn: skill pack import failed ($PACK_URL)"
+done
 
 echo "== org base model =="
 IDS_JSON=$(python -c "
