@@ -88,9 +88,10 @@
 
 ## ADR-010：L1 钉住改为会话级单向锁，取代 scope 级默认选择（部分取代 ADR-004）
 
-- **状态**：已接受（待实施，随本地模型落地一并修改）
+- **状态**：已接受
 - **背景**：v1.0 实现中 `session_pin` 复用 `setRuntimeSelectionLatest(scopeId, ...)`（ADR-004），实测暴露两个问题：① 钉的是整个 scope 的默认模型，株连该用户的所有会话；② 用户在界面手动选模型即可覆盖该默认选择——L1 会话仍可切回云端模型，历史中的敏感数据随后续 turn 的历史重放出站，"钉住"名存实亡。
 - **决策**：钉住语义改为**会话级单向锁**——会话一旦被判定 L1，orchestrator 在该会话所有后续 turn 强制 `local-secure` 路由，忽略用户手动选择；界面展示「🔒 敏感会话，已锁定本地模型」；使用通用模型须另开会话。锁标记须持久化（durable store），禁止内存态。
-- **理由**：每轮请求携带完整历史，L1 内容进入会话后该会话即被污染，唯一正确的隐私语义是单向闸（只进不出）；钉用户/scope 过宽，钉会话恰好等于污染范围。
-- **被否决**：维持 scope 级 pin（现状）——既过宽（误伤其他会话）又过窄（可被手动覆盖）；TRIZ 路由维持不 pin 不变（领域路由不涉及隐私，按轮路由最灵活）。
-- **后果**：orchestrator 需新增会话级锁检查（预计 <30 行，覆盖位与 ADR-004 相同）；ADR-004 中 `setRuntimeSelectionLatest` 复用的决策仅限非 pin 场景继续有效；实施前当前版本的"pin"不视为安全保证，部署文档需如实说明。
+- **存储方案**：独立 `DurableMap<{harnessId, modelId}>`，key = session ID。不在 `ScopedConfigStore` 的 `PersistedBaseModel` 上——后者写入 scope 级 runtime selection，会被 UI 手动选模型覆盖。锁的内容是分类 verdict 中已解析的具体 `{harnessId, modelId}` 快照，不存逻辑名——路由配置后续变动不影响已锁会话。已锁会话跳过分类器调用（省一次 HTTP round-trip）。fork 时拷贝锁到新 session ID（fork 继承污染历史，必须继承锁）。
+- **理由**：每轮请求携带完整历史，L1 内容进入会话后该会话即被污染，唯一正确的隐私语义是单向闸（只进不出）；钉用户/scope 过宽，钉会话恰好等于污染范围。锁在 `resolveRuntimeChoice` 之前生效——orchestrator 覆写 `input.harness`/`input.model`，以最高优先级（`requested` 级）进入 harness router，手动选择无法介入。
+- **被否决**：维持 scope 级 pin（现状）——既过宽（误伤其他会话）又过窄（可被手动覆盖）；TRIZ 路由维持不锁不变（领域路由不涉及隐私，按轮路由最灵活）；用 `ScopedConfigStore` 的非标准 scope kind 做 session 级 key——绕类型系统，且 `parseScopeId` 会丢失 kind 信息。
+- **后果**：orchestrator 需新增会话级锁检查和写入（预计 <30 行）；`app-sessions.ts` fork 方法需拷贝锁（+3 行）；ADR-004 中 `setRuntimeSelectionLatest` 复用的决策不再适用——lock store 是独立存储线，与 `PersistedBaseModel` 互不冲突。
