@@ -85,3 +85,12 @@
   1. `CLASSIFIER_URL` 约定为**完整端点 URL**（如 `http://classifier:8080/classify`），core client 原样 POST，不拼接路径——部署文档与 `.env` 示例必须带路径；
   2. skill pack fetcher 显式清空 `http.proxy`、锁定 DNS 解析结果、禁重定向（`src/skills/pack-fetcher.ts`），这是 SSRF 防护的有意设计，**不为其开口子**；需要走代理才能访问外网 git 的环境，改用内网 git 镜像或本地路径注册（非 production 下 `allowLocalRepos` 生效）。
 - **后果**：运维侧两个易错点显性化；`deploy/layers/meerkat/dev-e2e.ts` 默认用本地路径注册、可用 `PACK_URL` 环境变量切换到 GitHub 地址（直连网络下）。
+
+## ADR-010：L1 钉住改为会话级单向锁，取代 scope 级默认选择（部分取代 ADR-004）
+
+- **状态**：已接受（待实施，随本地模型落地一并修改）
+- **背景**：v1.0 实现中 `session_pin` 复用 `setRuntimeSelectionLatest(scopeId, ...)`（ADR-004），实测暴露两个问题：① 钉的是整个 scope 的默认模型，株连该用户的所有会话；② 用户在界面手动选模型即可覆盖该默认选择——L1 会话仍可切回云端模型，历史中的敏感数据随后续 turn 的历史重放出站，"钉住"名存实亡。
+- **决策**：钉住语义改为**会话级单向锁**——会话一旦被判定 L1，orchestrator 在该会话所有后续 turn 强制 `local-secure` 路由，忽略用户手动选择；界面展示「🔒 敏感会话，已锁定本地模型」；使用通用模型须另开会话。锁标记须持久化（durable store），禁止内存态。
+- **理由**：每轮请求携带完整历史，L1 内容进入会话后该会话即被污染，唯一正确的隐私语义是单向闸（只进不出）；钉用户/scope 过宽，钉会话恰好等于污染范围。
+- **被否决**：维持 scope 级 pin（现状）——既过宽（误伤其他会话）又过窄（可被手动覆盖）；TRIZ 路由维持不 pin 不变（领域路由不涉及隐私，按轮路由最灵活）。
+- **后果**：orchestrator 需新增会话级锁检查（预计 <30 行，覆盖位与 ADR-004 相同）；ADR-004 中 `setRuntimeSelectionLatest` 复用的决策仅限非 pin 场景继续有效；实施前当前版本的"pin"不视为安全保证，部署文档需如实说明。
