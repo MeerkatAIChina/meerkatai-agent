@@ -436,6 +436,8 @@ export function createSessionMethods(
         if (!lease) throw new Error(`fork: could not lease fresh session ${forked.id}`);
         let forkBoundarySeq: number | null = null;
         try {
+          const lock = deps.sessionLockStore ? await deps.sessionLockStore.get(sessionId) : null;
+          if (lock) await deps.sessionLockStore!.put(forked.id, lock);
           for (const entry of copied) {
             const appended = await deps.sessions.append(lease, {
               type: entry.type,

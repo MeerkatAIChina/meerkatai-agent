@@ -178,6 +178,7 @@ import { createPostgresTaskStore } from "./tasks/postgres-task-store.ts";
 import type { TaskStore } from "./tasks/task-store.ts";
 import { createMemoryStrategy } from "./memory/strategy.ts";
 import { createOrchestrator, egressClaimAllowingControlPlane, type OrchestratorDeps } from "./core/orchestrator.ts";
+import type { SessionLock } from "./core/orchestrator/types.ts";
 import { mintCapabilityToken, CAPABILITY_TTL_MS, EGRESS_PROXY_AUD } from "./auth/capability-token.ts";
 import { createControlService } from "./api/control-service.ts";
 import { createMemoryRunStore } from "./runs/memory-run-store.ts";
@@ -309,6 +310,7 @@ export interface BuiltApp {
   deploymentLayerReady: Promise<unknown>;
   deploymentLayerRefresh: Sweeper;
   sessions: SessionStore;
+  sessionLockStore: DurableMap<SessionLock>;
   runs: RunStore;
   signals: RunSignalStore;
   tasks: TaskStore;
@@ -944,6 +946,7 @@ export function buildApp(
   const sensitivityClassifier = config.classifierUrl
     ? createSensitivityClassifier({ url: config.classifierUrl, timeoutMs: 2_000 })
     : undefined;
+  const sessionLockStore = artifactMap<SessionLock>("session_locks");
   const orchestratorDeps: OrchestratorDeps = {
     identity,
     resolution,
@@ -971,6 +974,7 @@ export function buildApp(
     securityScreenTimeoutMs: config.securityScreenTimeoutMs,
     ...(securityScreener ? { securityScreener } : {}),
     ...(sensitivityClassifier ? { sensitivityClassifier } : {}),
+    sessionLockStore,
     ...(config.classifierFallbackModel ? { classifierFallbackModel: config.classifierFallbackModel } : {}),
     ...(config.classifierFallbackHarness ? { classifierFallbackHarness: config.classifierFallbackHarness } : {}),
     backgroundJobTtlMs: config.backgroundJobTtlMs,
@@ -1104,6 +1108,7 @@ export function buildApp(
     identity,
     ...(config.publicWebUrl ? { publicWebUrl: config.publicWebUrl } : {}),
     sessions,
+    sessionLockStore,
     orchestrator,
     runs,
     leaseTtlMs,
@@ -1437,6 +1442,7 @@ export function buildApp(
     deploymentLayerReady,
     deploymentLayerRefresh,
     sessions,
+    sessionLockStore,
     runs,
     signals: runSignals,
     tasks,

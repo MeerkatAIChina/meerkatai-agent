@@ -1853,7 +1853,21 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           await deps.harness.turns.resetSession?.(session.id);
         }
         const visibleHistory = filterHistory(forModelContext(rawEntries, { includeSecurityTainted: false }));
-        if (deps.sensitivityClassifier) {
+        const sessionLock = deps.sessionLockStore ? await deps.sessionLockStore.get(session.id) : null;
+        let privacyLocked = sessionLock !== null;
+        if (sessionLock) {
+          input.harness = sessionLock.harnessId;
+          input.model = sessionLock.modelId;
+          deps.auditLog.record({
+            at: Date.now(),
+            principalId: actor.id,
+            action: "session_lock.applied",
+            resource: session.id,
+            scopeLabel: scopeId,
+            status: "locked",
+            detail: JSON.stringify({ harnessId: sessionLock.harnessId, modelId: sessionLock.modelId }),
+          });
+        } else if (deps.sensitivityClassifier) {
           const recentForClassify = visibleHistory
             .filter((e) => e.type === "user" || e.type === "assistant")
             .slice(-3);
@@ -1918,10 +1932,13 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               }),
             });
             if (sensitivityVerdict.route.sessionPin) {
-              await deps.config?.setRuntimeSelectionLatest(scopeId, {
-                harnessId: sensitivityVerdict.route.harnessId,
-                modelId: sensitivityVerdict.route.model,
-              });
+              privacyLocked = true;
+              if (deps.sessionLockStore) {
+                await deps.sessionLockStore.put(session.id, {
+                  harnessId: sensitivityVerdict.route.harnessId,
+                  modelId: sensitivityVerdict.route.model,
+                });
+              }
             }
           }
         }
@@ -2089,7 +2106,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               }
             : undefined;
         const earlyTitleGen: Promise<string | undefined> | undefined =
-          humanTurn && !session.title && !syntheticPrompt && input.text.trim()
+          humanTurn && !session.title && !syntheticPrompt && !privacyLocked && input.text.trim()
             ? generateAndStoreTitle(session.id, scopeId, `User:\n${stripTurnBoilerplate(input.text)}`)
             : undefined;
         const requestedTurnWallClockMs =
@@ -2662,7 +2679,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             : {}),
         });
         const onTurnEnd = memoryStrategy.onTurnEnd?.bind(memoryStrategy);
-        if (!pausing && memoryPolicy.capture !== "off" && onTurnEnd) {
+        if (!pausing && memoryPolicy.capture !== "off" && !privacyLocked && onTurnEnd) {
           const prior = pendingCaptures.get(memoryScopeId);
           const capture = (async () => {
             if (prior) await prior.catch(swallowAs("prior memory capture", undefined));
@@ -2737,7 +2754,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
                 }
               }
             }
-            if (!pausing && turnCompleted && !session.title && !(earlyTitleGen && (await earlyTitleGen))) {
+            if (!pausing && turnCompleted && !session.title && !privacyLocked && !(earlyTitleGen && (await earlyTitleGen))) {
               await generateAndStoreTitle(session.id, scopeId, `User:\n${input.text}\n\nAssistant:\n${result.reply}`);
             }
           } finally {

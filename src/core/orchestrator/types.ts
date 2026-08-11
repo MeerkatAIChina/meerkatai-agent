@@ -60,6 +60,11 @@ import type { AclStore } from "../../acl/acl-store.ts";
 import type { ChannelPolicyStore } from "../../surface-cache/channel-policy-store.ts";
 import type { SurfaceCache } from "../../surface-cache/types.ts";
 
+export interface SessionLock {
+  harnessId: string;
+  modelId: string;
+}
+
 export interface OrchestratorInput extends Omit<
   TurnRequest,
   | "surface"
@@ -115,6 +120,7 @@ export interface OrchestratorDeps {
   sensitivityClassifier?: SensitivityClassifier;
   classifierFallbackModel?: string;
   classifierFallbackHarness?: string;
+  sessionLockStore?: DurableMap<SessionLock>;
   backgroundJobTtlMs?: number;
   backgroundJobTtlMaxMs?: number;
   harness: Harness;

@@ -14,6 +14,7 @@ import type { Readable } from "node:stream";
 import { type FileArtifact, type FileArtifactStore, type ListOwnedOptions } from "../files/file-artifact-store.ts";
 import type { IdentityService } from "../identity/identity-service.ts";
 import type { SessionStore, TranscriptEntry } from "../sessions/session-store.ts";
+import type { SessionLock } from "../core/orchestrator/types.ts";
 import { type Sandbox } from "../sandbox/sandbox.ts";
 import type { ProcessRegistry } from "../processes/process-registry.ts";
 import type { MonitorStore } from "../monitors/monitor-store.ts";
@@ -457,6 +458,7 @@ export interface AppDeps {
   identity: IdentityService;
   publicWebUrl?: string;
   sessions: SessionStore;
+  sessionLockStore?: DurableMap<SessionLock>;
   orchestrator: Orchestrator;
   runs: RunStore;
   leaseTtlMs: number;
