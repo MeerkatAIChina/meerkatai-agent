@@ -39,7 +39,7 @@
 
 ## ADR-004：路由消费复用 `requested` 覆盖位与 `setRuntimeSelectionLatest`，不动 harness-router 与 session-store
 
-- **状态**：已接受
+- **状态**：已接受（session pin 复用部分已被 ADR-010 取代）
 - **决策**：orchestrator 消费 `verdict.route` 时成对覆盖 `input.harness` + `input.model`（走 `resolveRuntimeChoice` 已有的 requested 覆盖位，免费获得白名单校验）；session pin 复用 durable 的 `setRuntimeSelectionLatest(scopeId, {harnessId, modelId})`，router 下个 turn 自动读取。
 - **理由**：这两个机制是现成的收口点，复用后 `harness-router.ts`、`session-store.ts` 零改动；pin 与「用户手动切模型」天然同槽位，unpin 语义无需新机制。
 - **被否决**：给 session-store 新增 `setPinnedModel` 字段 —— 重复造已有能力，且内存态 pin 违反 durable-by-default（蓝绿多实例会被部署冲掉）。
@@ -88,10 +88,11 @@
 
 ## ADR-010：L1 钉住改为会话级单向锁，取代 scope 级默认选择（部分取代 ADR-004）
 
-- **状态**：已接受
+- **状态**：已接受 · 已实施（2026-08-11）
 - **背景**：v1.0 实现中 `session_pin` 复用 `setRuntimeSelectionLatest(scopeId, ...)`（ADR-004），实测暴露两个问题：① 钉的是整个 scope 的默认模型，株连该用户的所有会话；② 用户在界面手动选模型即可覆盖该默认选择——L1 会话仍可切回云端模型，历史中的敏感数据随后续 turn 的历史重放出站，"钉住"名存实亡。
 - **决策**：钉住语义改为**会话级单向锁**——会话一旦被判定 L1，orchestrator 在该会话所有后续 turn 强制 `local-secure` 路由，忽略用户手动选择；界面展示「🔒 敏感会话，已锁定本地模型」；使用通用模型须另开会话。锁标记须持久化（durable store），禁止内存态。
 - **存储方案**：独立 `DurableMap<{harnessId, modelId}>`，key = session ID。不在 `ScopedConfigStore` 的 `PersistedBaseModel` 上——后者写入 scope 级 runtime selection，会被 UI 手动选模型覆盖。锁的内容是分类 verdict 中已解析的具体 `{harnessId, modelId}` 快照，不存逻辑名——路由配置后续变动不影响已锁会话。已锁会话跳过分类器调用（省一次 HTTP round-trip）。fork 时拷贝锁到新 session ID（fork 继承污染历史，必须继承锁）。
 - **理由**：每轮请求携带完整历史，L1 内容进入会话后该会话即被污染，唯一正确的隐私语义是单向闸（只进不出）；钉用户/scope 过宽，钉会话恰好等于污染范围。锁在 `resolveRuntimeChoice` 之前生效——orchestrator 覆写 `input.harness`/`input.model`，以最高优先级（`requested` 级）进入 harness router，手动选择无法介入。
 - **被否决**：维持 scope 级 pin（现状）——既过宽（误伤其他会话）又过窄（可被手动覆盖）；TRIZ 路由维持不锁不变（领域路由不涉及隐私，按轮路由最灵活）；用 `ScopedConfigStore` 的非标准 scope kind 做 session 级 key——绕类型系统，且 `parseScopeId` 会丢失 kind 信息。
 - **后果**：orchestrator 需新增会话级锁检查和写入（预计 <30 行）；`app-sessions.ts` fork 方法需拷贝锁（+3 行）；ADR-004 中 `setRuntimeSelectionLatest` 复用的决策不再适用——lock store 是独立存储线，与 `PersistedBaseModel` 互不冲突。
+- **实施**（2026-08-11，`342ea01`）：已落地——turn 开始锁检查与覆写（`orchestrator.ts`）、`session_locks` DurableMap（`wiring.ts`，有 Postgres 用 Postgres、否则内存）、L1 pin 写锁、已锁会话跳分类器（security screener 照常）、fork 拷锁（先于内容拷贝，避免留下"有内容无锁"的 fork）、`session_lock.applied` 审计事件。实施期经独立 review 补强两点：锁定会话同时跳过 title 生成与记忆捕获（二者走 utility 模型，不跳过会把敏感内容送出域）；集成测试用判别性手动选择证明锁真实生效。未实施：界面「🔒 敏感会话」标识（另立工作项）。
