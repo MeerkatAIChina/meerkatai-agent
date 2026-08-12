@@ -1,6 +1,6 @@
 # Architecture Decision Record（架构决策记录）
 
-> 版本：v1.0（数据分级模型路由 + 消费品行业领域 Skills 包）
+> 版本：v0.0（数据分级模型路由 + 消费品行业领域 Skills 包）
 > 设计依据：[设计文档.md](./设计文档.md)；调研依据：[需求调研.md](./需求调研.md)
 > 每条 ADR 记录一个关键取舍：背景 → 决策 → 被否决方案及原因 → 后果。
 
@@ -89,7 +89,7 @@
 ## ADR-010：L1 钉住改为会话级单向锁，取代 scope 级默认选择（部分取代 ADR-004）
 
 - **状态**：已接受 · 已实施（2026-08-11）
-- **背景**：v1.0 实现中 `session_pin` 复用 `setRuntimeSelectionLatest(scopeId, ...)`（ADR-004），实测暴露两个问题：① 钉的是整个 scope 的默认模型，株连该用户的所有会话；② 用户在界面手动选模型即可覆盖该默认选择——L1 会话仍可切回云端模型，历史中的敏感数据随后续 turn 的历史重放出站，"钉住"名存实亡。
+- **背景**：v0.0 实现中 `session_pin` 复用 `setRuntimeSelectionLatest(scopeId, ...)`（ADR-004），实测暴露两个问题：① 钉的是整个 scope 的默认模型，株连该用户的所有会话；② 用户在界面手动选模型即可覆盖该默认选择——L1 会话仍可切回云端模型，历史中的敏感数据随后续 turn 的历史重放出站，"钉住"名存实亡。
 - **决策**：钉住语义改为**会话级单向锁**——会话一旦被判定 L1，orchestrator 在该会话所有后续 turn 强制 `local-secure` 路由，忽略用户手动选择；界面展示「🔒 敏感会话，已锁定本地模型」；使用通用模型须另开会话。锁标记须持久化（durable store），禁止内存态。
 - **存储方案**：独立 `DurableMap<{harnessId, modelId}>`，key = session ID。不在 `ScopedConfigStore` 的 `PersistedBaseModel` 上——后者写入 scope 级 runtime selection，会被 UI 手动选模型覆盖。锁的内容是分类 verdict 中已解析的具体 `{harnessId, modelId}` 快照，不存逻辑名——路由配置后续变动不影响已锁会话。已锁会话跳过分类器调用（省一次 HTTP round-trip）。fork 时拷贝锁到新 session ID（fork 继承污染历史，必须继承锁）。
 - **理由**：每轮请求携带完整历史，L1 内容进入会话后该会话即被污染，唯一正确的隐私语义是单向闸（只进不出）；钉用户/scope 过宽，钉会话恰好等于污染范围。锁在 `resolveRuntimeChoice` 之前生效——orchestrator 覆写 `input.harness`/`input.model`，以最高优先级（`requested` 级）进入 harness router，手动选择无法介入。
