@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import { openSqliteDatabase } from "../persistence/sqlite-map.ts";
 import type { Session, SessionEntry, ScopeId } from "../types.ts";
 import type {
   AttributedTurn,
@@ -156,7 +156,7 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
 } {
   const now = opts.now ?? (() => Date.now());
   const leaseTtlMs = opts.leaseTtlMs ?? 5 * 60_000;
-  const db = new DatabaseSync(sqlitePath);
+  const db = openSqliteDatabase(sqlitePath);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (

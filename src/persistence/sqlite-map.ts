@@ -1,5 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
+import { errMessage } from "../util/errors.ts";
 import type { DurableMap } from "./durable-map.ts";
+
+export function openSqliteDatabase(sqlitePath: string): DatabaseSync {
+  try {
+    return new DatabaseSync(sqlitePath);
+  } catch (e) {
+    throw new Error(`SQLITE_PATH ${sqlitePath} could not be opened: ${errMessage(e)}`, { cause: e });
+  }
+}
 
 function applyPatch<T>(value: T, patch: Partial<T>): T {
   const next = { ...value } as Record<string, unknown>;
@@ -82,7 +91,7 @@ export function createSqliteMapFactory(sqlitePath: string): {
   map<T>(table: string): DurableMap<T>;
   db: DatabaseSync;
 } {
-  const db = new DatabaseSync(sqlitePath);
+  const db = openSqliteDatabase(sqlitePath);
   db.exec("PRAGMA journal_mode = WAL");
   return { map: <T>(table: string): DurableMap<T> => createSqliteMap<T>(db, table), db };
 }

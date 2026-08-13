@@ -2,8 +2,10 @@ import "./support/auto-fake-sprites.ts";
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { after } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { buildApp, type BuiltApp } from "../src/wiring.ts";
 import { testConfig } from "./support/test-config.ts";
@@ -12,13 +14,12 @@ function cleanupFiles(path: string) {
   for (const suffix of ["", "-wal", "-shm"]) rmSync(path + suffix, { force: true });
 }
 
-mkdirSync("./data", { recursive: true });
-for (const f of readdirSync("./data")) {
-  if (/^test-sqlite-wiring-.*\.db(-wal|-shm)?$/.test(f)) rmSync(`./data/${f}`, { force: true });
-}
+const dir = mkdtempSync(join(tmpdir(), "qm-sqlite-wiring-test-"));
+
+after(() => rmSync(dir, { recursive: true, force: true }));
 
 function wiringPath(tag: string): string {
-  return `./data/test-sqlite-wiring-${tag}-${process.pid}.db`;
+  return join(dir, `test-${tag}-${process.pid}.db`);
 }
 
 test("config: SESSION_STORE=sqlite selects sqlite and resolves SQLITE_PATH", () => {
@@ -62,6 +63,7 @@ test("SESSION_STORE=sqlite wires SQLite-backed session + artifact stores on the 
     const envCfg = loadConfig({ SESSION_STORE: "sqlite", SQLITE_PATH: path });
     const cfg = testConfig({
       sessionStore: envCfg.sessionStore,
+      seedSkills: false,
       ...(envCfg.sqlitePath ? { sqlitePath: envCfg.sqlitePath } : {}),
     });
     const app1 = buildApp(cfg);
@@ -78,6 +80,33 @@ test("SESSION_STORE=sqlite wires SQLite-backed session + artifact stores on the 
     assert.deepEqual(await app2.sessionLockStore.get("lock1"), { harnessId: "pi", modelId: "m1" });
   } finally {
     for (const app of apps) await app.runtime.stop();
+    cleanupFiles(path);
+  }
+});
+
+test("SESSION_STORE=sqlite survives a full app restart (reopen durability)", async () => {
+  const path = wiringPath("reopen");
+  cleanupFiles(path);
+  const envCfg = loadConfig({ SESSION_STORE: "sqlite", SQLITE_PATH: path });
+  const cfg = testConfig({
+    sessionStore: envCfg.sessionStore,
+    seedSkills: false,
+    ...(envCfg.sqlitePath ? { sqlitePath: envCfg.sqlitePath } : {}),
+  });
+  const app1 = buildApp(cfg);
+  const s = await app1.sessions.getOrCreateByThread("t1", "dm", "personal:U1" as never);
+  await app1.sessions.updateTitle(s.id, "survives-restart");
+  await app1.sessionLockStore.put(s.id, { harnessId: "pi", modelId: "m1" });
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  await app1.runtime.stop();
+
+  const app2 = buildApp(cfg);
+  try {
+    const got = await app2.sessions.get(s.id);
+    assert.equal(got?.title, "survives-restart");
+    assert.deepEqual(await app2.sessionLockStore.get(s.id), { harnessId: "pi", modelId: "m1" });
+  } finally {
+    await app2.runtime.stop();
     cleanupFiles(path);
   }
 });

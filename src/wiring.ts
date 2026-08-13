@@ -450,7 +450,7 @@ export function buildApp(
     defaultSecurityPosture: config.securityPosture,
     ...(config.connectorSecretKey ? { connectorSecretKey: config.connectorSecretKey } : {}),
   });
-  void configStore.hydrate?.();
+  const configHydrated = configStore.hydrate?.() ?? null;
   const skills: SkillStore = createSkillStore({
     backing: artifactMap<Skill>("skills"),
     ...(config.skillSigningSecret ? { signingSecret: config.skillSigningSecret } : {}),
@@ -1443,6 +1443,7 @@ export function buildApp(
       await harness.turns.close?.();
       await tasks.close?.();
       void (sessions as { close?: () => void }).close?.();
+      await configHydrated?.catch(swallowAs("wiring: config hydrate during shutdown", undefined));
       sqliteMapFactory?.db.close();
     },
   };

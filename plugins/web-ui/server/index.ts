@@ -793,7 +793,7 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
   }
   const token = typeof body.token === "string" ? body.token.trim() : "";
   if (!token) return json(res, 400, { error: "bad_request", message: "service token is required" });
-  const { tensoris, localSecure } = setupDefaults();
+  const { tensoris, localSecure, defaults } = setupDefaults();
   const put = await coreFetch(
     "PUT",
     `/v1/admin/custom-providers/${tensoris.id}`,
@@ -836,6 +836,21 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
         validate: false,
       }),
     );
+  }
+  const pickerModels = Array.isArray(defaults.webuiModels)
+    ? defaults.webuiModels.filter((m): m is string => typeof m === "string" && m.length > 0)
+    : tensoris.models.map((m) => m.id);
+  const defaultModelId =
+    typeof defaults.defaultModelId === "string" && defaults.defaultModelId
+      ? defaults.defaultModelId
+      : (pickerModels[0] ?? "");
+  if (defaultModelId) {
+    const scopePath = `/v1/admin/scopes/org:${ORG}`;
+    const baseModel = await coreFetch("PUT", `${scopePath}/base-model`, JSON.stringify({ modelId: defaultModelId }));
+    const picker = await coreFetch("PUT", `${scopePath}/webui-models`, JSON.stringify({ ids: pickerModels }));
+    if (baseModel.status !== 200 || picker.status !== 200) {
+      return json(res, 502, { error: "defaults_failed", message: "provider registered; retry to apply model defaults" });
+    }
   }
   setupCache = null;
   return json(res, 200, { ok: true, localReachable });

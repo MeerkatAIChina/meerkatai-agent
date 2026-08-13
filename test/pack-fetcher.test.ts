@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createGitFetcher, resolvePackAuth } from "../src/skills/pack-fetcher.ts";
+import { createGitFetcher, isLocalRepoPath, resolvePackAuth } from "../src/skills/pack-fetcher.ts";
 import type { SkillPack } from "../src/skills/skill-pack-store.ts";
 
 function makeSourceRepo(): { dir: string; sha: string } {
@@ -233,6 +233,16 @@ test("rejects local and command-executing git transports", async () => {
     () => createGitFetcher().fetch(src({ url: "https://token@example.com/o/r" })),
     /credential-free https/,
   );
+});
+
+test("isLocalRepoPath recognizes posix, drive-letter, and UNC paths", () => {
+  assert.equal(isLocalRepoPath("/abs/path"), true);
+  assert.equal(isLocalRepoPath("C:\\repo\\pack"), true);
+  assert.equal(isLocalRepoPath("c:/repo/pack"), true);
+  assert.equal(isLocalRepoPath("D:\\pack"), true);
+  assert.equal(isLocalRepoPath("\\\\server\\share\\pack"), true);
+  assert.equal(isLocalRepoPath("https://github.com/x/y"), false);
+  assert.equal(isLocalRepoPath("relative/path"), false);
 });
 
 test("rejects repositories resolving to a private network before invoking Git", async () => {

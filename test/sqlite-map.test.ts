@@ -1,12 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { createSqliteMap, createSqliteMapFactory } from "../src/persistence/sqlite-map.ts";
 import type { DurableMap } from "../src/persistence/durable-map.ts";
 
-function cleanupFiles(path: string) {
-  for (const suffix of ["", "-wal", "-shm"]) rmSync(path + suffix, { force: true });
+const dir = mkdtempSync(join(tmpdir(), "qm-sqlite-map-test-"));
+let seq = 0;
+
+after(() => rmSync(dir, { recursive: true, force: true }));
+
+function testPath(): string {
+  return join(dir, `test-${process.pid}-${seq++}.db`);
 }
 
 function fullMap<T>(factory: ReturnType<typeof createSqliteMapFactory>, table: string): Required<DurableMap<T>> {
@@ -14,26 +22,23 @@ function fullMap<T>(factory: ReturnType<typeof createSqliteMapFactory>, table: s
 }
 
 test("sqlite map persists across factory instances", async () => {
-  const path = `./data/test-sqlite-map-${process.pid}.db`;
-  cleanupFiles(path);
-  let first: ReturnType<typeof createSqliteMapFactory> | null = null;
-  let second: ReturnType<typeof createSqliteMapFactory> | null = null;
+  const path = testPath();
+  const first = createSqliteMapFactory(path);
+  await first.map<{ n: number }>("kv").put("a", { n: 1 });
+  const concurrent = createSqliteMapFactory(path);
+  assert.deepStrictEqual(await concurrent.map<{ n: number }>("kv").get("a"), { n: 1 });
+  concurrent.db.close();
+  first.db.close();
+  const reopened = createSqliteMapFactory(path);
   try {
-    first = createSqliteMapFactory(path);
-    await first.map<{ n: number }>("kv").put("a", { n: 1 });
-    second = createSqliteMapFactory(path);
-    assert.deepStrictEqual(await second.map<{ n: number }>("kv").get("a"), { n: 1 });
+    assert.deepStrictEqual(await reopened.map<{ n: number }>("kv").get("a"), { n: 1 });
   } finally {
-    first?.db.close();
-    second?.db.close();
-    cleanupFiles(path);
+    reopened.db.close();
   }
 });
 
 test("sqlite map implements merge, update, deleteIf, take", async () => {
-  const path = `./data/test-sqlite-map-ops-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
     const m = fullMap<{ a: number; b?: number }>(factory, "kv");
     await m.put("x", { a: 1 });
@@ -46,14 +51,11 @@ test("sqlite map implements merge, update, deleteIf, take", async () => {
     assert.strictEqual(await m.get("y"), null);
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
 test("sqlite map insertIfAbsent returns false on conflict", async () => {
-  const path = `./data/test-sqlite-map-insert-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
     const m = fullMap<{ n: number }>(factory, "kv");
     assert.strictEqual(await m.insertIfAbsent("a", { n: 1 }), true);
@@ -61,14 +63,11 @@ test("sqlite map insertIfAbsent returns false on conflict", async () => {
     assert.deepStrictEqual(await m.get("a"), { n: 1 });
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
 test("sqlite map get returns null on missing and put overwrites", async () => {
-  const path = `./data/test-sqlite-map-get-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
     const m = factory.map<{ n: number }>("kv");
     assert.strictEqual(await m.get("missing"), null);
@@ -79,14 +78,11 @@ test("sqlite map get returns null on missing and put overwrites", async () => {
     assert.strictEqual(await m.get("a"), null);
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
 test("sqlite map putIfAbsent returns existing value when present", async () => {
-  const path = `./data/test-sqlite-map-putifabsent-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
     const m = factory.map<{ n: number }>("kv");
     assert.deepStrictEqual(await m.putIfAbsent("a", { n: 1 }), { n: 1 });
@@ -94,14 +90,11 @@ test("sqlite map putIfAbsent returns existing value when present", async () => {
     assert.deepStrictEqual(await m.get("a"), { n: 1 });
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
 test("sqlite map missing-key semantics for merge, update, deleteIf, take", async () => {
-  const path = `./data/test-sqlite-map-missing-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
     const m = fullMap<{ a: number }>(factory, "kv");
     assert.strictEqual(await m.merge("missing", { a: 1 }), null);
@@ -113,29 +106,23 @@ test("sqlite map missing-key semantics for merge, update, deleteIf, take", async
     assert.deepStrictEqual(await m.get("a"), { a: 1 });
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
 test("sqlite map merge deletes keys patched with undefined", async () => {
-  const path = `./data/test-sqlite-map-undef-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
-    const m = factory.map<{ a: number; b?: number }>("kv");
+    const m = fullMap<{ a: number; b?: number }>(factory, "kv");
     await m.put("x", { a: 1, b: 2 });
     assert.deepStrictEqual(await m.merge("x", { b: undefined }), { a: 1 });
     assert.deepStrictEqual(await m.get("x"), { a: 1 });
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
 test("sqlite map all and entries are ordered by id", async () => {
-  const path = `./data/test-sqlite-map-all-${process.pid}.db`;
-  cleanupFiles(path);
-  const factory = createSqliteMapFactory(path);
+  const factory = createSqliteMapFactory(testPath());
   try {
     const m = factory.map<{ n: number }>("kv");
     await m.put("b", { n: 2 });
@@ -149,7 +136,6 @@ test("sqlite map all and entries are ordered by id", async () => {
     ]);
   } finally {
     factory.db.close();
-    cleanupFiles(path);
   }
 });
 
@@ -162,4 +148,11 @@ test("sqlite map rejects invalid table names", () => {
   } finally {
     db.close();
   }
+});
+
+test("sqlite map factory reports a config-style error for an unopenable path", () => {
+  assert.throws(
+    () => createSqliteMapFactory(join(dir, "no-such-dir", "x.db")),
+    /SQLITE_PATH .* could not be opened/,
+  );
 });

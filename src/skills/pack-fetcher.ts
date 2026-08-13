@@ -69,7 +69,7 @@ interface ValidatedRepo {
 }
 
 export function isLocalRepoPath(raw: string): boolean {
-  return raw.startsWith("/") || /^[A-Za-z]:[\\/]/.test(raw);
+  return raw.startsWith("/") || raw.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(raw);
 }
 
 async function validateRepoUrl(
