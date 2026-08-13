@@ -21,3 +21,7 @@ __pycache__/
 docs/master.html
 
 .context/
+
+# desktop build artifacts
+deploy/layers/meerkat/desktop/payload/
+deploy/layers/meerkat/desktop/.node-cache/

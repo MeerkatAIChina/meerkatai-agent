@@ -130,6 +130,7 @@ fn spawn_component(
     c: Component,
     port: u16,
     classifier_port: u16,
+    core_port: u16,
 ) -> io::Result<Child> {
     match c {
         Component::Classifier => {
@@ -154,7 +155,7 @@ fn spawn_component(
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
             Command::new(&ctx.node)
                 .current_dir(ctx.payload_dir.join("core"))
-                .arg("src/index.ts")
+                .arg("dist/index.mjs")
                 .env("NODE_ENV", "production")
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
@@ -183,7 +184,7 @@ fn spawn_component(
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
             Command::new(&ctx.node)
                 .current_dir(ctx.payload_dir.join("web-ui"))
-                .arg("server/index.ts")
+                .arg("dist-server/index.mjs")
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
                 .env("MEERKAT_DESKTOP", "1")
@@ -192,6 +193,7 @@ fn spawn_component(
                     ctx.payload_dir.join("config").join("seeds"),
                 )
                 .env("CORE_ORG_ID", "meerkat")
+                .env("CORE_API_URL", format!("http://127.0.0.1:{core_port}"))
                 .env("CORE_SIGNING_SECRET", &ctx.secrets.core_signing_secret)
                 .env(
                     "PORTAL_IDENTITY_SECRET",
@@ -209,9 +211,21 @@ pub fn spawn_stack(ctx: &StackCtx) -> io::Result<Stack> {
     let core_port = free_port()?;
     let web_ui_port = free_port()?;
     Ok(Stack {
-        classifier: spawn_component(ctx, Component::Classifier, classifier_port, classifier_port)?,
-        core: spawn_component(ctx, Component::Core, core_port, classifier_port)?,
-        web_ui: spawn_component(ctx, Component::WebUi, web_ui_port, classifier_port)?,
+        classifier: spawn_component(
+            ctx,
+            Component::Classifier,
+            classifier_port,
+            classifier_port,
+            core_port,
+        )?,
+        core: spawn_component(ctx, Component::Core, core_port, classifier_port, core_port)?,
+        web_ui: spawn_component(
+            ctx,
+            Component::WebUi,
+            web_ui_port,
+            classifier_port,
+            core_port,
+        )?,
         classifier_port,
         core_port,
         web_ui_port,
@@ -337,7 +351,13 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
                 continue;
             }
             respawned[i] = true;
-            match spawn_component(&ctx, *c, stack.port(*c), stack.port(Component::Classifier)) {
+            match spawn_component(
+                &ctx,
+                *c,
+                stack.port(*c),
+                stack.port(Component::Classifier),
+                stack.port(Component::Core),
+            ) {
                 Ok(child) => {
                     *stack.child_mut(*c) = child;
                     let _ = app.emit("service-restored", CrashEvent { component: *c });
@@ -367,8 +387,14 @@ pub fn retry(shared: &SharedStack, ctx: &StackCtx) -> Result<(), String> {
             Err(_) => true,
         };
         if dead {
-            let child = spawn_component(ctx, c, stack.port(c), stack.port(Component::Classifier))
-                .map_err(|e| e.to_string())?;
+            let child = spawn_component(
+                ctx,
+                c,
+                stack.port(c),
+                stack.port(Component::Classifier),
+                stack.port(Component::Core),
+            )
+            .map_err(|e| e.to_string())?;
             *stack.child_mut(c) = child;
         }
     }
