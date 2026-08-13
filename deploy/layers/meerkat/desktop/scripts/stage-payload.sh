@@ -50,6 +50,7 @@ fi
 node "$DESKTOP/scripts/bundle.mjs"
 mkdir -p "$PAYLOAD/core/dist/protocols"
 cp "$ROOT"/src/resolution/protocols/*.md "$PAYLOAD/core/dist/protocols/"
+cp "$ROOT/node_modules/tiktoken/tiktoken_bg.wasm" "$PAYLOAD/core/dist/"
 
 (cd "$ROOT/plugins/web-ui" && npm_run run build)
 mkdir -p "$PAYLOAD/web-ui"
