@@ -25,11 +25,18 @@ fn portal_token(ctx: State<'_, proc::StackCtx>) -> String {
     auth::mint_portal_identity(&ctx.secrets.portal_identity_secret)
 }
 
+#[tauri::command]
+fn status(state: State<'_, proc::PortsState>) -> Result<Vec<String>, String> {
+    let ports = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(proc::live_status(*ports))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             ports,
+            status,
             retry,
             diagnostics,
             portal_token

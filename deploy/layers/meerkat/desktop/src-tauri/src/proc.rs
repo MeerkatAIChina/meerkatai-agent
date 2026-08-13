@@ -277,6 +277,14 @@ fn probe_of(c: Component, ports: Ports) -> bool {
     }
 }
 
+pub fn live_status(ports: Ports) -> Vec<String> {
+    [Component::Classifier, Component::Core, Component::WebUi]
+        .into_iter()
+        .filter(|c| probe_of(*c, ports))
+        .map(|c| c.name().to_string())
+        .collect()
+}
+
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Ports) {

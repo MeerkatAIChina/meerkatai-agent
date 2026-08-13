@@ -233,6 +233,22 @@
         ports = p;
         maybeEnter();
       });
+
+      async function syncStatus() {
+        try {
+          const ready = await invoke("status");
+          for (const c of ready) {
+            if (state[c] !== "ready") {
+              state[c] = "ready";
+              render(c);
+              setMeta(c, "已就绪");
+            }
+          }
+          maybeEnter();
+        } catch (_) {}
+      }
+      syncStatus();
+      setInterval(syncStatus, 2000);
     </script>
   </body>
 </html>
