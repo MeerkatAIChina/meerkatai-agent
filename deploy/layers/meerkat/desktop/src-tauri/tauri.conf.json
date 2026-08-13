@@ -17,11 +17,12 @@
     "active": true,
     "targets": ["nsis", "dmg"],
     "createUpdaterArtifacts": true,
-    "icon": ["icons/icon.ico", "icons/icon.icns"]
+    "icon": ["icons/icon.ico", "icons/icon.icns"],
+    "resources": { "../payload": "payload" }
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRDA5RUVENUExOTU2Qjc2MA0KUldSZ3QxWVpXdTJlME1xN1daYnFGSUllMVVOeE51UVpqR0RpVUdMZ0hmQnpaai85UGtrTW5Nd0wNCg==",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5MTgzNzVDRkIzM0FEQ0QKUldUTnJUUDdYRGNZaVFGdkgrd3VhRUZBdnZnMkNsY1NZYTZ3L1htanYwaE5ZQUY0K0xISWg2ZkEK",
       "endpoints": ["https://updates.example.com/latest.json"]
     }
   }

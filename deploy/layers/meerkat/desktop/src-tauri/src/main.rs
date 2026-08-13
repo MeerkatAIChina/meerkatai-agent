@@ -37,6 +37,18 @@ fn main() {
         .setup(|app| {
             let payload_dir = std::env::var("MEERKAT_PAYLOAD_DIR")
                 .map(PathBuf::from)
+                .or_else(|_| {
+                    let exe = std::env::current_exe()?;
+                    let beside_exe = exe.parent().unwrap_or(&exe).join("payload");
+                    if beside_exe.is_dir() {
+                        Ok(beside_exe)
+                    } else {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "no payload beside exe",
+                        ))
+                    }
+                })
                 .unwrap_or_else(|_| PathBuf::from("../payload"));
             let payload_dir = std::path::absolute(&payload_dir).unwrap_or(payload_dir);
             let data_dir = app
