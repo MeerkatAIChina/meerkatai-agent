@@ -2,6 +2,7 @@ import { sendJson } from "../http.ts";
 import type { ApiCtx, Route } from "./route.ts";
 import { audit, authorizeAdmin, orgScope } from "./shared.ts";
 import type { NewSkillPack, SkillPack } from "../../skills/skill-pack-store.ts";
+import { isLocalRepoPath } from "../../skills/pack-fetcher.ts";
 import type { PackConfig } from "../../skills/normalize.ts";
 import { parseScopeId, type ScopeId } from "../../types.ts";
 
@@ -65,12 +66,20 @@ async function registerPack(ctx: ApiCtx): Promise<void> {
   if (typeof b.url !== "string" || !b.url.trim()) {
     return sendJson(ctx.res, 400, { error: "bad_request", message: "url is required" });
   }
+  const url = b.url.trim();
+  const allowLocal = b.allowLocal === true;
+  if (allowLocal && !isLocalRepoPath(url)) {
+    return sendJson(ctx.res, 400, {
+      error: "bad_request",
+      message: "allowLocal requires a local directory path chosen by the user",
+    });
+  }
   const subset = asSubset(b.subset);
   if (subset === undefined)
     return sendJson(ctx.res, 400, { error: "bad_request", message: "subset must be 'all' or string[]" });
   const input: NewSkillPack = {
     kind: "git",
-    url: b.url.trim(),
+    url,
     ref: typeof b.ref === "string" ? b.ref.trim() : "",
 
     syncMode: "pinned",
@@ -78,6 +87,7 @@ async function registerPack(ctx: ApiCtx): Promise<void> {
     targetScopeId: orgScope(ctx.deps),
     subset,
     createdBy: actor.id,
+    ...(allowLocal ? { local: true } : {}),
     ...(asConfig(b.config) ? { config: asConfig(b.config) } : {}),
     ...(typeof b.authCredentialSlug === "string" && b.authCredentialSlug
       ? { authCredentialSlug: b.authCredentialSlug }

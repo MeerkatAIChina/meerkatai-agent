@@ -1038,6 +1038,7 @@ export function buildApp(
     keychain
       ? {
           allowLocalRepos: !config.production,
+          allowExplicitLocalPacks: config.allowLocalSkillPacks,
           resolveAuth: (pack) =>
             resolvePackAuth(
               {
@@ -1051,7 +1052,7 @@ export function buildApp(
               pack,
             ),
         }
-      : { allowLocalRepos: !config.production },
+      : { allowLocalRepos: !config.production, allowExplicitLocalPacks: config.allowLocalSkillPacks },
   );
   const reaper: Reaper = createReaper(runs, sessions, {
     intervalMs: config.reaperIntervalMs,

@@ -26,6 +26,7 @@ export interface SkillPack {
   targetScopeId: ScopeId;
   subset: "all" | string[];
   authCredentialSlug?: string;
+  local?: boolean;
   createdBy: string;
   createdAt: number;
   lastImport?: ImportRecord;

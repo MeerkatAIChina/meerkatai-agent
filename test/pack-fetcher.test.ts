@@ -226,7 +226,7 @@ test("resolvePackAuth: a non-github / local repo with no slug uses no token (pub
 });
 
 test("rejects local and command-executing git transports", async () => {
-  await assert.rejects(() => createGitFetcher().fetch(src({ url: "/tmp/repo" })), /must use https/);
+  await assert.rejects(() => createGitFetcher().fetch(src({ url: "/tmp/repo" })), /local skill pack paths are not permitted/);
   await assert.rejects(() => createGitFetcher().fetch(src({ url: "file:///tmp/repo" })), /credential-free https/);
   await assert.rejects(() => createGitFetcher().fetch(src({ url: "ext::sh -c id" })), /https/);
   await assert.rejects(
@@ -318,6 +318,68 @@ test("accepts a public IPv6-literal repository without DNS resolution", async ()
     assert.equal(env.GIT_CONFIG_VALUE_0, "false");
     assert.equal(env.GIT_CONFIG_KEY_1, "http.proxy");
     assert.equal(env.GIT_CONFIG_VALUE_1, "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an explicitly authorized local pack fetches only when the local-import channel is enabled", async () => {
+  const { dir, sha } = makeSourceRepo();
+  try {
+    const repo = await createGitFetcher({ allowExplicitLocalPacks: true }).fetch(
+      src({ url: dir, ref: sha, local: true }),
+    );
+    assert.equal(repo.commit, sha);
+    assert.ok(repo.files.some((f) => f.path === "skills/demo/SKILL.md"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a local path without explicit pack authorization is rejected even when the channel is enabled", async () => {
+  const { dir } = makeSourceRepo();
+  try {
+    await assert.rejects(
+      () => createGitFetcher({ allowExplicitLocalPacks: true }).fetch(src({ url: dir })),
+      /local skill pack paths are not permitted/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an explicitly authorized local pack is still rejected when the channel is disabled", async () => {
+  const { dir } = makeSourceRepo();
+  try {
+    await assert.rejects(
+      () => createGitFetcher().fetch(src({ url: dir, local: true })),
+      /local skill pack paths are not permitted/,
+    );
+    await assert.rejects(
+      () => createGitFetcher({ allowExplicitLocalPacks: false }).resolveRef(src({ url: dir, local: true })),
+      /local skill pack paths are not permitted/,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRef applies the same explicit-local gating as fetch", async () => {
+  const { dir, sha } = makeSourceRepo();
+  try {
+    const fetcher = createGitFetcher({ allowExplicitLocalPacks: true });
+    assert.equal(await fetcher.resolveRef(src({ url: dir, local: true })), sha);
+    await assert.rejects(() => fetcher.resolveRef(src({ url: dir })), /local skill pack paths are not permitted/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the blanket non-production allowLocalRepos still admits local paths without a pack flag", async () => {
+  const { dir, sha } = makeSourceRepo();
+  try {
+    const repo = await createGitFetcher({ allowLocalRepos: true }).fetch(src({ url: dir, ref: sha }));
+    assert.equal(repo.commit, sha);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

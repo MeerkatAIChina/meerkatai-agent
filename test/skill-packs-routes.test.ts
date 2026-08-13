@@ -1007,3 +1007,47 @@ test("a pack skill whose name collides with a native skill in ANOTHER scope stil
     await s.close();
   }
 });
+
+test("register marks a pack local only on explicit allowLocal, and rejects allowLocal for remote urls", async () => {
+  const repo = makeFixtureRepo();
+  const s = start();
+  try {
+    const remote = await fetch(`${s.base}/v1/admin/skill-packs`, {
+      method: "POST",
+      headers: ADMIN,
+      body: JSON.stringify({ url: "https://github.com/o/r", allowLocal: true }),
+    });
+    assert.equal(remote.status, 400);
+    assert.match((await json(remote)).message, /allowLocal/);
+
+    const plain = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ url: repo.dir, ref: repo.sha }),
+      }),
+    );
+    assert.equal(plain.pack.local, undefined, "no flag, no local marker");
+
+    const explicit = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ url: repo.dir, ref: repo.sha, allowLocal: true }),
+      }),
+    );
+    assert.equal(explicit.pack.local, true, "explicit selection marks the pack local");
+    assert.equal(explicit.pack.available, 3, "registration still scans the local repo");
+    const imp = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs/${explicit.pack.id}/import`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ selected: "all" }),
+      }),
+    );
+    assert.ok(imp.imported.includes("reg-alpha"), "the explicitly local pack imports");
+  } finally {
+    rmSync(repo.dir, { recursive: true, force: true });
+    await s.close();
+  }
+});

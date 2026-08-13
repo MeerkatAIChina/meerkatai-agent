@@ -93,6 +93,7 @@ export interface Config {
   runStore: "memory" | "postgres";
   skillSigningSecret?: string;
   seedSkills: boolean;
+  allowLocalSkillPacks: boolean;
   skillsSeedDir: string;
   pluginSkillDirs: string[];
   classifierUrl?: string;
@@ -806,6 +807,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     runStore,
     ...(env.SKILL_SIGNING_SECRET ? { skillSigningSecret: env.SKILL_SIGNING_SECRET } : {}),
     seedSkills: boolEnvStrict("SEED_SKILLS", env.SEED_SKILLS) ?? true,
+    allowLocalSkillPacks: boolEnvStrict("ALLOW_LOCAL_SKILL_PACKS", env.ALLOW_LOCAL_SKILL_PACKS) ?? false,
     skillsSeedDir: resolve(env.SKILLS_SEED_DIR ?? "./skills-seed"),
     pluginSkillDirs: csvPaths(env.PLUGIN_SKILLS_DIRS) ?? defaultPluginSkillDirs(),
     ...(classifierUrl ? { classifierUrl } : {}),
