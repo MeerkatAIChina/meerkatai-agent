@@ -159,12 +159,14 @@ fn spawn_component(
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
                 .env("DATA_DIR", &ctx.data_dir)
+                .env("SANDBOX_BACKEND", "local")
                 .env("SESSION_STORE", "sqlite")
                 .env(
                     "CLASSIFIER_URL",
                     format!("http://127.0.0.1:{classifier_port}"),
                 )
                 .env("ALLOW_LOCAL_SKILL_PACKS", "1")
+                .env("ADMIN_GRANTS", "meerkat-desktop:org_admin")
                 .env("CAPABILITY_SECRET", &ctx.secrets.capability_secret)
                 .env("CONNECTOR_SECRET_KEY", &ctx.secrets.connector_secret_key)
                 .env("CORE_SIGNING_SECRET", &ctx.secrets.core_signing_secret)
@@ -184,6 +186,11 @@ fn spawn_component(
                 .arg("server/index.ts")
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
+                .env("MEERKAT_DESKTOP", "1")
+                .env(
+                    "MEERKAT_SEEDS_DIR",
+                    ctx.payload_dir.join("config").join("seeds"),
+                )
                 .env("CORE_ORG_ID", "meerkat")
                 .env("CORE_SIGNING_SECRET", &ctx.secrets.core_signing_secret)
                 .env(

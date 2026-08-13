@@ -12,6 +12,12 @@ export function withBase(path: string): string {
   return `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+function withPortalToken(url: string): string {
+  const token = (window as unknown as { __MEERKAT_PORTAL_TOKEN__?: string }).__MEERKAT_PORTAL_TOKEN__;
+  if (!token) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}portal_token=${encodeURIComponent(token)}`;
+}
+
 const POLL_MS = 500;
 const POLL_RETRY_MAX_MS = 5_000;
 export const RUN_IDLE_MS = 6 * 60_000;
@@ -923,7 +929,7 @@ export function subscribeDeliveries(
   onResync?: () => void,
 ): () => void {
   if (typeof EventSource === "undefined") return () => {};
-  const es = new EventSource(withBase("/api/deliveries/events"));
+  const es = new EventSource(withPortalToken(withBase("/api/deliveries/events")));
   let everOpened = false;
   es.onopen = (): void => {
     if (everOpened) onResync?.();
@@ -961,7 +967,7 @@ function streamRunViaSse(
     if (typeof EventSource === "undefined") return resolve("fallback");
     let settled = false;
     let established = false;
-    const es = new EventSource(withBase(runPath(runId, "/events")));
+    const es = new EventSource(withPortalToken(withBase(runPath(runId, "/events"))));
     const settle = (outcome: "done" | "fallback"): void => {
       if (settled) return;
       settled = true;

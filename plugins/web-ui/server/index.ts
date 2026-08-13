@@ -27,6 +27,7 @@ import {
   PORTAL_IDENTITY_SECRET,
   portFromEnv,
 } from "../../chassis/src/env.ts";
+import { swallow } from "../../chassis/src/errors.ts";
 
 const PORT = portFromEnv(8096);
 const PUBLIC_URL = (process.env.WEB_UI_PUBLIC_URL ?? `http://localhost:${PORT}`).replace(/\/$/, "");
@@ -247,12 +248,20 @@ interface Identity {
 }
 type Denial = "unauthenticated" | "not_allowed";
 
+function portalTokenFromQuery(req: IncomingMessage): string | null {
+  try {
+    return new URL(req.url ?? "/", "http://localhost").searchParams.get("portal_token");
+  } catch {
+    return null;
+  }
+}
+
 function authenticate(req: IncomingMessage): { identity: Identity } | { denied: Denial } {
   let user: string | null | undefined;
   let name: string | null | undefined;
   let impersonator: string | null | undefined;
   const raw = req.headers[PORTAL_IDENTITY_HEADER];
-  const token = Array.isArray(raw) ? raw[0] : raw;
+  const token = (Array.isArray(raw) ? raw[0] : raw) ?? portalTokenFromQuery(req) ?? undefined;
   const claims =
     token && PORTAL_IDENTITY_SECRET ? verifyPortalIdentity(token, PORTAL_IDENTITY_SECRET, Date.now()) : null;
   if (claims) {
@@ -709,6 +718,128 @@ async function serveVite(req: IncomingMessage, res: ServerResponse, path: string
   return true;
 }
 
+const DESKTOP = process.env.MEERKAT_DESKTOP === "1";
+const SEEDS_DIR = process.env.MEERKAT_SEEDS_DIR?.trim() || null;
+
+interface SeedModel {
+  id: string;
+}
+interface SeedProvider {
+  id: string;
+  name: string;
+  protocol: string;
+  baseUrl: string;
+  models: SeedModel[];
+}
+
+function readSeed<T>(file: string): T | null {
+  if (!SEEDS_DIR) return null;
+  try {
+    return JSON.parse(readFileSync(join(SEEDS_DIR, file), "utf8")) as T;
+  } catch (e) {
+    swallow("setup:seed", e);
+    return null;
+  }
+}
+
+function setupDefaults(): { tensoris: SeedProvider; localSecure: SeedProvider; defaults: Record<string, unknown> } {
+  const tensoris = readSeed<SeedProvider>("providers.tensoris.json") ?? {
+    id: "tensoris",
+    name: "tensoris",
+    protocol: "openai-compatible",
+    baseUrl: "https://api.tensoris.ai/v1",
+    models: [{ id: "gpt-5.4-nano" }, { id: "gemini-3.1-flash-lite" }],
+  };
+  const localSecure = readSeed<SeedProvider>("providers.local-secure.json") ?? {
+    id: "local-secure",
+    name: "local-secure",
+    protocol: "openai-compatible",
+    baseUrl: "",
+    models: [{ id: "meerkat-triz-v1" }],
+  };
+  const defaults = readSeed<Record<string, unknown>>("defaults.json") ?? {};
+  return { tensoris, localSecure, defaults };
+}
+
+let setupCache: { at: number; needs: boolean } | null = null;
+
+async function needsSetup(): Promise<boolean> {
+  if (setupCache && Date.now() - setupCache.at < 10_000) return setupCache.needs;
+  let needs = false;
+  try {
+    const r = await coreFetch("GET", "/v1/admin/custom-providers", "", 3_000);
+    if (r.status === 200) {
+      const parsed = JSON.parse(r.text) as { providers?: unknown[] };
+      needs = Array.isArray(parsed.providers) && parsed.providers.length === 0;
+    }
+  } catch (e) {
+    swallow("setup:probe", e);
+  }
+  setupCache = { at: Date.now(), needs };
+  return needs;
+}
+
+function serveSetupHtml(res: ServerResponse): void {
+  sendHtml(res, 200, readFileSync(join(ROOT, "server", "setup.html"), "utf8"));
+}
+
+async function registerProviders(res: ServerResponse, rawBody: string): Promise<void> {
+  let body: { token?: unknown; localEndpoint?: unknown };
+  try {
+    body = JSON.parse(rawBody) as { token?: unknown; localEndpoint?: unknown };
+  } catch {
+    return json(res, 400, { error: "bad_request" });
+  }
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!token) return json(res, 400, { error: "bad_request", message: "service token is required" });
+  const { tensoris, localSecure } = setupDefaults();
+  const put = await coreFetch(
+    "PUT",
+    `/v1/admin/custom-providers/${tensoris.id}`,
+    JSON.stringify({
+      name: tensoris.name,
+      protocol: tensoris.protocol,
+      baseUrl: tensoris.baseUrl,
+      models: tensoris.models,
+      apiKey: token,
+    }),
+  );
+  if (put.status !== 200) {
+    let message = put.text;
+    try {
+      message = (JSON.parse(put.text) as { message?: string }).message ?? put.text;
+    } catch (e) {
+      swallow("setup:parse", e);
+    }
+    return json(res, put.status === 400 ? 400 : 502, { error: "register_failed", message });
+  }
+  const localEndpoint =
+    typeof body.localEndpoint === "string" ? body.localEndpoint.trim().replace(/\/+$/, "") : "";
+  let localReachable: boolean | null = null;
+  if (localEndpoint) {
+    try {
+      const probe = await fetch(`${localEndpoint}/models`, { signal: AbortSignal.timeout(3_000) });
+      localReachable = probe.ok;
+    } catch (e) {
+      swallow("setup:local-probe", e);
+      localReachable = false;
+    }
+    await coreFetch(
+      "PUT",
+      `/v1/admin/custom-providers/${localSecure.id}`,
+      JSON.stringify({
+        name: localSecure.name,
+        protocol: localSecure.protocol,
+        baseUrl: localEndpoint,
+        models: localSecure.models,
+        validate: false,
+      }),
+    );
+  }
+  setupCache = null;
+  return json(res, 200, { ok: true, localReachable });
+}
+
 const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const path = url.pathname;
@@ -767,6 +898,10 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
   if (path === "/me" || path.startsWith("/api/")) {
     const user = cookieUser(req);
     if (!user) return unauthorized(res, req);
+
+    if (DESKTOP && method === "GET" && path === "/api/setup/defaults") return json(res, 200, setupDefaults());
+    if (DESKTOP && method === "POST" && path === "/api/setup/register")
+      return registerProviders(res, await readBody(req));
 
     if (path === "/me") {
       res.setHeader("set-cookie", sessionCookie(user));
@@ -1888,6 +2023,11 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
     return res.end(Buffer.from(await up.arrayBuffer()));
   }
 
+  if (method === "GET" && DESKTOP && (path === "/" || path === "/setup")) {
+    if (!cookieUser(req)) return unauthorized(res, req);
+    if (path === "/setup" || (await needsSetup())) return serveSetupHtml(res);
+  }
+
   if (method === "GET" && path === "/app-edit" && (await serveAppEditHtml(req, res, url))) return;
 
   if (method === "GET") {
@@ -1904,7 +2044,7 @@ export const handler = async (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("x-frame-options", "DENY");
   const raw = req.headers[PORTAL_IDENTITY_HEADER];
-  const token = Array.isArray(raw) ? raw[0] : raw;
+  const token = (Array.isArray(raw) ? raw[0] : raw) ?? portalTokenFromQuery(req) ?? undefined;
   try {
     await portalTokenStore.run(token, () => routeRequest(req, res));
   } catch (err) {

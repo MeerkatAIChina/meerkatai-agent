@@ -168,8 +168,10 @@
       function maybeEnter() {
         if (!ports) return;
         if (state.core === "ready" && state.web_ui === "ready") {
-          setTimeout(() => {
-            window.location.href = `http://127.0.0.1:${ports.web_ui}/`;
+          setTimeout(async () => {
+            const token = await invoke("portal_token");
+            window.location.href =
+              `http://127.0.0.1:${ports.web_ui}/?portal_token=${encodeURIComponent(token)}`;
           }, 400);
         }
       }

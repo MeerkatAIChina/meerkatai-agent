@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meerkat 初始设置</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101216;
+        --panel: #181b21;
+        --line: #262b33;
+        --text: #d7dbe0;
+        --muted: #8b929c;
+        --accent: #c85a3c;
+        --green: #4cc38a;
+        --red: #e06c75;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      main { width: 460px; padding: 24px; }
+      h1 { font-size: 20px; margin: 0 0 6px; }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; line-height: 1.6; }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 14px;
+      }
+      label { display: block; font-size: 13px; margin-bottom: 8px; }
+      label small { color: var(--muted); margin-left: 6px; }
+      input {
+        width: 100%;
+        font: inherit;
+        font-size: 13px;
+        padding: 9px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+        color: var(--text);
+        outline: none;
+      }
+      input:focus { border-color: var(--accent); }
+      .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+      button {
+        font: inherit;
+        font-size: 14px;
+        width: 100%;
+        padding: 11px;
+        border-radius: 8px;
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        margin-top: 6px;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #status { font-size: 13px; min-height: 20px; margin-top: 14px; line-height: 1.5; }
+      #status.err { color: var(--red); }
+      #status.ok { color: var(--green); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>欢迎使用 Meerkat</h1>
+      <p class="sub">首次使用需要完成服务配置。以下信息由你的服务提供方签发。</p>
+      <section>
+        <label for="token">服务令牌 <small>必填</small></label>
+        <input id="token" type="password" autocomplete="off" placeholder="粘贴服务令牌" />
+        <p class="hint" id="provider-hint"></p>
+      </section>
+      <section>
+        <label for="local">本地模型服务地址 <small>选填</small></label>
+        <input id="local" type="text" autocomplete="off" placeholder="http://127.0.0.1:8000/v1" />
+        <p class="hint">部署了本地安全模型后填写。未配置时，涉及隐私的内容将无法应答。</p>
+      </section>
+      <button id="save" disabled>验证并保存</button>
+      <p id="status"></p>
+    </main>
+    <script>
+      (function () {
+        var KEY = "meerkat.portal_token";
+        var params = new URLSearchParams(location.search);
+        var token = params.get("portal_token");
+        if (token) {
+          localStorage.setItem(KEY, token);
+          params.delete("portal_token");
+          var q = params.toString();
+          history.replaceState(null, "", location.pathname + (q ? "?" + q : ""));
+        }
+        var portal = token || localStorage.getItem(KEY) || "";
+
+        var tokenInput = document.getElementById("token");
+        var localInput = document.getElementById("local");
+        var saveBtn = document.getElementById("save");
+        var status = document.getElementById("status");
+
+        tokenInput.addEventListener("input", function () {
+          saveBtn.disabled = !tokenInput.value.trim();
+        });
+
+        function say(text, cls) {
+          status.textContent = text;
+          status.className = cls || "";
+        }
+
+        fetch("/api/setup/defaults", { headers: { "x-portal-identity": portal } })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.tensoris) {
+              document.getElementById("provider-hint").textContent =
+                "服务地址：" + d.tensoris.baseUrl;
+            }
+          })
+          .catch(function () {});
+
+        saveBtn.addEventListener("click", function () {
+          saveBtn.disabled = true;
+          say("正在验证并保存…");
+          fetch("/api/setup/register", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-portal-identity": portal },
+            body: JSON.stringify({
+              token: tokenInput.value.trim(),
+              localEndpoint: localInput.value.trim() || undefined,
+            }),
+          })
+            .then(async function (r) {
+              var body = await r.json().catch(function () { return {}; });
+              if (!r.ok) {
+                say("保存失败：" + (body.message || r.status), "err");
+                saveBtn.disabled = false;
+                return;
+              }
+              if (body.localReachable === false) {
+                say("已保存。注意：本地模型服务暂时连不通，可稍后重试。", "ok");
+              } else {
+                say("配置完成，正在进入…", "ok");
+              }
+              setTimeout(function () {
+                location.href = "/?portal_token=" + encodeURIComponent(portal);
+              }, body.localReachable === false ? 1800 : 500);
+            })
+            .catch(function (e) {
+              say("网络错误：" + e, "err");
+              saveBtn.disabled = false;
+            });
+        });
+      })();
+    </script>
+  </body>
+</html>

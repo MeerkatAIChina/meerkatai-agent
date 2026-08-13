@@ -1,3 +1,4 @@
+mod auth;
 mod proc;
 mod secrets;
 
@@ -22,10 +23,20 @@ fn diagnostics(ctx: State<'_, proc::StackCtx>) -> String {
     proc::diagnostics(&ctx.data_dir)
 }
 
+#[tauri::command]
+fn portal_token(ctx: State<'_, proc::StackCtx>) -> String {
+    auth::mint_portal_identity(&ctx.secrets.portal_identity_secret)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![ports, retry, diagnostics])
+        .invoke_handler(tauri::generate_handler![
+            ports,
+            retry,
+            diagnostics,
+            portal_token
+        ])
         .setup(|app| {
             let payload_dir = std::env::var("MEERKAT_PAYLOAD_DIR")
                 .map(PathBuf::from)
