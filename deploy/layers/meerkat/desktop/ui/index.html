@@ -3,8 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Meerkat</title>
+    <title>Meerkat 启动</title>
     <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101216;
+        --panel: #181b21;
+        --line: #262b33;
+        --text: #d7dbe0;
+        --muted: #8b929c;
+        --green: #4cc38a;
+        --yellow: #e5c07b;
+        --red: #e06c75;
+      }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
@@ -12,12 +24,213 @@
         align-items: center;
         justify-content: center;
         font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-        background: #101216;
-        color: #d7dbe0;
+        background: var(--bg);
+        color: var(--text);
       }
+      main { width: 420px; }
+      h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+      .item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin-bottom: 10px;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex-shrink: 0;
+      }
+      .item.pending .dot { animation: pulse 1.2s ease-in-out infinite; }
+      .item.ready .dot { background: var(--green); }
+      .item.degraded .dot { background: var(--yellow); }
+      .item.failed .dot { background: var(--red); }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+      }
+      .name { flex: 1; font-size: 14px; }
+      .meta { font-size: 12px; color: var(--muted); }
+      .reason {
+        width: 100%;
+        font-size: 12px;
+        margin-top: 8px;
+        line-height: 1.5;
+      }
+      .item.failed .reason { color: var(--red); }
+      .item.degraded .reason { color: var(--yellow); }
+      .item .body { flex: 1; display: flex; flex-direction: column; }
+      .row { display: flex; align-items: center; gap: 12px; }
+      button {
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--muted); }
+      .actions { margin-top: 20px; display: none; gap: 10px; }
+      .actions.show { display: flex; }
+      #interrupt {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(16, 18, 22, 0.92);
+        z-index: 10;
+      }
+      #interrupt.show { display: flex; }
+      #interrupt .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 28px 36px;
+        text-align: center;
+      }
+      #interrupt .card p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
     </style>
   </head>
   <body>
-    <p>Meerkat 正在启动…</p>
+    <main>
+      <h1>Meerkat 正在启动</h1>
+      <p class="sub">正在拉起本地服务…</p>
+      <div class="item pending" id="item-classifier">
+        <span class="dot"></span>
+        <div class="body">
+          <div class="row"><span class="name">分类器</span><span class="meta"></span></div>
+          <div class="reason" hidden></div>
+        </div>
+      </div>
+      <div class="item pending" id="item-core">
+        <span class="dot"></span>
+        <div class="body">
+          <div class="row"><span class="name">核心服务</span><span class="meta"></span></div>
+          <div class="reason" hidden></div>
+        </div>
+      </div>
+      <div class="item pending" id="item-web_ui">
+        <span class="dot"></span>
+        <div class="body">
+          <div class="row"><span class="name">界面服务</span><span class="meta"></span></div>
+          <div class="reason" hidden></div>
+        </div>
+      </div>
+      <div class="actions" id="actions">
+        <button id="retry">重试</button>
+        <button id="copy">复制诊断信息</button>
+      </div>
+    </main>
+    <div id="interrupt">
+      <div class="card">
+        <strong>服务中断，正在重启</strong>
+        <p id="interrupt-detail"></p>
+      </div>
+    </div>
+    <script>
+      const { listen } = window.__TAURI__.event;
+      const { invoke } = window.__TAURI__.core;
+
+      const state = { classifier: "pending", core: "pending", web_ui: "pending" };
+      let ports = null;
+
+      function render(component) {
+        const el = document.getElementById(`item-${component}`);
+        const status = state[component];
+        el.className = `item ${status}`;
+        const reason = el.querySelector(".reason");
+        if (status === "ready") {
+          reason.hidden = true;
+        }
+        return el;
+      }
+
+      function setMeta(component, text) {
+        document.querySelector(`#item-${component} .meta`).textContent = text;
+      }
+
+      function setReason(component, text) {
+        const el = document.getElementById(`item-${component}`);
+        const reason = el.querySelector(".reason");
+        reason.textContent = text;
+        reason.hidden = false;
+      }
+
+      function maybeEnter() {
+        if (!ports) return;
+        if (state.core === "ready" && state.web_ui === "ready") {
+          setTimeout(() => {
+            window.location.href = `http://127.0.0.1:${ports.web_ui}/`;
+          }, 400);
+        }
+      }
+
+      listen("component-ready", (e) => {
+        const { component, elapsed_ms } = e.payload;
+        state[component] = "ready";
+        render(component);
+        setMeta(component, `${(elapsed_ms / 1000).toFixed(1)}s`);
+        maybeEnter();
+      });
+
+      listen("component-failed", (e) => {
+        const { component, severity, reason } = e.payload;
+        state[component] = severity === "fatal" ? "failed" : "degraded";
+        render(component);
+        const suffix =
+          component === "classifier"
+            ? "所有问答将按敏感内容处理。"
+            : "";
+        setReason(component, `${reason}${suffix ? "——" + suffix : ""}`);
+        if (severity === "fatal") {
+          document.getElementById("actions").classList.add("show");
+        }
+      });
+
+      listen("service-crashed", (e) => {
+        document.getElementById("interrupt-detail").textContent =
+          `组件 ${e.payload.component} 意外退出`;
+        document.getElementById("interrupt").classList.add("show");
+      });
+
+      listen("service-restored", () => {
+        document.getElementById("interrupt").classList.remove("show");
+      });
+
+      document.getElementById("retry").addEventListener("click", async () => {
+        try {
+          await invoke("retry");
+          for (const c of ["classifier", "core", "web_ui"]) {
+            if (state[c] !== "ready") {
+              state[c] = "pending";
+              render(c);
+              document.querySelector(`#item-${c} .reason`).hidden = true;
+            }
+          }
+          document.getElementById("actions").classList.remove("show");
+        } catch (err) {
+          setReason("core", `重试失败：${err}`);
+        }
+      });
+
+      document.getElementById("copy").addEventListener("click", async () => {
+        const text = await invoke("diagnostics");
+        await navigator.clipboard.writeText(text);
+      });
+
+      invoke("ports").then((p) => {
+        ports = p;
+        maybeEnter();
+      });
+    </script>
   </body>
 </html>

@@ -10,13 +10,13 @@
   },
   "app": {
     "windows": [],
+    "withGlobalTauri": true,
     "security": { "csp": null }
   },
   "bundle": {
     "active": true,
     "targets": ["nsis", "dmg"],
-    "icon": ["icons/icon.ico", "icons/icon.icns"],
-    "externalBin": ["binaries/node"]
+    "icon": ["icons/icon.ico", "icons/icon.icns"]
   },
   "plugins": {
     "updater": {
