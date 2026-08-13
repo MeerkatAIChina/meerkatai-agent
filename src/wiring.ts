@@ -32,6 +32,7 @@ import { createSkillBundleStore, type SkillBundle, type SkillBundleStore } from 
 import { createGitFetcher, resolvePackAuth, type SkillPackFetcher } from "./skills/pack-fetcher.ts";
 import { installSeedSkills } from "./skills/seed.ts";
 import { createMemoryMap, createPostgresMapFactory, type DurableMap } from "./persistence/durable-map.ts";
+import { createSqliteMapFactory } from "./persistence/sqlite-map.ts";
 import { createPostgresLeaderLease, createNoopLeaderLease, type LeaderLease } from "./persistence/leader-lease.ts";
 import {
   createMemoryAdvisoryLock,
@@ -163,6 +164,7 @@ import { setCustomProviders } from "./model/custom-providers.ts";
 import { createCustomProviderStore, type CustomProviderStore } from "./model/custom-provider-store.ts";
 import { createMemorySessionStore } from "./sessions/memory-session-store.ts";
 import { createPostgresSessionStore } from "./sessions/postgres-session-store.ts";
+import { createSqliteSessionStore } from "./sessions/sqlite-session-store.ts";
 import type { SessionStore } from "./sessions/session-store.ts";
 import { createMockHarness } from "./harness/mock-harness.ts";
 import { createOpenCodeHarness, openCodeHarnessConfigOptions } from "./harness/opencode-harness.ts";
@@ -400,8 +402,11 @@ export function buildApp(
       membership.managesArtifactHome!(scopeId, authoredBy ?? "", principalId),
   });
   const pgArtifactMap = config.databaseUrl ? createPostgresMapFactory(config.databaseUrl) : null;
+  const sqliteMapFactory = config.sqlitePath ? createSqliteMapFactory(config.sqlitePath) : null;
   const artifactMap = <T>(table: string): DurableMap<T> =>
-    pgArtifactMap ? pgArtifactMap.map<T>(table) : createMemoryMap<T>();
+    pgArtifactMap ? pgArtifactMap.map<T>(table)
+    : sqliteMapFactory ? sqliteMapFactory.map<T>(table)
+    : createMemoryMap<T>();
   setProviderBaseUrls(config.providerBaseUrls);
   const modelCredentials = createModelCredentialStore({
     backing: artifactMap("model_credentials"),
@@ -683,7 +688,9 @@ export function buildApp(
   const sessions: SessionStore =
     config.sessionStore === "postgres"
       ? createPostgresSessionStore(requireDbUrl("SESSION_STORE"))
-      : createMemorySessionStore();
+      : config.sessionStore === "sqlite"
+        ? createSqliteSessionStore(config.sqlitePath!)
+        : createMemorySessionStore();
   const runStoreKind = config.runStore;
   const runSignals: RunSignalStore =
     runStoreKind === "postgres"
@@ -1431,6 +1438,8 @@ export function buildApp(
       void runActivity.close?.();
       await harness.turns.close?.();
       await tasks.close?.();
+      void (sessions as { close?: () => void }).close?.();
+      sqliteMapFactory?.db.close();
     },
   };
 

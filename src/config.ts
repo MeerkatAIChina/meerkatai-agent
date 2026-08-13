@@ -27,7 +27,8 @@ export interface Config {
   port: number;
   dataDir: string;
   orgId: string;
-  sessionStore: "memory" | "postgres";
+  sessionStore: "memory" | "postgres" | "sqlite";
+  sqlitePath?: string;
   databaseUrl?: string;
   harness: "mock" | "pi" | "opencode" | "codex" | "claude";
   securityPosture: SecurityPosture;
@@ -561,15 +562,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`missing or insecure required core secrets: ${missingSecrets.join(", ")}`);
   }
   const modelProvider = modelProviderEnvStrict(env);
-  for (const key of ["SESSION_STORE", "RUN_STORE", "ARTIFACT_STORE"] as const) {
-    if (env[key] === "sqlite") {
-      throw new Error(
-        `${key}=sqlite is no longer supported — SQLite was removed. ` +
-          `Set ${key === "ARTIFACT_STORE" ? "DATABASE_URL (Postgres)" : `${key}=postgres (with DATABASE_URL)`} for durability, ` +
-          `or use the in-memory default (${key === "ARTIFACT_STORE" ? "unset ARTIFACT_STORE" : `${key}=memory`}) for an ephemeral store.`,
-      );
-    }
-  }
   if (env.NODE_ENV === "production" && harnessEnvStrict(env.HARNESS) === "mock") {
     console.warn(
       `[config] HARNESS is ${env.HARNESS?.trim() ? '"mock"' : "unset, which means mock"} in production — this deployment answers every message with canned text and calls no model provider. Set HARNESS=pi to run real agent turns.`,
@@ -581,6 +573,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
   const dataDir = resolve(env.DATA_DIR ?? "./data");
+  if (env.SESSION_STORE === "sqlite" && env.DATABASE_URL) {
+    throw new Error(
+      "SESSION_STORE=sqlite cannot be combined with DATABASE_URL — sessions and session locks must share one backend; unset DATABASE_URL or use SESSION_STORE=postgres.",
+    );
+  }
+  const sqlitePath =
+    env.SESSION_STORE === "sqlite"
+      ? resolve(env.SQLITE_PATH ?? join(dataDir, "meerkat.db"))
+      : undefined;
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
     throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, or local.");
   }
@@ -699,7 +700,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: numEnvStrict("PORT", env.PORT) ?? CONFIG_DEFAULTS.port,
     dataDir,
     orgId: env.ORG_ID ?? DEFAULT_ORG_ID,
-    sessionStore: env.SESSION_STORE === "postgres" ? "postgres" : "memory",
+    sessionStore: env.SESSION_STORE === "postgres" ? "postgres" : env.SESSION_STORE === "sqlite" ? "sqlite" : "memory",
+    ...(sqlitePath ? { sqlitePath } : {}),
     ...(env.DATABASE_URL ? { databaseUrl: env.DATABASE_URL } : {}),
     harness: harnessEnvStrict(env.HARNESS),
     securityPosture: securityPostureEnvStrict(env.HARNESS_SECURITY_POSTURE),

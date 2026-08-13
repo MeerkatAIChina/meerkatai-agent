@@ -154,10 +154,12 @@ test("production names a mock harness rather than letting it pass as a real depl
   assert.match(mock[1]!, /HARNESS is "mock"/);
 });
 
-test("a leftover *=sqlite env throws (no silent downgrade to ephemeral memory)", () => {
-  assert.throws(() => loadConfig({ SESSION_STORE: "sqlite" }), /SESSION_STORE=sqlite is no longer supported/);
-  assert.throws(() => loadConfig({ RUN_STORE: "sqlite" }), /RUN_STORE=sqlite is no longer supported/);
-  assert.throws(() => loadConfig({ ARTIFACT_STORE: "sqlite" }), /ARTIFACT_STORE=sqlite is no longer supported/);
+test("SESSION_STORE=sqlite selects sqlite; leftover RUN_STORE/ARTIFACT_STORE=sqlite are ignored, not fatal", () => {
+  const cfg = loadConfig({ SESSION_STORE: "sqlite" });
+  assert.equal(cfg.sessionStore, "sqlite");
+  assert.ok(cfg.sqlitePath?.endsWith("meerkat.db"));
+  assert.equal(loadConfig({ RUN_STORE: "sqlite" }).runStore, "memory");
+  assert.doesNotThrow(() => loadConfig({ ARTIFACT_STORE: "sqlite" }));
 });
 
 test("a harmless ARTIFACT_STORE=memory (now a dead knob) is ignored, not fatal", () => {
