@@ -12,6 +12,8 @@ import type { BrokerFetch } from "./credential-broker.ts";
 import type { GitHttpFetch } from "./git-http-broker.ts";
 import type { AdminService } from "../admin/admin-service.ts";
 import type { SessionStore } from "../sessions/session-store.ts";
+import type { DurableMap } from "../persistence/durable-map.ts";
+import type { SessionLock } from "../core/orchestrator/types.ts";
 import type { AuditLog } from "../audit/audit-log.ts";
 import type { ErrorLog } from "../admin/error-log.ts";
 import type { MetricsSink } from "../admin/metrics-sink.ts";
@@ -89,6 +91,7 @@ export interface ServerDeps {
   admin?: AdminService;
   rateLimiter?: RateLimiter;
   sessions?: SessionStore;
+  sessionLockStore?: DurableMap<SessionLock>;
   auditLog?: AuditLog;
   errors?: ErrorLog;
   metrics?: MetricsSink;

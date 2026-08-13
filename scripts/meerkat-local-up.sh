@@ -15,7 +15,7 @@ fi
 [ -f .env ] && source .env
 
 for p in 8090 8081 8096; do
-  OLD=$(netstat -ano | grep ":$p" | grep LISTENING | awk '{print $5}' | head -1)
+  OLD=$(netstat -ano | grep ":$p " | grep LISTENING | awk '{print $5}' | head -1 || true)
   [ -n "$OLD" ] && taskkill //F //PID "$OLD" >/dev/null 2>&1 || true
 done
 sleep 1
@@ -48,8 +48,11 @@ if [ -n "${SEMANTIC_ENDPOINT:-}" ]; then echo "semantic classifier on ($SEMANTIC
 
 echo "== core :8081 =="
 nohup node --env-file-if-exists=.env src/index.ts > /tmp/meerkat-core.log 2>&1 &
-sleep 8
-grep -q "listening on :8081" /tmp/meerkat-core.log && echo "core ok"
+for i in $(seq 1 40); do
+  grep -q "listening on :8081" /tmp/meerkat-core.log 2>/dev/null && break
+  sleep 1
+done
+grep -q "listening on :8081" /tmp/meerkat-core.log && echo "core ok" || { echo "error: core did not come up, see /tmp/meerkat-core.log"; exit 1; }
 
 echo "== register custom providers =="
 ALL_MODEL_IDS=""
@@ -67,7 +70,8 @@ for conf in deploy/layers/meerkat/providers/*.conf; do
       "$PROVIDER_NAME" "$PROTOCOL" "$BASE_URL" "$MODELS_JSON" "$API_KEY" > /tmp/provider-$PROVIDER_ID.json
     curl -sf -m 20 -X PUT "http://localhost:8081/v1/admin/custom-providers/$PROVIDER_ID" \
       -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-      --data-binary @/tmp/provider-$PROVIDER_ID.json >/dev/null && echo "provider $PROVIDER_ID ok"
+      --data-binary @/tmp/provider-$PROVIDER_ID.json >/dev/null && echo "provider $PROVIDER_ID ok" \
+      || echo "warn: provider $PROVIDER_ID register failed"
     printf '%s' "$MODELS_JSON" | python -c "import json,sys; print(' '.join(m['id'] for m in json.load(sys.stdin)))" > "/tmp/models-$PROVIDER_ID.txt"
   )
   ALL_MODEL_IDS="$ALL_MODEL_IDS $(cat "/tmp/models-$(basename "$conf" .conf).txt" 2>/dev/null)"
@@ -98,10 +102,12 @@ for i in ids:
 print(json.dumps(seen))")
 curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/base-model" \
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-  -d "{\"modelId\":\"$MODEL_ID\"}" >/dev/null && echo "base model ok"
+  -d "{\"modelId\":\"$MODEL_ID\"}" >/dev/null && echo "base model ok" \
+  || echo "warn: base model register failed ($MODEL_ID)"
 curl -sf -m 15 -X PUT "http://localhost:8081/v1/admin/scopes/org:meerkat/webui-models" \
   -H 'content-type: application/json' -H 'x-admin-actor: admin-alice@meerkat' \
-  -d "{\"ids\":$IDS_JSON}" >/dev/null && echo "webui models ok: $IDS_JSON"
+  -d "{\"ids\":$IDS_JSON}" >/dev/null && echo "webui models ok: $IDS_JSON" \
+  || echo "warn: webui-models register failed"
 
 echo "== web-ui :8096 =="
 (cd plugins/web-ui && CORE_API_URL=http://localhost:8081 CORE_ORG_ID=meerkat PORT=8096 nohup node server/index.ts > /tmp/meerkat-webui.log 2>&1 &)

@@ -919,6 +919,19 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (DESKTOP && method === "POST" && path === "/api/setup/register")
       return registerProviders(res, await readBody(req));
 
+    if (DESKTOP && method === "GET" && path === "/api/locks") {
+      const r = await coreFetch("GET", `/v1/admin/session-locks?scope=${encodeURIComponent(`org:${ORG}`)}`);
+      res.writeHead(r.status, { "content-type": "application/json" });
+      return void res.end(r.text);
+    }
+    const lockMatch = DESKTOP ? path.match(/^\/api\/locks\/([0-9a-fA-F-]{36})$/) : null;
+    if (lockMatch && (method === "PUT" || method === "DELETE")) {
+      const corePath = `/v1/admin/sessions/${lockMatch[1]}/lock?scope=${encodeURIComponent(`org:${ORG}`)}`;
+      const r = await coreFetch(method, corePath, method === "PUT" ? await readBody(req) : "");
+      res.writeHead(r.status, { "content-type": "application/json" });
+      return void res.end(r.text);
+    }
+
     if (path === "/me") {
       res.setHeader("set-cookie", sessionCookie(user));
       const permissions = await userPermissions();
@@ -2042,6 +2055,11 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
   if (method === "GET" && DESKTOP && (path === "/" || path === "/setup")) {
     if (!cookieUser(req)) return unauthorized(res, req);
     if (path === "/setup" || (await needsSetup())) return serveSetupHtml(res);
+  }
+
+  if (method === "GET" && DESKTOP && path === "/admin/locks") {
+    if (!cookieUser(req)) return unauthorized(res, req);
+    return sendHtml(res, 200, readFileSync(join(ROOT, "server", "locks.html"), "utf8"));
   }
 
   if (method === "GET" && path === "/app-edit" && (await serveAppEditHtml(req, res, url))) return;

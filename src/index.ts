@@ -53,6 +53,7 @@ const server = createServer(built.app, {
   deviceFlowCutover: built.deviceFlowCutover,
   egressAudit: built.egressAudit,
   sessions: built.sessions,
+  sessionLockStore: built.sessionLockStore,
   auditLog: built.auditLog,
   errors: built.errors,
   metrics: built.metrics,

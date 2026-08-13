@@ -9,6 +9,7 @@ import {
 } from "./admin/scope-config.ts";
 import { egress, listAdminAudit, listAdminErrors, listAdminRuns, metrics } from "./admin/observability.ts";
 import { getAdminSession, getAdminSessionLlm, listAdminSessions, listAdminShadowDeliveries } from "./admin/sessions.ts";
+import { listSessionLocks, releaseSessionLock, retargetSessionLock } from "./admin/session-locks.ts";
 import { downloadAdminFile, listAdminFiles, readAdminFile, uploadAdminFile } from "./admin/files.ts";
 import { archiveAdminSkill, getAdminSkill, listAdminArtifacts, putAdminCronDestination } from "./admin/artifacts.ts";
 import { getAdminMemory, listMemoryScopes, putAdminMemory } from "./admin/memory.ts";
@@ -71,6 +72,9 @@ const routes: ReadonlyArray<Route<ApiCtx>> = [
   { method: "GET", path: "/v1/admin/metrics", auth: "either", handle: metrics },
   { method: "GET", path: "/v1/admin/egress", auth: "either", handle: egress },
   { method: "GET", path: "/v1/admin/sessions", auth: "either", handle: listAdminSessions },
+  { method: "GET", path: "/v1/admin/session-locks", auth: "either", handle: listSessionLocks },
+  { method: "PUT", path: "/v1/admin/sessions/:id/lock", auth: "either", handle: retargetSessionLock },
+  { method: "DELETE", path: "/v1/admin/sessions/:id/lock", auth: "either", handle: releaseSessionLock },
   { method: "GET", path: "/v1/admin/sessions/:id/llm", auth: "either", handle: getAdminSessionLlm },
   { method: "GET", path: "/v1/admin/sessions/:id", auth: "either", handle: getAdminSession },
   { method: "GET", path: "/v1/admin/runs", auth: "either", handle: listAdminRuns },

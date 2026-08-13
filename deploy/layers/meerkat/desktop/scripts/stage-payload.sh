@@ -56,6 +56,7 @@ mkdir -p "$PAYLOAD/web-ui"
 cp -r "$ROOT/plugins/web-ui/dist-web" "$PAYLOAD/web-ui/dist-web"
 mkdir -p "$PAYLOAD/web-ui/server"
 cp "$ROOT/plugins/web-ui/server/setup.html" "$PAYLOAD/web-ui/server/"
+cp "$ROOT/plugins/web-ui/server/locks.html" "$PAYLOAD/web-ui/server/"
 
 STAGE_CLS="$(mktemp -d)"
 cp "$ROOT/deploy/layers/meerkat/classifier/package.json" "$ROOT/deploy/layers/meerkat/classifier/package-lock.json" "$STAGE_CLS/" 2>/dev/null || true
