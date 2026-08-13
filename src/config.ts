@@ -695,13 +695,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if ((classifierFallbackModel === undefined) !== (classifierFallbackHarness === undefined)) {
     throw new Error("CLASSIFIER_FALLBACK_MODEL and CLASSIFIER_FALLBACK_HARNESS must both be set or both absent");
   }
+  let sessionStore: "memory" | "postgres" | "sqlite" = "memory";
+  if (env.SESSION_STORE === "postgres") sessionStore = "postgres";
+  else if (env.SESSION_STORE === "sqlite") sessionStore = "sqlite";
   return {
     production: env.NODE_ENV === "production",
     allowUnauthenticatedCore: boolEnvStrict("ALLOW_UNAUTHENTICATED_CORE", env.ALLOW_UNAUTHENTICATED_CORE) ?? false,
     port: numEnvStrict("PORT", env.PORT) ?? CONFIG_DEFAULTS.port,
     dataDir,
     orgId: env.ORG_ID ?? DEFAULT_ORG_ID,
-    sessionStore: env.SESSION_STORE === "postgres" ? "postgres" : env.SESSION_STORE === "sqlite" ? "sqlite" : "memory",
+    sessionStore,
     ...(sqlitePath ? { sqlitePath } : {}),
     ...(env.DATABASE_URL ? { databaseUrl: env.DATABASE_URL } : {}),
     harness: harnessEnvStrict(env.HARNESS),

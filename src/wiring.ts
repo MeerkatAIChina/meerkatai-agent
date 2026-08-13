@@ -403,10 +403,11 @@ export function buildApp(
   });
   const pgArtifactMap = config.databaseUrl ? createPostgresMapFactory(config.databaseUrl) : null;
   const sqliteMapFactory = config.sqlitePath ? createSqliteMapFactory(config.sqlitePath) : null;
-  const artifactMap = <T>(table: string): DurableMap<T> =>
-    pgArtifactMap ? pgArtifactMap.map<T>(table)
-    : sqliteMapFactory ? sqliteMapFactory.map<T>(table)
-    : createMemoryMap<T>();
+  const artifactMap = <T>(table: string): DurableMap<T> => {
+    if (pgArtifactMap) return pgArtifactMap.map<T>(table);
+    if (sqliteMapFactory) return sqliteMapFactory.map<T>(table);
+    return createMemoryMap<T>();
+  };
   setProviderBaseUrls(config.providerBaseUrls);
   const modelCredentials = createModelCredentialStore({
     backing: artifactMap("model_credentials"),
@@ -685,12 +686,14 @@ export function buildApp(
     if (!config.databaseUrl) throw new Error(`${kind}=postgres requires DATABASE_URL`);
     return config.databaseUrl;
   };
-  const sessions: SessionStore =
-    config.sessionStore === "postgres"
-      ? createPostgresSessionStore(requireDbUrl("SESSION_STORE"))
-      : config.sessionStore === "sqlite"
-        ? createSqliteSessionStore(config.sqlitePath!)
-        : createMemorySessionStore();
+  let sessions: SessionStore;
+  if (config.sessionStore === "postgres") {
+    sessions = createPostgresSessionStore(requireDbUrl("SESSION_STORE"));
+  } else if (config.sessionStore === "sqlite") {
+    sessions = createSqliteSessionStore(config.sqlitePath!);
+  } else {
+    sessions = createMemorySessionStore();
+  }
   const runStoreKind = config.runStore;
   const runSignals: RunSignalStore =
     runStoreKind === "postgres"
