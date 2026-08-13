@@ -24,6 +24,8 @@ Push-Location (Join-Path $Root "plugins\web-ui")
 npm run build
 Pop-Location
 Copy-Item -Recurse (Join-Path $Root "plugins\web-ui\dist-web") "$Payload\web-ui\dist-web"
+New-Item -ItemType Directory -Force -Path "$Payload\web-ui\server" | Out-Null
+Copy-Item (Join-Path $Root "plugins\web-ui\server\setup.html") "$Payload\web-ui\server\"
 
 $StageCls = Join-Path $env:TEMP ("meerkat-cls-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $StageCls | Out-Null

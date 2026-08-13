@@ -41,6 +41,7 @@ fn main() {
             let payload_dir = std::env::var("MEERKAT_PAYLOAD_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("../payload"));
+            let payload_dir = std::path::absolute(&payload_dir).unwrap_or(payload_dir);
             let data_dir = app
                 .path()
                 .app_data_dir()

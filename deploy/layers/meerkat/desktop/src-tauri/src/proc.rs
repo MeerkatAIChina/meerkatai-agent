@@ -157,6 +157,7 @@ fn spawn_component(
                 .current_dir(ctx.payload_dir.join("core"))
                 .arg("dist/index.mjs")
                 .env("NODE_ENV", "production")
+                .env("HARNESS", "pi")
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
                 .env("DATA_DIR", &ctx.data_dir)
@@ -164,7 +165,7 @@ fn spawn_component(
                 .env("SESSION_STORE", "sqlite")
                 .env(
                     "CLASSIFIER_URL",
-                    format!("http://127.0.0.1:{classifier_port}"),
+                    format!("http://127.0.0.1:{classifier_port}/classify"),
                 )
                 .env("ALLOW_LOCAL_SKILL_PACKS", "1")
                 .env("ADMIN_GRANTS", "meerkat-desktop:org_admin")
