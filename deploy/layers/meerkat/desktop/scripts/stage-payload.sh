@@ -19,8 +19,15 @@ mkdir -p "$PAYLOAD/node" "$PAYLOAD/config/seeds" "$CACHE"
 
 case "${MEERKAT_TARGET:-$(uname -s)}" in
   MINGW*|MSYS*|CYGWIN*|windows) NODE_ARCH="win-x64"; NODE_PKG="zip" ;;
-  Darwin) NODE_ARCH="darwin-arm64"; NODE_PKG="tar.gz" ;;
-  *) NODE_ARCH="linux-x64"; NODE_PKG="tar.gz" ;;
+  Darwin)
+    NODE_PKG="tar.gz"
+    if [ "$(uname -m)" = "arm64" ]; then NODE_ARCH="darwin-arm64"; else NODE_ARCH="darwin-x64"; fi
+    ;;
+  Linux)
+    NODE_PKG="tar.gz"
+    if [ "$(uname -m)" = "aarch64" ]; then NODE_ARCH="linux-arm64"; else NODE_ARCH="linux-x64"; fi
+    ;;
+  *) echo "unsupported platform: $(uname -s)" >&2; exit 1 ;;
 esac
 NODE_DIST="node-$NODE_VERSION-$NODE_ARCH"
 if [ ! -d "$CACHE/$NODE_DIST" ]; then

@@ -16,11 +16,12 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "dmg"],
+    "createUpdaterArtifacts": true,
     "icon": ["icons/icon.ico", "icons/icon.icns"]
   },
   "plugins": {
     "updater": {
-      "pubkey": "PLACEHOLDER_PUBKEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRDA5RUVENUExOTU2Qjc2MA0KUldSZ3QxWVpXdTJlME1xN1daYnFGSUllMVVOeE51UVpqR0RpVUdMZ0hmQnpaai85UGtrTW5Nd0wNCg==",
       "endpoints": ["https://updates.example.com/latest.json"]
     }
   }
