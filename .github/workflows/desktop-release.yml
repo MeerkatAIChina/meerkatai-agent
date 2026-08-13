@@ -3,6 +3,9 @@ on:
   push:
     tags: ["desktop-v*"]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
