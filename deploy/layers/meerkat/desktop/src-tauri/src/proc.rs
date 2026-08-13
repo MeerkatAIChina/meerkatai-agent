@@ -166,6 +166,7 @@ fn spawn_component(
                 .arg("dist/index.mjs")
                 .env("NODE_ENV", "production")
                 .env("HARNESS", "pi")
+                .env("ORG_ID", "meerkat")
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
                 .env("DATA_DIR", &ctx.data_dir)
