@@ -45,7 +45,6 @@ await build({
   ...shared,
   entryPoints: [join(root, "src/index.ts")],
   outfile: join(payload, "core/dist/index.mjs"),
-  external: ["pg"],
 });
 
 await build({

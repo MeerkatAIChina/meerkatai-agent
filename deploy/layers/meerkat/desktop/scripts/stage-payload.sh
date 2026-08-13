@@ -60,7 +60,7 @@ cp "$ROOT/plugins/web-ui/server/locks.html" "$PAYLOAD/web-ui/server/"
 
 STAGE_CLS="$(mktemp -d)"
 cp "$ROOT/deploy/layers/meerkat/classifier/package.json" "$ROOT/deploy/layers/meerkat/classifier/package-lock.json" "$STAGE_CLS/" 2>/dev/null || true
-(cd "$STAGE_CLS" && npm_run ci --omit=dev --omit=optional --ignore-scripts)
+(cd "$STAGE_CLS" && npm_run ci --omit=dev --ignore-scripts)
 mkdir -p "$PAYLOAD/classifier"
 cp -r "$ROOT/deploy/layers/meerkat/classifier/src" "$PAYLOAD/classifier/src"
 cp "$ROOT/deploy/layers/meerkat/classifier/package.json" "$PAYLOAD/classifier/"
