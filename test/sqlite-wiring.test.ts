@@ -42,10 +42,9 @@ test("config: memory and postgres session stores carry no sqlitePath", () => {
   assert.equal(postgres.sqlitePath, undefined);
 });
 
-test("config: RUN_STORE=sqlite and ARTIFACT_STORE=sqlite no longer throw; runStore stays memory", () => {
-  const cfg = loadConfig({ RUN_STORE: "sqlite", ARTIFACT_STORE: "sqlite" });
-  assert.equal(cfg.sessionStore, "memory");
-  assert.equal(cfg.runStore, "memory");
+test("config: RUN_STORE=sqlite and ARTIFACT_STORE=sqlite fail fast (only SESSION_STORE has a SQLite backend)", () => {
+  assert.throws(() => loadConfig({ RUN_STORE: "sqlite" }), /RUN_STORE=sqlite is not supported/);
+  assert.throws(() => loadConfig({ ARTIFACT_STORE: "sqlite" }), /ARTIFACT_STORE=sqlite is not supported/);
 });
 
 test("config: SESSION_STORE=sqlite rejects a simultaneous DATABASE_URL (sessions and locks must share one backend)", () => {

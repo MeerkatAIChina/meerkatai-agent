@@ -584,6 +584,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     env.SESSION_STORE === "sqlite"
       ? resolve(env.SQLITE_PATH ?? join(dataDir, "meerkat.db"))
       : undefined;
+  for (const key of ["RUN_STORE", "ARTIFACT_STORE"] as const) {
+    if (env[key] === "sqlite") {
+      throw new Error(
+        `${key}=sqlite is not supported — only SESSION_STORE has a SQLite backend; use ${key}=postgres (with DATABASE_URL) or leave it unset for the in-memory default.`,
+      );
+    }
+  }
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
     throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, or local.");
   }

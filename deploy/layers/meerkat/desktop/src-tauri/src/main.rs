@@ -6,21 +6,18 @@ use std::path::PathBuf;
 use tauri::{Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
 
 #[tauri::command]
-fn ports(state: State<'_, proc::Ports>) -> proc::Ports {
-    *state
+fn ports(state: State<'_, proc::PortsState>) -> Result<proc::Ports, String> {
+    state.0.lock().map(|p| *p).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn retry(
-    shared: State<'_, proc::SharedStack>,
-    ctx: State<'_, proc::StackCtx>,
-) -> Result<(), String> {
-    proc::retry(&shared, &ctx)
+fn retry(app: tauri::AppHandle) -> Result<(), String> {
+    proc::retry(&app)
 }
 
 #[tauri::command]
-fn diagnostics(ctx: State<'_, proc::StackCtx>) -> String {
-    proc::diagnostics(&ctx.data_dir)
+fn diagnostics(boot: State<'_, proc::Boot>) -> String {
+    proc::diagnostics(&boot.data_dir)
 }
 
 #[tauri::command]
@@ -47,66 +44,70 @@ fn main() {
                 .app_data_dir()
                 .unwrap_or_else(|_| PathBuf::from("./data"));
 
-            let prepared = secrets::load_or_create(&data_dir).and_then(|secrets| {
+            app.manage(proc::Boot {
+                payload_dir: payload_dir.clone(),
+                data_dir: data_dir.clone(),
+            });
+
+            let ctx_result = secrets::load_or_create(&data_dir).and_then(|secrets| {
                 let node = proc::resolve_node(&payload_dir).ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         format!("node runtime not found under {}", payload_dir.display()),
                     )
                 })?;
-                let ctx = proc::StackCtx {
+                Ok(proc::StackCtx {
                     node,
                     payload_dir: payload_dir.clone(),
                     data_dir: data_dir.clone(),
                     secrets,
-                };
-                proc::spawn_stack(&ctx).map(|stack| (ctx, stack))
+                })
             });
 
-            match prepared {
-                Ok((ctx, stack)) => {
-                    let ports = proc::Ports {
-                        classifier: stack.classifier_port,
-                        core: stack.core_port,
-                        web_ui: stack.web_ui_port,
-                    };
-                    let shared = proc::shared_stack(Some(stack));
-                    app.manage(shared.clone());
+            let fatal = |app: &tauri::App, reason: String| {
+                app.manage(proc::shared_stack(None));
+                app.manage(proc::PortsState(std::sync::Mutex::new(proc::Ports {
+                    classifier: 0,
+                    core: 0,
+                    web_ui: 0,
+                })));
+                let _ = app.emit(
+                    "component-failed",
+                    serde_json::json!({
+                        "component": "core",
+                        "severity": "fatal",
+                        "reason": reason,
+                    }),
+                );
+            };
+
+            match ctx_result {
+                Ok(ctx) => {
                     app.manage(ctx.clone());
-                    app.manage(ports);
-                    let handle = app.handle().clone();
-                    std::thread::spawn(move || proc::health_poll(handle, shared, ctx, ports));
+                    match proc::spawn_stack(&ctx) {
+                        Ok(stack) => {
+                            let ports = proc::Ports {
+                                classifier: stack.classifier_port,
+                                core: stack.core_port,
+                                web_ui: stack.web_ui_port,
+                            };
+                            let shared = proc::shared_stack(Some(stack));
+                            app.manage(shared.clone());
+                            app.manage(proc::PortsState(std::sync::Mutex::new(ports)));
+                            let handle = app.handle().clone();
+                            std::thread::spawn(move || {
+                                proc::health_poll(handle, shared, ctx, ports)
+                            });
+                        }
+                        Err(err) => {
+                            eprintln!("meerkat stack spawn failed: {err}");
+                            fatal(app, err.to_string());
+                        }
+                    }
                 }
                 Err(err) => {
-                    eprintln!("meerkat stack spawn failed: {err}");
-                    let reason = err.to_string();
-                    let ctx = proc::StackCtx {
-                        node: PathBuf::new(),
-                        payload_dir: payload_dir.clone(),
-                        data_dir: data_dir.clone(),
-                        secrets: secrets::Secrets {
-                            capability_secret: String::new(),
-                            connector_secret_key: String::new(),
-                            core_signing_secret: String::new(),
-                            portal_identity_secret: String::new(),
-                            skill_signing_secret: String::new(),
-                        },
-                    };
-                    app.manage(proc::shared_stack(None));
-                    app.manage(ctx);
-                    app.manage(proc::Ports {
-                        classifier: 0,
-                        core: 0,
-                        web_ui: 0,
-                    });
-                    let _ = app.emit(
-                        "component-failed",
-                        serde_json::json!({
-                            "component": "core",
-                            "severity": "fatal",
-                            "reason": reason,
-                        }),
-                    );
+                    eprintln!("meerkat stack prepare failed: {err}");
+                    fatal(app, err.to_string());
                 }
             }
 

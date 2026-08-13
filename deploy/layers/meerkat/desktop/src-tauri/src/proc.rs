@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -99,6 +99,14 @@ pub struct Ports {
     pub web_ui: u16,
 }
 
+pub struct PortsState(pub Mutex<Ports>);
+
+#[derive(Clone)]
+pub struct Boot {
+    pub payload_dir: PathBuf,
+    pub data_dir: PathBuf,
+}
+
 pub fn resolve_node(payload_dir: &Path) -> Option<PathBuf> {
     let candidates = [
         payload_dir.join("node").join("node.exe"),
@@ -167,6 +175,8 @@ fn spawn_component(
                     "CLASSIFIER_URL",
                     format!("http://127.0.0.1:{classifier_port}/classify"),
                 )
+                .env("CLASSIFIER_FALLBACK_MODEL", "meerkat-triz-v1")
+                .env("CLASSIFIER_FALLBACK_HARNESS", "pi")
                 .env("ALLOW_LOCAL_SKILL_PACKS", "1")
                 .env("ADMIN_GRANTS", "meerkat-desktop:org_admin")
                 .env("CAPABILITY_SECRET", &ctx.secrets.capability_secret)
@@ -378,27 +388,68 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
     }
 }
 
-pub fn retry(shared: &SharedStack, ctx: &StackCtx) -> Result<(), String> {
+pub fn retry(app: &AppHandle) -> Result<(), String> {
+    let shared = app.state::<SharedStack>();
     let mut guard = shared.lock().map_err(|e| e.to_string())?;
-    let stack = guard.as_mut().ok_or("stack 未初始化")?;
-    for c in [Component::Classifier, Component::Core, Component::WebUi] {
-        let dead = match stack.child_mut(c).try_wait() {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(_) => true,
-        };
-        if dead {
-            let child = spawn_component(
-                ctx,
-                c,
-                stack.port(c),
-                stack.port(Component::Classifier),
-                stack.port(Component::Core),
-            )
-            .map_err(|e| e.to_string())?;
-            *stack.child_mut(c) = child;
+    if let Some(stack) = guard.as_mut() {
+        let ctx = app.state::<StackCtx>();
+        for c in [Component::Classifier, Component::Core, Component::WebUi] {
+            let dead = match stack.child_mut(c).try_wait() {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(_) => true,
+            };
+            if dead {
+                let child = spawn_component(
+                    &ctx,
+                    c,
+                    stack.port(c),
+                    stack.port(Component::Classifier),
+                    stack.port(Component::Core),
+                )
+                .map_err(|e| e.to_string())?;
+                *stack.child_mut(c) = child;
+            }
         }
+        return Ok(());
     }
+
+    let ctx = match app.try_state::<StackCtx>() {
+        Some(existing) => existing.inner().clone(),
+        None => {
+            let boot = app.state::<Boot>();
+            let secrets =
+                crate::secrets::load_or_create(&boot.data_dir).map_err(|e| e.to_string())?;
+            let node = resolve_node(&boot.payload_dir).ok_or_else(|| {
+                format!(
+                    "node runtime not found under {}",
+                    boot.payload_dir.display()
+                )
+            })?;
+            let fresh = StackCtx {
+                node,
+                payload_dir: boot.payload_dir.clone(),
+                data_dir: boot.data_dir.clone(),
+                secrets,
+            };
+            app.manage(fresh.clone());
+            fresh
+        }
+    };
+    let stack = spawn_stack(&ctx).map_err(|e| e.to_string())?;
+    let ports = Ports {
+        classifier: stack.classifier_port,
+        core: stack.core_port,
+        web_ui: stack.web_ui_port,
+    };
+    *guard = Some(stack);
+    drop(guard);
+    if let Some(ports_state) = app.try_state::<PortsState>() {
+        *ports_state.0.lock().map_err(|e| e.to_string())? = ports;
+    }
+    let handle = app.clone();
+    let shared_clone = shared.inner().clone();
+    std::thread::spawn(move || health_poll(handle, shared_clone, ctx, ports));
     Ok(())
 }
 

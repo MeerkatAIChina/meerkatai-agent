@@ -31,15 +31,41 @@ fn generate() -> Secrets {
 
 pub fn load_or_create(data_dir: &Path) -> io::Result<Secrets> {
     let path = data_dir.join("secrets.json");
-    if let Ok(text) = fs::read_to_string(&path) {
-        if let Ok(secrets) = serde_json::from_str::<Secrets>(&text) {
-            return Ok(secrets);
+    match fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str::<Secrets>(&text).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "secrets.json exists but is unreadable; refusing to rotate keys silently: {e}"
+                ),
+            )
+        }),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir_all(data_dir)?;
+            let secrets = generate();
+            let body = serde_json::to_string_pretty(&secrets)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            write_private(&path, body.as_bytes())?;
+            Ok(secrets)
         }
+        Err(e) => Err(e),
     }
-    fs::create_dir_all(data_dir)?;
-    let secrets = generate();
-    let body = serde_json::to_string_pretty(&secrets)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    fs::write(&path, body)?;
-    Ok(secrets)
+}
+
+#[cfg(unix)]
+fn write_private(path: &Path, body: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)?
+        .write_all(body)
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, body: &[u8]) -> io::Result<()> {
+    fs::write(path, body)
 }

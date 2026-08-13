@@ -257,11 +257,12 @@ function portalTokenFromQuery(req: IncomingMessage): string | null {
 }
 
 function authenticate(req: IncomingMessage): { identity: Identity } | { denied: Denial } {
+  const raw = req.headers[PORTAL_IDENTITY_HEADER];
+  const token =
+    (Array.isArray(raw) ? raw[0] : raw) ?? (DESKTOP ? portalTokenFromQuery(req) : null) ?? undefined;
   let user: string | null | undefined;
   let name: string | null | undefined;
   let impersonator: string | null | undefined;
-  const raw = req.headers[PORTAL_IDENTITY_HEADER];
-  const token = (Array.isArray(raw) ? raw[0] : raw) ?? portalTokenFromQuery(req) ?? undefined;
   const claims =
     token && PORTAL_IDENTITY_SECRET ? verifyPortalIdentity(token, PORTAL_IDENTITY_SECRET, Date.now()) : null;
   if (claims) {
@@ -2044,7 +2045,7 @@ export const handler = async (req: IncomingMessage, res: ServerResponse) => {
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("x-frame-options", "DENY");
   const raw = req.headers[PORTAL_IDENTITY_HEADER];
-  const token = (Array.isArray(raw) ? raw[0] : raw) ?? portalTokenFromQuery(req) ?? undefined;
+  const token = (Array.isArray(raw) ? raw[0] : raw) ?? (DESKTOP ? portalTokenFromQuery(req) : null) ?? undefined;
   try {
     await portalTokenStore.run(token, () => routeRequest(req, res));
   } catch (err) {
