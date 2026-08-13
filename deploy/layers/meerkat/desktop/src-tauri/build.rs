@@ -1,0 +1,11 @@
+fn main() {
+    let payload = std::path::Path::new("..").join("payload");
+    if !payload.exists() {
+        let profile = std::env::var("PROFILE").unwrap_or_default();
+        if profile == "release" {
+            panic!("payload/ not found — run scripts/stage-payload.* first");
+        }
+        println!("cargo:warning=payload/ not found — run scripts/stage-payload.* before packaging");
+    }
+    tauri_build::build()
+}

@@ -99,12 +99,14 @@ await built.deploymentLayerReady;
 built.deploymentLayerRefresh.start();
 built.runtime.start();
 
-server.listen(config.port, () => {
+const onListening = () => {
   console.log(
     `[qm] listening on :${config.port} (org=${config.orgId}, store=${config.sessionStore}, ` +
       `runStore=${config.runStore}, workers=${config.workers}, backgroundWork=${config.backgroundWorkEnabled})`,
   );
-});
+};
+if (config.host) server.listen(config.port, config.host, onListening);
+else server.listen(config.port, onListening);
 
 if (config.backgroundWorkEnabled) {
   built.scheduler.start(1000);

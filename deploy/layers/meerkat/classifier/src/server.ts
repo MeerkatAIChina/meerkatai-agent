@@ -32,7 +32,7 @@ app.post("/classify", async (req, reply) => {
 
 app.get("/health", async (_req, reply) => reply.send({ status: "ok" }));
 
-app.listen({ port: PORT, host: "0.0.0.0" }, (err) => {
+app.listen({ port: PORT, host: process.env["HOST"] ?? "0.0.0.0" }, (err) => {
   if (err) {
     console.error(err);
     process.exit(1);

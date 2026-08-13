@@ -25,6 +25,7 @@ export interface Config {
   production: boolean;
   allowUnauthenticatedCore: boolean;
   port: number;
+  host?: string;
   dataDir: string;
   orgId: string;
   sessionStore: "memory" | "postgres" | "sqlite";
@@ -702,6 +703,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     production: env.NODE_ENV === "production",
     allowUnauthenticatedCore: boolEnvStrict("ALLOW_UNAUTHENTICATED_CORE", env.ALLOW_UNAUTHENTICATED_CORE) ?? false,
     port: numEnvStrict("PORT", env.PORT) ?? CONFIG_DEFAULTS.port,
+    ...(env.HOST?.trim() ? { host: env.HOST.trim() } : {}),
     dataDir,
     orgId: env.ORG_ID ?? DEFAULT_ORG_ID,
     sessionStore,

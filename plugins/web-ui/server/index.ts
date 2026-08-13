@@ -40,6 +40,7 @@ const ALLOW = (process.env.WEB_UI_PRINCIPALS ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
+const HOST = process.env.HOST?.trim() || undefined;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(ROOT, "dist-web");
 
@@ -1928,7 +1929,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   createVite(server)
     .then((v) => {
       vite = v;
-      server.listen(PORT, () => {
+      const onWebUiListening = () => {
         console.log(
           `[web-ui] surface on http://localhost:${PORT} → core ${CORE} (org ${ORG})${WEB_UI_DEV ? " [vite hmr]" : ""}`,
         );
@@ -1939,7 +1940,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         const t = setInterval(() => void drainWebDeliveries(), WEB_DELIVERY_POLL_MS);
         t.unref?.();
         void runStateFeed();
-      });
+      };
+      if (HOST) server.listen(PORT, HOST, onWebUiListening);
+      else server.listen(PORT, onWebUiListening);
     })
     .catch((err: unknown) => {
       console.error("[web-ui] failed to start:", err);

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Meerkat",
+  "version": "0.1.0",
+  "identifier": "com.meerkat.desktop",
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg"],
+    "icon": ["icons/icon.ico", "icons/icon.icns"],
+    "externalBin": ["binaries/node"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_PUBKEY",
+      "endpoints": ["https://updates.example.com/latest.json"]
+    }
+  }
+}
