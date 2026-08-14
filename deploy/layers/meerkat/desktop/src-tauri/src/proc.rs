@@ -5,6 +5,18 @@ use std::io;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn hide_console(cmd: &mut Command) {
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -193,12 +205,14 @@ fn spawn_component(
                     cmd.env("SEMANTIC_API_KEY", key);
                 }
             }
-            cmd.stdout(out).stderr(err).spawn()
+            cmd.stdout(out).stderr(err);
+            hide_console(&mut cmd);
+            cmd.spawn()
         }
         Component::Core => {
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
-            Command::new(&ctx.node)
-                .current_dir(ctx.payload_dir.join("core"))
+            let mut cmd = Command::new(&ctx.node);
+            cmd.current_dir(ctx.payload_dir.join("core"))
                 .arg("dist/index.mjs")
                 .env("NODE_ENV", "production")
                 .env("HARNESS", "pi")
@@ -225,13 +239,14 @@ fn spawn_component(
                 )
                 .env("SKILL_SIGNING_SECRET", &ctx.secrets.skill_signing_secret)
                 .stdout(out)
-                .stderr(err)
-                .spawn()
+                .stderr(err);
+            hide_console(&mut cmd);
+            cmd.spawn()
         }
         Component::WebUi => {
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
-            Command::new(&ctx.node)
-                .current_dir(ctx.payload_dir.join("web-ui"))
+            let mut cmd = Command::new(&ctx.node);
+            cmd.current_dir(ctx.payload_dir.join("web-ui"))
                 .arg("dist-server/index.mjs")
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
@@ -249,8 +264,9 @@ fn spawn_component(
                     &ctx.secrets.portal_identity_secret,
                 )
                 .stdout(out)
-                .stderr(err)
-                .spawn()
+                .stderr(err);
+            hide_console(&mut cmd);
+            cmd.spawn()
         }
     }
 }
