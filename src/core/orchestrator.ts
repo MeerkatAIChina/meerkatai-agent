@@ -1879,39 +1879,41 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           let classifyText = classifyParts.join("\n");
           if (classifyText.length > 16_000) classifyText = classifyText.slice(0, 16_000);
           let sensitivityVerdict: SensitivityVerdict | null = null;
-          try {
-            sensitivityVerdict = await deps.sensitivityClassifier(
-              {
-                text: classifyText,
-                scopeId,
-                orgScopeId: resolution.orgScopeId,
-                ...(input.surface ? { surface: input.surface } : {}),
-                hook: "user_input",
-              },
-              input.cancel,
-            );
-          } catch (err) {
-            swallow("orchestrator: sensitivity classify", err);
-          }
-          if (!sensitivityVerdict && deps.classifierFallbackModel && deps.classifierFallbackHarness) {
-            deps.auditLog.record({
-              at: Date.now(),
-              principalId: actor.id,
-              action: "classifier.unavailable",
-              resource: "sensitivity-classifier",
-              scopeLabel: scopeId,
-              status: "fallback",
-            });
-            sensitivityVerdict = {
-              level: "L1",
-              domain: "general",
-              route: {
-                policy: "fallback",
-                model: deps.classifierFallbackModel,
-                harnessId: deps.classifierFallbackHarness,
-                sessionPin: true,
-              },
-            };
+          if (classifyText.trim().length > 0) {
+            try {
+              sensitivityVerdict = await deps.sensitivityClassifier(
+                {
+                  text: classifyText,
+                  scopeId,
+                  orgScopeId: resolution.orgScopeId,
+                  ...(input.surface ? { surface: input.surface } : {}),
+                  hook: "user_input",
+                },
+                input.cancel,
+              );
+            } catch (err) {
+              swallow("orchestrator: sensitivity classify", err);
+            }
+            if (!sensitivityVerdict && deps.classifierFallbackModel && deps.classifierFallbackHarness) {
+              deps.auditLog.record({
+                at: Date.now(),
+                principalId: actor.id,
+                action: "classifier.unavailable",
+                resource: "sensitivity-classifier",
+                scopeLabel: scopeId,
+                status: "fallback",
+              });
+              sensitivityVerdict = {
+                level: "L1",
+                domain: "general",
+                route: {
+                  policy: "fallback",
+                  model: deps.classifierFallbackModel,
+                  harnessId: deps.classifierFallbackHarness,
+                  sessionPin: true,
+                },
+              };
+            }
           }
           if (sensitivityVerdict?.route) {
             input.harness = sensitivityVerdict.route.harnessId;

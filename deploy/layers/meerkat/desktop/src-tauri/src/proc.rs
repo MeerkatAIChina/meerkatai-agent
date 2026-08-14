@@ -193,7 +193,8 @@ fn spawn_component(
                         .join("config")
                         .join("seeds")
                         .join("routes.json"),
-                );
+                )
+                .env("MEERKAT_DATA_DIR", &ctx.data_dir);
             if let Some(local) = read_local_model(&ctx.data_dir) {
                 cmd.env(
                     "SEMANTIC_ENDPOINT",
