@@ -279,6 +279,10 @@ function authenticate(req: IncomingMessage): { identity: Identity } | { denied: 
   const claims =
     token && PORTAL_IDENTITY_SECRET ? verifyPortalIdentity(token, PORTAL_IDENTITY_SECRET, Date.now()) : null;
   if (claims) {
+    if (DESKTOP && token) {
+      desktopPortalToken = token;
+      maybeStartSkillPacks();
+    }
     user = claims.p;
     name = claims.n ?? null;
     impersonator = claims.imp ?? null;
@@ -794,74 +798,122 @@ function writeSemanticConfig(baseUrl: string, apiKey: string, model: string): vo
 interface SeedSkillPack {
   url?: unknown;
   ref?: unknown;
+  local?: unknown;
 }
 
-async function ensureSkillPacks(): Promise<void> {
-  if (!DESKTOP) return;
+let desktopPortalToken: string | null = null;
+let skillPacksTask: Promise<void> | null = null;
+
+function maybeStartSkillPacks(): void {
+  if (!DESKTOP || skillPacksTask) return;
   const seed = readSeed<{ packs?: SeedSkillPack[] }>("skillpacks.json");
   const packs = (seed?.packs ?? []).filter(
-    (p): p is { url: string; ref?: unknown } => typeof p?.url === "string" && p.url.trim().length > 0,
+    (p): p is { url: string; ref?: unknown; local?: unknown } =>
+      typeof p?.url === "string" && p.url.trim().length > 0,
   );
   if (packs.length === 0) return;
-  const adminHeaders = { "x-admin-actor": `meerkat-desktop@${ORG}` };
+  skillPacksTask = ensureSkillPacks(packs).catch((e) => {
+    console.warn("[web-ui] skill packs task failed:", e instanceof Error ? e.message : e);
+  });
+}
+
+async function ensureSkillPacks(packs: Array<{ url: string; ref?: unknown; local?: unknown }>): Promise<void> {
+  const authHeaders = (): Record<string, string> | undefined =>
+    desktopPortalToken ? { [PORTAL_IDENTITY_HEADER]: desktopPortalToken } : undefined;
+  const deadline = Date.now() + 300_000;
   let ready = false;
-  for (let attempt = 0; attempt < 30 && !ready; attempt++) {
-    try {
-      const who = await coreFetch("GET", "/v1/admin/whoami", "", 2_000, adminHeaders);
-      ready = who.status === 200;
-    } catch (e) {
-      swallow("skillpacks:probe", e);
+  let lastProbe = "";
+  while (Date.now() < deadline && !ready) {
+    if (desktopPortalToken) {
+      try {
+        const who = await coreFetch("GET", "/v1/admin/whoami", "", 2_000, authHeaders());
+        ready =
+          who.status === 200 && (JSON.parse(who.text) as { isAdmin?: unknown }).isAdmin === true;
+        if (!ready) {
+          const probe = `status ${who.status}`;
+          if (probe !== lastProbe) {
+            console.warn(`[web-ui] skill packs: waiting for core admin readiness (whoami ${probe})`);
+            lastProbe = probe;
+          }
+        }
+      } catch (e) {
+        if (lastProbe !== "unreachable") {
+          console.warn(`[web-ui] skill packs: waiting for core admin readiness (core unreachable)`);
+          lastProbe = "unreachable";
+        }
+        swallow("skillpacks:probe", e);
+      }
     }
     if (!ready) await new Promise((r) => setTimeout(r, 2_000));
   }
   if (!ready) {
-    console.warn("[web-ui] skill packs: core not ready after 60s, skipping");
+    console.warn("[web-ui] skill packs: core admin not ready after 300s, skipping");
     return;
   }
-  let existing: Array<{ id: string; url: string }> = [];
-  try {
-    const list = await coreFetch("GET", "/v1/admin/skill-packs", "", 5_000, adminHeaders);
-    if (list.status === 200) {
-      const parsed = JSON.parse(list.text) as { packs?: Array<{ id: string; url: string }> };
-      existing = Array.isArray(parsed.packs) ? parsed.packs : [];
+  const fetchPackList = async (): Promise<Array<{ id: string; url: string }>> => {
+    const list = await coreFetch("GET", "/v1/admin/skill-packs", "", 10_000, authHeaders());
+    if (list.status !== 200) {
+      console.warn(`[web-ui] skill packs list failed (${list.status}): ${list.text.slice(0, 200)}`);
+      return [];
     }
-  } catch (e) {
-    swallow("skillpacks:list", e);
-  }
+    const parsed = JSON.parse(list.text) as { packs?: Array<{ id: string; url: string }> };
+    return Array.isArray(parsed.packs) ? parsed.packs : [];
+  };
   for (const p of packs) {
     const url = p.url.trim();
     const ref = typeof p.ref === "string" && p.ref.trim() ? p.ref.trim() : "main";
-    try {
-      const found = existing.find((x) => x.url === url);
-      if (found) {
-        const sync = await coreFetch("POST", `/v1/admin/skill-packs/${found.id}/sync`, "{}", 120_000, adminHeaders);
-        console.log(`[web-ui] skill pack sync ${sync.status === 200 ? "ok" : `failed(${sync.status})`} (${url})`);
-        continue;
+    let done = false;
+    for (let attempt = 1; attempt <= 4 && !done; attempt++) {
+      try {
+        const existing = await fetchPackList();
+        let packId = existing.find((x) => x.url === url)?.id;
+        if (!packId) {
+          const reg = await coreFetch(
+            "POST",
+            "/v1/admin/skill-packs",
+            JSON.stringify({
+              url,
+              ref,
+              trustTier: "internal",
+              subset: "all",
+              ...(p.local === true ? { allowLocal: true } : {}),
+            }),
+            60_000,
+            authHeaders(),
+          );
+          if (reg.status !== 200) {
+            console.warn(`[web-ui] skill pack register failed (${reg.status}) ${url}: ${reg.text.slice(0, 200)}`);
+          } else {
+            packId = (JSON.parse(reg.text) as { pack?: { id?: string } }).pack?.id;
+          }
+        }
+        if (!packId) {
+          console.warn(`[web-ui] skill pack has no id after register (${url})`);
+        } else {
+          const imp = await coreFetch(
+            "POST",
+            `/v1/admin/skill-packs/${packId}/import`,
+            JSON.stringify({ selected: "all" }),
+            180_000,
+            authHeaders(),
+          );
+          if (imp.status === 200) {
+            console.log(`[web-ui] skill pack import ok (${url})`);
+            done = true;
+          } else {
+            console.warn(`[web-ui] skill pack import failed (${imp.status}) ${url}: ${imp.text.slice(0, 200)}`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[web-ui] skill pack error (${url}):`, e instanceof Error ? e.message : e);
       }
-      const reg = await coreFetch(
-        "POST",
-        "/v1/admin/skill-packs",
-        JSON.stringify({ url, ref, trustTier: "internal", subset: "all" }),
-        60_000,
-        adminHeaders,
-      );
-      if (reg.status !== 200) {
-        console.warn(`[web-ui] skill pack register failed (${reg.status}) ${url}: ${reg.text.slice(0, 200)}`);
-        continue;
+      if (!done && attempt < 4) {
+        const waitMs = [10_000, 30_000, 60_000][attempt - 1] ?? 60_000;
+        console.warn(`[web-ui] skill pack retry ${attempt + 1}/4 in ${waitMs / 1000}s (${url})`);
+        await new Promise((r) => setTimeout(r, waitMs));
       }
-      const packId = (JSON.parse(reg.text) as { pack?: { id?: string } }).pack?.id;
-      if (!packId) continue;
-      const imp = await coreFetch(
-        "POST",
-        `/v1/admin/skill-packs/${packId}/import`,
-        JSON.stringify({ selected: "all" }),
-        180_000,
-        adminHeaders,
-      );
-      console.log(`[web-ui] skill pack import ${imp.status === 200 ? "ok" : `failed(${imp.status})`} (${url})`);
-    } catch (e) {
-      console.warn(`[web-ui] skill pack error (${url}):`, e instanceof Error ? e.message : e);
     }
+    if (!done) console.warn(`[web-ui] skill pack gave up after 4 attempts (${url})`);
   }
 }
 
@@ -2223,7 +2275,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         const t = setInterval(() => void drainWebDeliveries(), WEB_DELIVERY_POLL_MS);
         t.unref?.();
         void runStateFeed();
-        void ensureSkillPacks();
+        maybeStartSkillPacks();
       };
       if (HOST) server.listen(PORT, HOST, onWebUiListening);
       else server.listen(PORT, onWebUiListening);
