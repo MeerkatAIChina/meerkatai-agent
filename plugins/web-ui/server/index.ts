@@ -168,6 +168,19 @@ function relay(res: ServerResponse, r: { status: number; text: string }): void {
   res.end(r.text);
 }
 
+const INLINE_PAGE_CSP = SPA_CSP.replace(
+  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+);
+
+function sendInlineHtml(res: ServerResponse, status: number, html: string): void {
+  res.writeHead(status, {
+    ...withSecurityHeaders({ "content-type": "text/html; charset=utf-8" }),
+    "content-security-policy": INLINE_PAGE_CSP,
+  });
+  res.end(html);
+}
+
 function sendHtml(res: ServerResponse, status: number, html: string): void {
   res.writeHead(status, withSecurityHeaders({ "content-type": "text/html; charset=utf-8" }));
   res.end(html);
@@ -795,7 +808,7 @@ async function needsSetup(): Promise<boolean> {
 }
 
 function serveSetupHtml(res: ServerResponse): void {
-  sendHtml(res, 200, readFileSync(join(ROOT, "server", "setup.html"), "utf8"));
+  sendInlineHtml(res, 200, readFileSync(join(ROOT, "server", "setup.html"), "utf8"));
 }
 
 async function registerProviders(res: ServerResponse, rawBody: string): Promise<void> {
@@ -2079,7 +2092,7 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
   if (method === "GET" && DESKTOP && path === "/admin/locks") {
     if (!cookieUser(req)) return unauthorized(res, req);
-    return sendHtml(res, 200, readFileSync(join(ROOT, "server", "locks.html"), "utf8"));
+    return sendInlineHtml(res, 200, readFileSync(join(ROOT, "server", "locks.html"), "utf8"));
   }
 
   if (method === "GET" && path === "/app-edit" && (await serveAppEditHtml(req, res, url))) return;
