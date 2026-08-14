@@ -88,6 +88,11 @@
         <label for="localkey">本地模型密钥 <small>选填</small></label>
         <input id="localkey" type="password" autocomplete="off" placeholder="本地服务需要鉴权时填写" />
       </section>
+      <section>
+        <label for="proxy">网络代理 <small>选填</small></label>
+        <input id="proxy" type="text" autocomplete="off" placeholder="http://127.0.0.1:7890" />
+        <p class="hint">直连 GitHub 不稳定的网络下填写，用于拉取技能包。保存后会自动重启核心服务生效。</p>
+      </section>
       <button id="save">验证并保存</button>
       <p id="status"></p>
     </main>
@@ -107,6 +112,7 @@
         var tokenInput = document.getElementById("token");
         var localInput = document.getElementById("local");
         var localKeyInput = document.getElementById("localkey");
+        var proxyInput = document.getElementById("proxy");
         var saveBtn = document.getElementById("save");
         var status = document.getElementById("status");
 
@@ -122,6 +128,7 @@
               document.getElementById("provider-hint").textContent =
                 "服务地址：" + d.tensoris.baseUrl;
             }
+            if (d && d.gitProxy) proxyInput.value = d.gitProxy;
           })
           .catch(function () {});
 
@@ -139,6 +146,7 @@
               token: tokenInput.value.trim(),
               localEndpoint: localInput.value.trim() || undefined,
               localApiKey: localKeyInput.value.trim() || undefined,
+              gitProxy: proxyInput.value.trim() || undefined,
             }),
           })
             .then(async function (r) {
@@ -147,6 +155,25 @@
                 say("保存失败：" + (body.message || r.status), "err");
                 saveBtn.disabled = false;
                 return;
+              }
+              if (body.needsCoreRestart && window.__TAURI__) {
+                say("代理已保存，正在重启核心服务…");
+                try {
+                  await window.__TAURI__.core.invoke("restart_core");
+                  for (var i = 0; i < 40; i++) {
+                    await new Promise(function (resolve) { setTimeout(resolve, 1000); });
+                    var alive = await fetch("/healthz").then(function (x) { return x.ok; }).catch(function () { return false; });
+                    if (alive) break;
+                  }
+                  fetch("/api/desktop/skill-packs/retry", {
+                    method: "POST",
+                    headers: { "x-portal-identity": portal },
+                  }).catch(function () {});
+                } catch (e) {
+                  say("核心服务重启失败：" + e + "，请重启应用", "err");
+                  saveBtn.disabled = false;
+                  return;
+                }
               }
               if (body.localReachable === false) {
                 say("已保存。注意：本地模型服务暂时连不通，可稍后重试。", "ok");

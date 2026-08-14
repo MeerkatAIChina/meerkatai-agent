@@ -1037,12 +1037,13 @@ export function buildApp(
 
   wireRunResultDeliveries(runs, deliveries, tasks);
   const idempotency = createIdempotencyStore(artifactMap<IdempotencyRecord>("idempotency"));
-  const skillFetcher = createGitFetcher(
-    keychain
+  const skillFetcher = createGitFetcher({
+    allowLocalRepos: !config.production,
+    allowExplicitLocalPacks: config.allowLocalSkillPacks,
+    ...(config.skillPackGitProxy ? { gitProxy: config.skillPackGitProxy } : {}),
+    ...(keychain
       ? {
-          allowLocalRepos: !config.production,
-          allowExplicitLocalPacks: config.allowLocalSkillPacks,
-          resolveAuth: (pack) =>
+          resolveAuth: (pack: SkillPack) =>
             resolvePackAuth(
               {
                 serviceCredential: async (slug) => {
@@ -1055,8 +1056,8 @@ export function buildApp(
               pack,
             ),
         }
-      : { allowLocalRepos: !config.production, allowExplicitLocalPacks: config.allowLocalSkillPacks },
-  );
+      : {}),
+  });
   const reaper: Reaper = createReaper(runs, sessions, {
     intervalMs: config.reaperIntervalMs,
     leaderLease,

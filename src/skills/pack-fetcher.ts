@@ -24,6 +24,7 @@ export interface GitFetcherOptions {
   maxTotalBytes?: number;
   allowLocalRepos?: boolean;
   allowExplicitLocalPacks?: boolean;
+  gitProxy?: string;
   lookup?: (host: string) => Promise<string[]>;
 }
 
@@ -76,6 +77,7 @@ async function validateRepoUrl(
   raw: string,
   allowLocalRepos: boolean,
   lookup: (host: string) => Promise<string[]>,
+  gitProxy?: string,
 ): Promise<ValidatedRepo> {
   if (typeof raw !== "string" || !raw.trim()) throw new Error("skill pack url is required");
   if (isLocalRepoPath(raw)) {
@@ -106,11 +108,16 @@ async function validateRepoUrl(
   const resolved = addresses.map((address) => (isIP(address) === 6 ? `[${address}]` : address)).join(",");
   return {
     url: url.toString(),
-    gitConfig: [
-      ["http.followRedirects", "false"],
-      ...(!literal ? [["http.curloptResolve", `${host}:${port}:${resolved}`] as [string, string]] : []),
-      ["http.proxy", ""],
-    ],
+    gitConfig: gitProxy
+      ? [
+          ["http.followRedirects", "false"],
+          ["http.proxy", gitProxy],
+        ]
+      : [
+          ["http.followRedirects", "false"],
+          ...(!literal ? [["http.curloptResolve", `${host}:${port}:${resolved}`] as [string, string]] : []),
+          ["http.proxy", ""],
+        ],
   };
 }
 
@@ -165,6 +172,7 @@ export function createGitFetcher(opts: GitFetcherOptions = {}): SkillPackFetcher
   const maxTotalBytes = opts.maxTotalBytes ?? 32 * 1024 * 1024;
   const allowLocalRepos = opts.allowLocalRepos === true;
   const allowExplicitLocalPacks = opts.allowExplicitLocalPacks === true;
+  const gitProxy = opts.gitProxy?.trim() || undefined;
   const lookup =
     opts.lookup ??
     ((host: string) =>
@@ -262,7 +270,7 @@ export function createGitFetcher(opts: GitFetcherOptions = {}): SkillPackFetcher
       const ref = (pack.ref ?? "").trim();
       if (ref && !SHA_RE.test(ref) && !BRANCH_RE.test(ref)) throw new Error(`invalid skill pack ref: ${ref}`);
       const allowLocal = permitsLocal(pack);
-      const repo = await validateRepoUrl(pack.url, allowLocal, lookup);
+      const repo = await validateRepoUrl(pack.url, allowLocal, lookup, gitProxy);
       const auth = opts.resolveAuth ? await opts.resolveAuth(pack) : undefined;
 
       const work = await mkdtemp(join(tmpdir(), "qm-skill-src-"));
@@ -282,7 +290,7 @@ export function createGitFetcher(opts: GitFetcherOptions = {}): SkillPackFetcher
       const ref = (pack.ref ?? "").trim();
       if (ref && !SHA_RE.test(ref) && !BRANCH_RE.test(ref)) throw new Error(`invalid skill pack ref: ${ref}`);
       const allowLocal = permitsLocal(pack);
-      const repo = await validateRepoUrl(pack.url, allowLocal, lookup);
+      const repo = await validateRepoUrl(pack.url, allowLocal, lookup, gitProxy);
       const auth = opts.resolveAuth ? await opts.resolveAuth(pack) : undefined;
       const target = ref && BRANCH_RE.test(ref) && !SHA_RE.test(ref) ? ref : "HEAD";
       const work = await mkdtemp(join(tmpdir(), "qm-skill-ref-"));

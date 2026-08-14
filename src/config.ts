@@ -95,6 +95,7 @@ export interface Config {
   skillSigningSecret?: string;
   seedSkills: boolean;
   allowLocalSkillPacks: boolean;
+  skillPackGitProxy?: string;
   skillsSeedDir: string;
   pluginSkillDirs: string[];
   classifierUrl?: string;
@@ -456,6 +457,25 @@ function numEnvStrict(name: string, value: string | undefined): number | undefin
   return parsed;
 }
 
+function gitProxyEnvStrict(value: string | undefined): string | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const proxy = value.trim();
+  let url: URL;
+  try {
+    url = new URL(proxy);
+  } catch {
+    throw new Error(
+      `SKILL_PACK_GIT_PROXY=${JSON.stringify(value)} is not a valid URL — use http(s):// or socks5(h):// host[:port], or unset it.`,
+    );
+  }
+  if (!["http:", "https:", "socks5:", "socks5h:"].includes(url.protocol) || !url.hostname) {
+    throw new Error(
+      `SKILL_PACK_GIT_PROXY=${JSON.stringify(value)} must use http, https, socks5, or socks5h with a host, or unset it.`,
+    );
+  }
+  return proxy;
+}
+
 function orgBrandingFromEnv(env: NodeJS.ProcessEnv): Config["brandingDefault"] {
   const clean = (v: string | undefined): string =>
     (v ?? "").replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029<>]/g, "").trim();
@@ -702,6 +722,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const classifierTimeoutMs = numEnvStrict("CLASSIFIER_TIMEOUT_MS", env.CLASSIFIER_TIMEOUT_MS) ?? 15_000;
   const classifierFallbackModel = env.CLASSIFIER_FALLBACK_MODEL?.trim() || undefined;
   const classifierFallbackHarness = env.CLASSIFIER_FALLBACK_HARNESS?.trim() || undefined;
+  const skillPackGitProxy = gitProxyEnvStrict(env.SKILL_PACK_GIT_PROXY);
   if ((classifierFallbackModel === undefined) !== (classifierFallbackHarness === undefined)) {
     throw new Error("CLASSIFIER_FALLBACK_MODEL and CLASSIFIER_FALLBACK_HARNESS must both be set or both absent");
   }
@@ -822,6 +843,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(env.SKILL_SIGNING_SECRET ? { skillSigningSecret: env.SKILL_SIGNING_SECRET } : {}),
     seedSkills: boolEnvStrict("SEED_SKILLS", env.SEED_SKILLS) ?? true,
     allowLocalSkillPacks: boolEnvStrict("ALLOW_LOCAL_SKILL_PACKS", env.ALLOW_LOCAL_SKILL_PACKS) ?? false,
+    ...(skillPackGitProxy ? { skillPackGitProxy } : {}),
     skillsSeedDir: resolve(env.SKILLS_SEED_DIR ?? "./skills-seed"),
     pluginSkillDirs: csvPaths(env.PLUGIN_SKILLS_DIRS) ?? defaultPluginSkillDirs(),
     ...(classifierUrl ? { classifierUrl } : {}),

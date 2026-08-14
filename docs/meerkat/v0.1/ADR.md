@@ -80,3 +80,15 @@
 - **理由**：中转站/代理网关是自定义供应商功能的主要使用场景，"显式注册却不生效"自相矛盾；能注册自定义供应商的只有 org 管理员，其本就握有重定向流量的全部权力（改 base model、设 endpoint override），碰撞胜出不构成新增安全面。
 - **被否决**：① 沿用内置遮蔽 + 给型号改名（如 `tensoris/gpt-5.4-nano`）——选型 id 即上游请求里的模型名，改名会导致中转站无法识别，除非再引入"上游名映射"字段，复杂度更高；② 用 env 覆盖内置 provider 的 baseUrl（`OPENAI_BASE_URL` 指向中转站）——key 需进程启动前注入，与首启设置页热注册的流程冲突，且两个供应商（openai/google）共用一个中转站地址时 env 无法区分 key。
 - **后果**：这是对上游内核不变量的有意偏离（上游测试 `built-ins shadow custom ids` 被反转），随主仓升级时若上游改动 `resolveModel()` 或该测试会产生冲突，需人工合并；此改动具备通用价值，适合通过 upstream-pr 回馈主仓以消除长期差异点。
+
+
+---
+
+## ADR-008：Skill pack 拉取的代理支持——管理员显式开关 `SKILL_PACK_GIT_PROXY`，默认直连
+
+- **状态**：已接受
+- **背景**：core 的 pack-fetcher 出于 SSRF 防护，git 克隆时清空一切代理配置并钉死 DNS（`GIT_CONFIG_GLOBAL=/dev/null` + `http.proxy=""` + `http.curloptResolve` 固定解析结果）。但国内网络环境下 GitHub 直连间歇性被干扰（实测同一 IP curl 秒通、git 超时），桌面版首启导入 skill pack 因此看运气。
+- **决策**：新增环境变量 `SKILL_PACK_GIT_PROXY`（`src/config.ts` 严格解析，仅接受 http/https/socks5/socks5h URL，非法值拒绝启动）。设置后 `pack-fetcher` 的 gitConfig 改为 `http.proxy=<值>` 且**不再钉 IP**；不设置则完全维持上游行为。桌面端注入来源按优先级：OS 环境变量 > 数据目录 `network.json`（启动页可选填写，web-ui 写入，Tauri 壳重启 core 生效）。skill pack 注册 API 不接受代理参数——代理只能由本机管理员通过 env/配置文件设置，不能由 API 调用方指定。
+- **理由**：代理网络在国内客户环境不可避免；默认关闭保持上游 SSRF 防护语义不变，显式开启把信任边界有意识地转移给代理本身；启动页配置让终端用户无需触碰环境变量。
+- **被否决**：① seed 换国内镜像 URL（gitclone.com 等）——引入第三方镜像的供应链信任风险，且镜像站稳定性无承诺；② pack-fetcher 自动沿用系统/git 全局代理——上游刻意清空这些配置就是为了防止环境里的隐式代理绕过 DNS 钉防，静默继承等于拆防；③ 安装包内置 skill pack——违背 ADR-004 的分离原则。
+- **后果**：这是对上游 core 安全边界的有意扩展（opt-in），随主仓升级时若上游改动 `validateRepoUrl`/`gitEnv` 需人工合并；此改动对任何代理网络下的部署都有通用价值，适合通过 upstream-pr 回馈主仓。开启代理后 SSRF 的 DNS 钉防失效这一点必须在客户交付文档中注明。

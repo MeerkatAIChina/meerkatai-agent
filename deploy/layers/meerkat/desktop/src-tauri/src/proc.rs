@@ -172,6 +172,25 @@ fn read_local_model(data_dir: &Path) -> Option<LocalModel> {
     })
 }
 
+fn read_git_proxy(data_dir: &Path) -> Option<String> {
+    if let Ok(v) = std::env::var("SKILL_PACK_GIT_PROXY") {
+        let v = v.trim().to_string();
+        if !v.is_empty() {
+            return Some(v);
+        }
+    }
+    #[derive(serde::Deserialize)]
+    struct Raw {
+        #[serde(rename = "gitProxy")]
+        git_proxy: Option<String>,
+    }
+    let text = fs::read_to_string(data_dir.join("network.json")).ok()?;
+    let raw: Raw = serde_json::from_str(&text).ok()?;
+    raw.git_proxy
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+}
+
 fn spawn_component(
     ctx: &StackCtx,
     c: Component,
@@ -238,8 +257,11 @@ fn spawn_component(
                     "PORTAL_IDENTITY_SECRET",
                     &ctx.secrets.portal_identity_secret,
                 )
-                .env("SKILL_SIGNING_SECRET", &ctx.secrets.skill_signing_secret)
-                .stdout(out)
+                .env("SKILL_SIGNING_SECRET", &ctx.secrets.skill_signing_secret);
+            if let Some(proxy) = read_git_proxy(&ctx.data_dir) {
+                cmd.env("SKILL_PACK_GIT_PROXY", proxy);
+            }
+            cmd.stdout(out)
                 .stderr(err);
             hide_console(&mut cmd);
             cmd.spawn()
@@ -513,6 +535,25 @@ pub fn retry(app: &AppHandle) -> Result<(), String> {
     let handle = app.clone();
     let shared_clone = shared.inner().clone();
     std::thread::spawn(move || health_poll(handle, shared_clone, ctx, ports));
+    Ok(())
+}
+
+pub fn restart_core(app: &AppHandle) -> Result<(), String> {
+    let shared = app.state::<SharedStack>();
+    let mut guard = shared.lock().map_err(|e| e.to_string())?;
+    let ctx = app.state::<StackCtx>();
+    let stack = guard.as_mut().ok_or_else(|| "stack is not running".to_string())?;
+    let _ = stack.core.kill();
+    let _ = stack.core.wait();
+    let child = spawn_component(
+        &ctx,
+        Component::Core,
+        stack.core_port,
+        stack.classifier_port,
+        stack.core_port,
+    )
+    .map_err(|e| e.to_string())?;
+    stack.core = child;
     Ok(())
 }
 

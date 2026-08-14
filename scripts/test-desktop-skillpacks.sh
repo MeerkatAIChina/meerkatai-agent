@@ -5,13 +5,9 @@ ROOT="E:/projects/meerkatai-agent"
 PAYLOAD="$ROOT/deploy/layers/meerkat/desktop/payload"
 T="$ROOT/.tmp-desktop-test"
 rm -rf "$T"
-mkdir -p "$T/data" "$T/seeds"
+mkdir -p "$T/data"
 
-git clone --quiet https://github.com/MeerkatAIChina/meerkat-skills-triz.git "$T/triz-local" || exit 1
-TRIZ_PATH=$(echo "$T/triz-local" | sed 's#/#/#g')
-cat > "$T/seeds/skillpacks.json" <<EOF
-{"packs":[{"url":"$TRIZ_PATH","ref":"main","local":true}]}
-EOF
+GIT_PROXY="${SKILL_PACK_GIT_PROXY:-http://127.0.0.1:7890}"
 
 CORE_PORT=57614
 WEB_PORT=57615
@@ -26,6 +22,7 @@ PORTAL_SECRET="test-portal-secret-0123456789abcdef"
     CAPABILITY_SECRET=test-cap-secret CONNECTOR_SECRET_KEY=test-connector-key-0123456789abcdef \
     CORE_SIGNING_SECRET="$SIGN_SECRET" PORTAL_IDENTITY_SECRET="$PORTAL_SECRET" \
     SKILL_SIGNING_SECRET=test-skill-signing-secret-0123456789abcdef \
+    SKILL_PACK_GIT_PROXY="$GIT_PROXY" \
     node dist/index.mjs > "$T/core.log" 2>&1
 ) &
 CORE_PID=$!
@@ -33,7 +30,7 @@ CORE_PID=$!
 (
   cd "$PAYLOAD/web-ui"
   HOST=127.0.0.1 PORT=$WEB_PORT MEERKAT_DESKTOP=1 MEERKAT_DATA_DIR="$T/data" \
-    MEERKAT_SEEDS_DIR="$T/seeds" CORE_ORG_ID=meerkat \
+    MEERKAT_SEEDS_DIR="$PAYLOAD/config/seeds" CORE_ORG_ID=meerkat \
     CORE_API_URL="http://127.0.0.1:$CORE_PORT" \
     CORE_SIGNING_SECRET="$SIGN_SECRET" PORTAL_IDENTITY_SECRET="$PORTAL_SECRET" \
     node dist-server/index.mjs > "$T/webui.log" 2>&1

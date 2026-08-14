@@ -28,6 +28,11 @@ fn portal_token(ctx: State<'_, proc::StackCtx>) -> String {
 }
 
 #[tauri::command]
+fn restart_core(app: tauri::AppHandle) -> Result<(), String> {
+    proc::restart_core(&app)
+}
+
+#[tauri::command]
 fn status(state: State<'_, proc::PortsState>) -> Result<Vec<String>, String> {
     let ports = state.0.lock().map_err(|e| e.to_string())?;
     Ok(proc::live_status(*ports))
@@ -41,7 +46,8 @@ fn main() {
             status,
             retry,
             diagnostics,
-            portal_token
+            portal_token,
+            restart_core
         ])
         .setup(|app| {
             let payload_dir = std::env::var("MEERKAT_PAYLOAD_DIR")

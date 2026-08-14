@@ -795,6 +795,33 @@ function writeSemanticConfig(baseUrl: string, apiKey: string, model: string): vo
   }
 }
 
+function writeNetworkConfig(gitProxy: string): boolean {
+  const dataDir = process.env.MEERKAT_DATA_DIR?.trim();
+  if (!dataDir) return false;
+  try {
+    writeFileSync(
+      join(dataDir, "network.json"),
+      JSON.stringify(gitProxy ? { gitProxy } : {}, null, 2),
+      "utf8",
+    );
+    return true;
+  } catch (e) {
+    swallow("setup:network-config", e);
+    return false;
+  }
+}
+
+function readGitProxy(): string {
+  const dataDir = process.env.MEERKAT_DATA_DIR?.trim();
+  if (!dataDir) return "";
+  try {
+    const raw = JSON.parse(readFileSync(join(dataDir, "network.json"), "utf8")) as { gitProxy?: unknown };
+    return typeof raw.gitProxy === "string" ? raw.gitProxy.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 interface SeedSkillPack {
   url?: unknown;
   ref?: unknown;
@@ -802,19 +829,24 @@ interface SeedSkillPack {
 }
 
 let desktopPortalToken: string | null = null;
-let skillPacksTask: Promise<void> | null = null;
+let skillPacksRunning = false;
 
 function maybeStartSkillPacks(): void {
-  if (!DESKTOP || skillPacksTask) return;
+  if (!DESKTOP || skillPacksRunning) return;
   const seed = readSeed<{ packs?: SeedSkillPack[] }>("skillpacks.json");
   const packs = (seed?.packs ?? []).filter(
     (p): p is { url: string; ref?: unknown; local?: unknown } =>
       typeof p?.url === "string" && p.url.trim().length > 0,
   );
   if (packs.length === 0) return;
-  skillPacksTask = ensureSkillPacks(packs).catch((e) => {
-    console.warn("[web-ui] skill packs task failed:", e instanceof Error ? e.message : e);
-  });
+  skillPacksRunning = true;
+  ensureSkillPacks(packs)
+    .catch((e) => {
+      console.warn("[web-ui] skill packs task failed:", e instanceof Error ? e.message : e);
+    })
+    .finally(() => {
+      skillPacksRunning = false;
+    });
 }
 
 async function ensureSkillPacks(packs: Array<{ url: string; ref?: unknown; local?: unknown }>): Promise<void> {
@@ -940,14 +972,31 @@ function serveSetupHtml(res: ServerResponse): void {
 }
 
 async function registerProviders(res: ServerResponse, rawBody: string): Promise<void> {
-  let body: { token?: unknown; localEndpoint?: unknown; localApiKey?: unknown };
+  let body: { token?: unknown; localEndpoint?: unknown; localApiKey?: unknown; gitProxy?: unknown };
   try {
-    body = JSON.parse(rawBody) as { token?: unknown; localEndpoint?: unknown; localApiKey?: unknown };
+    body = JSON.parse(rawBody) as {
+      token?: unknown;
+      localEndpoint?: unknown;
+      localApiKey?: unknown;
+      gitProxy?: unknown;
+    };
   } catch {
     return json(res, 400, { error: "bad_request" });
   }
   const token = typeof body.token === "string" ? body.token.trim() : "";
   if (!token) return json(res, 400, { error: "bad_request", message: "service token is required" });
+  const gitProxy = typeof body.gitProxy === "string" ? body.gitProxy.trim() : "";
+  if (gitProxy) {
+    let proxyUrl: URL;
+    try {
+      proxyUrl = new URL(gitProxy);
+    } catch {
+      return json(res, 400, { error: "bad_request", message: "代理地址不是合法 URL" });
+    }
+    if (!["http:", "https:", "socks5:", "socks5h:"].includes(proxyUrl.protocol) || !proxyUrl.hostname) {
+      return json(res, 400, { error: "bad_request", message: "代理仅支持 http/https/socks5 协议" });
+    }
+  }
   const { tensoris, localSecure, defaults } = setupDefaults();
   const put = await coreFetch(
     "PUT",
@@ -1014,7 +1063,9 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
     }
   }
   setupCache = null;
-  return json(res, 200, { ok: true, localReachable });
+  const proxyChanged = readGitProxy() !== gitProxy;
+  writeNetworkConfig(gitProxy);
+  return json(res, 200, { ok: true, localReachable, needsCoreRestart: proxyChanged });
 }
 
 const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
@@ -1076,9 +1127,14 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
     const user = cookieUser(req);
     if (!user) return unauthorized(res, req);
 
-    if (DESKTOP && method === "GET" && path === "/api/setup/defaults") return json(res, 200, setupDefaults());
+    if (DESKTOP && method === "GET" && path === "/api/setup/defaults")
+      return json(res, 200, { ...setupDefaults(), gitProxy: readGitProxy() });
     if (DESKTOP && method === "POST" && path === "/api/setup/register")
       return registerProviders(res, await readBody(req));
+    if (DESKTOP && method === "POST" && path === "/api/desktop/skill-packs/retry") {
+      maybeStartSkillPacks();
+      return json(res, 200, { ok: true });
+    }
 
     if (DESKTOP && method === "GET" && path === "/api/locks") {
       const r = await coreFetch("GET", `/v1/admin/session-locks?scope=${encodeURIComponent(`org:${ORG}`)}`);
