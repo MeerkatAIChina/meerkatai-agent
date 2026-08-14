@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-portal-token"
+description = "Enables the portal_token command without any pre-configured scope."
+commands.allow = ["portal_token"]
+
+[[permission]]
+identifier = "deny-portal-token"
+description = "Denies the portal_token command without any pre-configured scope."
+commands.deny = ["portal_token"]
