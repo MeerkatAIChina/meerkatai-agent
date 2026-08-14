@@ -88,7 +88,7 @@
         <label for="localkey">本地模型密钥 <small>选填</small></label>
         <input id="localkey" type="password" autocomplete="off" placeholder="本地服务需要鉴权时填写" />
       </section>
-      <button id="save" disabled>验证并保存</button>
+      <button id="save">验证并保存</button>
       <p id="status"></p>
     </main>
     <script>
@@ -110,10 +110,6 @@
         var saveBtn = document.getElementById("save");
         var status = document.getElementById("status");
 
-        tokenInput.addEventListener("input", function () {
-          saveBtn.disabled = !tokenInput.value.trim();
-        });
-
         function say(text, cls) {
           status.textContent = text;
           status.className = cls || "";
@@ -130,6 +126,10 @@
           .catch(function () {});
 
         saveBtn.addEventListener("click", function () {
+          if (!tokenInput.value.trim()) {
+            say("请先粘贴服务令牌", "err");
+            return;
+          }
           saveBtn.disabled = true;
           say("正在验证并保存…");
           fetch("/api/setup/register", {
