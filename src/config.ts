@@ -98,6 +98,7 @@ export interface Config {
   skillsSeedDir: string;
   pluginSkillDirs: string[];
   classifierUrl?: string;
+  classifierTimeoutMs?: number;
   classifierFallbackModel?: string;
   classifierFallbackHarness?: string;
   deploymentLayerDir?: string;
@@ -698,6 +699,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     (turnWallClockMs > 0 ? 2 * turnWallClockMs : CONFIG_DEFAULTS.runMaxAgeMs);
   const slack = slackPluginConfigFromEnv(env);
   const classifierUrl = env.CLASSIFIER_URL?.trim() || undefined;
+  const classifierTimeoutMs = numEnvStrict("CLASSIFIER_TIMEOUT_MS", env.CLASSIFIER_TIMEOUT_MS) ?? 15_000;
   const classifierFallbackModel = env.CLASSIFIER_FALLBACK_MODEL?.trim() || undefined;
   const classifierFallbackHarness = env.CLASSIFIER_FALLBACK_HARNESS?.trim() || undefined;
   if ((classifierFallbackModel === undefined) !== (classifierFallbackHarness === undefined)) {
@@ -823,6 +825,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     skillsSeedDir: resolve(env.SKILLS_SEED_DIR ?? "./skills-seed"),
     pluginSkillDirs: csvPaths(env.PLUGIN_SKILLS_DIRS) ?? defaultPluginSkillDirs(),
     ...(classifierUrl ? { classifierUrl } : {}),
+    classifierTimeoutMs,
     ...(classifierFallbackModel ? { classifierFallbackModel } : {}),
     ...(classifierFallbackHarness ? { classifierFallbackHarness } : {}),
     ...(env.DEPLOYMENT_LAYER ? { deploymentLayerDir: resolve(env.DEPLOYMENT_LAYER) } : {}),

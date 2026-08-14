@@ -47,7 +47,8 @@ export async function classifySemantic(text: string): Promise<SemanticResult> {
       model: config.model,
       messages: [{ role: "user", content: `${CLASSIFY_PROMPT}\n\n用户消息: ${text}` }],
       temperature: 0,
-      max_tokens: 100,
+      max_tokens: 8192,
+      chat_template_kwargs: { enable_thinking: false },
     }),
     signal: AbortSignal.timeout(config.timeoutMs),
   });

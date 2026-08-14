@@ -954,7 +954,7 @@ export function buildApp(
     });
   }
   const sensitivityClassifier = config.classifierUrl
-    ? createSensitivityClassifier({ url: config.classifierUrl, timeoutMs: 2_000 })
+    ? createSensitivityClassifier({ url: config.classifierUrl, timeoutMs: config.classifierTimeoutMs ?? 15_000 })
     : undefined;
   const sessionLockStore = artifactMap<SessionLock>("session_locks");
   const orchestratorDeps: OrchestratorDeps = {

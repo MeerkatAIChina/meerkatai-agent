@@ -22,17 +22,24 @@ export interface PipelineInput {
   scopeId: string;
 }
 
-export async function runPipeline(input: PipelineInput): Promise<ClassifyResponse> {
+interface PipelineLogger {
+  info(obj: Record<string, unknown>, msg: string): void;
+  warn(obj: Record<string, unknown>, msg: string): void;
+}
+
+export async function runPipeline(input: PipelineInput, log?: PipelineLogger): Promise<ClassifyResponse> {
   const pii = detectPii(input.text);
   if (pii) {
     const route = resolveRoute("local-secure");
     if (route) route.session_pin = true;
+    log?.info({ layer: "pii", reason: pii.reason }, "classified by PII rule");
     return { level: "L1", domain: "general", route };
   }
 
   const triz = detectTrizKeywords(input.text);
   if (triz) {
     const route = resolveRoute("meerkat-triz-v1");
+    log?.info({ layer: "triz_keywords" }, "classified by TRIZ keywords");
     return { level: "L3", domain: "triz", route };
   }
 
@@ -40,11 +47,13 @@ export async function runPipeline(input: PipelineInput): Promise<ClassifyRespons
   if (scope) {
     const route = resolveRoute("local-secure");
     if (route) route.session_pin = true;
+    log?.info({ layer: "scope", scopeId: input.scopeId }, "classified by scope label");
     return { level: scope, domain: "general", route };
   }
 
   try {
     const semantic = await classifySemantic(input.text);
+    log?.info({ layer: "semantic", level: semantic.level, domain: semantic.domain }, "classified by semantic model");
     if (semantic.level === "L1" || semantic.level === "L2") {
       const route = resolveRoute("local-secure");
       if (route) route.session_pin = true;
@@ -58,6 +67,10 @@ export async function runPipeline(input: PipelineInput): Promise<ClassifyRespons
     if (err instanceof Error && err.message === "semantic classifier not configured") {
       return { level: "L3", domain: "general" };
     }
+    log?.warn(
+      { layer: "semantic", err: err instanceof Error ? err.message : String(err) },
+      "semantic classification failed, failing closed to L1",
+    );
     const route = resolveRoute("local-secure");
     if (route) route.session_pin = true;
     return { level: "L1", domain: "general", route };

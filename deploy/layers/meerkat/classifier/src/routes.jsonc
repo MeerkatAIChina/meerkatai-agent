@@ -1,4 +1,4 @@
 {
-  "local-secure": { "harnessId": "pi", "modelId": "meerkat-triz-v1", "providerId": "meerkat" },
-  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "meerkat-triz-v1", "providerId": "meerkat" }
+  "local-secure": { "harnessId": "pi", "modelId": "Meerkat-TRIZ-v1", "providerId": "meerkat" },
+  "meerkat-triz-v1": { "harnessId": "pi", "modelId": "Meerkat-TRIZ-v1", "providerId": "meerkat" }
 }

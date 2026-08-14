@@ -21,13 +21,28 @@ if (SEMANTIC_ENDPOINT) {
 }
 
 const app = Fastify({ logger: true });
+app.log.info(
+  { semanticConfigured: Boolean(SEMANTIC_ENDPOINT), semanticModel: SEMANTIC_MODEL },
+  "classifier startup config",
+);
 
 app.post("/classify", async (req, reply) => {
   const body = req.body as ClassifyRequest;
   if (!body?.text || !body?.metadata?.scope_id) {
+    req.log.warn(
+      {
+        bodyType: typeof body,
+        hasText: Boolean(body?.text),
+        hasScopeId: Boolean(body?.metadata?.scope_id),
+        bodyKeys: body && typeof body === "object" ? Object.keys(body) : [],
+        metadataKeys:
+          body?.metadata && typeof body.metadata === "object" ? Object.keys(body.metadata) : [],
+      },
+      "classify rejected: missing text or metadata.scope_id",
+    );
     return reply.status(400).send({ error: "text and metadata.scope_id are required" });
   }
-  const result = await runPipeline({ text: body.text, scopeId: body.metadata.scope_id });
+  const result = await runPipeline({ text: body.text, scopeId: body.metadata.scope_id }, req.log);
   return reply.send(result);
 });
 
