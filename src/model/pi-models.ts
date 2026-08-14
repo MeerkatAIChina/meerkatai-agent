@@ -133,6 +133,8 @@ function cloneModel(model: PiModel, id: string, name: string, overrides: Partial
 }
 
 export function resolveModel(id: string): PiModel | undefined {
+  const custom = resolveCustomModel(id) as unknown as PiModel | undefined;
+  if (custom) return custom;
   const entry = REGISTRY_BY_ID.get(id);
   if (entry?.clone) {
     const template = builtinModel(entry.clone.template);
@@ -149,7 +151,7 @@ export function resolveModel(id: string): PiModel | undefined {
         })
       : undefined;
   }
-  return builtinModel(id) ?? (resolveCustomModel(id) as unknown as PiModel | undefined);
+  return builtinModel(id);
 }
 
 export function auxiliaryModelForProvider(provider: string): string | undefined {

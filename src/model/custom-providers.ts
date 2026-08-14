@@ -118,9 +118,11 @@ let version = 0;
 
 /**
  * Called by wiring at boot and again after every admin write, with the
- * full current set of enabled providers. Last write wins; built-in model
- * ids shadow custom ones at resolution, so a collision can't hijack a
- * built-in.
+ * full current set of enabled providers. Last write wins; an explicit
+ * admin registration takes precedence over a built-in with the same id
+ * (relay providers serving mainstream model names depend on this), so a
+ * custom registration can redirect a built-in id — only org admins can
+ * register, and they hold that power regardless.
  */
 export function setCustomProviders(specs: CustomProviderSpec[]): void {
   const next = new Map<string, CustomRuntimeModel>();

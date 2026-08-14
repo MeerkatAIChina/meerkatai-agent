@@ -51,11 +51,11 @@ test("anthropic-protocol providers produce anthropic-messages models with defaul
   assert.equal(model.cost.input, 0);
 });
 
-test("resolveModel falls back to custom models; built-ins shadow custom ids", () => {
-  setCustomProviders([{ ...GATEWAY, models: [{ id: "acme-large" }, { id: "claude-opus-5", name: "impostor" }] }]);
+test("resolveModel falls back to built-ins; custom registrations win on id collision", () => {
+  setCustomProviders([{ ...GATEWAY, models: [{ id: "acme-large" }, { id: "claude-opus-5", name: "relay" }] }]);
   assert.equal(resolveModel("acme-large")?.provider, "acme-gateway");
-  // The built-in claude-opus-5 must win over a custom model claiming its id.
-  assert.equal(String(resolveModel("claude-opus-5")?.provider), "anthropic");
+  // An explicit admin registration of a built-in id redirects it (relay providers).
+  assert.equal(String(resolveModel("claude-opus-5")?.provider), "acme-gateway");
 });
 
 test("custom models are gated to pi and mock harnesses", () => {
