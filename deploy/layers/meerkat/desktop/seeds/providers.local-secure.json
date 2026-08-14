@@ -1,7 +1,7 @@
 {
   "id": "local-secure",
   "name": "local-secure",
-  "protocol": "openai-compatible",
+  "protocol": "openai",
   "baseUrl": "",
   "models": [{ "id": "Meerkat-TRIZ-v1" }]
 }

@@ -760,14 +760,14 @@ function setupDefaults(): { tensoris: SeedProvider; localSecure: SeedProvider; d
   const tensoris = readSeed<SeedProvider>("providers.tensoris.json") ?? {
     id: "tensoris",
     name: "tensoris",
-    protocol: "openai-compatible",
+    protocol: "openai",
     baseUrl: "https://api.tensoris.ai/v1",
     models: [{ id: "gpt-5.4-nano" }, { id: "gemini-3.1-flash-lite" }],
   };
   const localSecure = readSeed<SeedProvider>("providers.local-secure.json") ?? {
     id: "local-secure",
     name: "local-secure",
-    protocol: "openai-compatible",
+    protocol: "openai",
     baseUrl: "",
     models: [{ id: "Meerkat-TRIZ-v1" }],
   };
