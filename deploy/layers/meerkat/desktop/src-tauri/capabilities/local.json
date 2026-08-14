@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "app-local",
+  "description": "The bundled splash window (local origin) may invoke all app commands.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-ports",
+    "allow-status",
+    "allow-retry",
+    "allow-diagnostics",
+    "allow-portal-token",
+    "allow-restart-core"
+  ]
+}

@@ -7,5 +7,17 @@ fn main() {
         }
         println!("cargo:warning=payload/ not found — run scripts/stage-payload.* before packaging");
     }
-    tauri_build::build()
+    tauri_build::try_build(
+        tauri_build::Attributes::new().app_manifest(
+            tauri_build::AppManifest::new().commands(&[
+                "ports",
+                "status",
+                "retry",
+                "diagnostics",
+                "portal_token",
+                "restart_core",
+            ]),
+        ),
+    )
+    .expect("tauri build");
 }
