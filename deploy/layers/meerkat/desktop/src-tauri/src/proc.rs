@@ -133,6 +133,33 @@ fn log_stdio(data_dir: &Path, name: &str) -> io::Result<(Stdio, Stdio)> {
     Ok((Stdio::from(file()?), Stdio::from(file()?)))
 }
 
+struct LocalModel {
+    base_url: String,
+    api_key: Option<String>,
+    model: String,
+}
+
+fn read_local_model(data_dir: &Path) -> Option<LocalModel> {
+    #[derive(serde::Deserialize)]
+    struct Raw {
+        #[serde(rename = "baseUrl")]
+        base_url: String,
+        #[serde(rename = "apiKey")]
+        api_key: Option<String>,
+        model: String,
+    }
+    let text = fs::read_to_string(data_dir.join("local-model.json")).ok()?;
+    let raw: Raw = serde_json::from_str(&text).ok()?;
+    if raw.base_url.is_empty() || raw.model.is_empty() {
+        return None;
+    }
+    Some(LocalModel {
+        base_url: raw.base_url,
+        api_key: raw.api_key.filter(|k| !k.is_empty()),
+        model: raw.model,
+    })
+}
+
 fn spawn_component(
     ctx: &StackCtx,
     c: Component,
@@ -143,8 +170,8 @@ fn spawn_component(
     match c {
         Component::Classifier => {
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
-            Command::new(&ctx.node)
-                .current_dir(ctx.payload_dir.join("classifier"))
+            let mut cmd = Command::new(&ctx.node);
+            cmd.current_dir(ctx.payload_dir.join("classifier"))
                 .args(["--import", "tsx", "src/server.ts"])
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
@@ -154,10 +181,19 @@ fn spawn_component(
                         .join("config")
                         .join("seeds")
                         .join("routes.json"),
+                );
+            if let Some(local) = read_local_model(&ctx.data_dir) {
+                cmd.env(
+                    "SEMANTIC_ENDPOINT",
+                    format!("{}/chat/completions", local.base_url.trim_end_matches('/')),
                 )
-                .stdout(out)
-                .stderr(err)
-                .spawn()
+                .env("SEMANTIC_MODEL", &local.model)
+                .env("SEMANTIC_TIMEOUT_MS", "10000");
+                if let Some(key) = local.api_key {
+                    cmd.env("SEMANTIC_API_KEY", key);
+                }
+            }
+            cmd.stdout(out).stderr(err).spawn()
         }
         Component::Core => {
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
@@ -176,7 +212,7 @@ fn spawn_component(
                     "CLASSIFIER_URL",
                     format!("http://127.0.0.1:{classifier_port}/classify"),
                 )
-                .env("CLASSIFIER_FALLBACK_MODEL", "meerkat-triz-v1")
+                .env("CLASSIFIER_FALLBACK_MODEL", "Meerkat-TRIZ-v1")
                 .env("CLASSIFIER_FALLBACK_HARNESS", "pi")
                 .env("ALLOW_LOCAL_SKILL_PACKS", "1")
                 .env("ADMIN_GRANTS", "meerkat-desktop:org_admin")
@@ -200,6 +236,7 @@ fn spawn_component(
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
                 .env("MEERKAT_DESKTOP", "1")
+                .env("MEERKAT_DATA_DIR", &ctx.data_dir)
                 .env(
                     "MEERKAT_SEEDS_DIR",
                     ctx.payload_dir.join("config").join("seeds"),

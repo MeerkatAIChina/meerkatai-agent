@@ -84,6 +84,10 @@
         <input id="local" type="text" autocomplete="off" placeholder="http://127.0.0.1:8000/v1" />
         <p class="hint">部署了本地安全模型后填写。未配置时，涉及隐私的内容将无法应答。</p>
       </section>
+      <section>
+        <label for="localkey">本地模型密钥 <small>选填</small></label>
+        <input id="localkey" type="password" autocomplete="off" placeholder="本地服务需要鉴权时填写" />
+      </section>
       <button id="save" disabled>验证并保存</button>
       <p id="status"></p>
     </main>
@@ -102,6 +106,7 @@
 
         var tokenInput = document.getElementById("token");
         var localInput = document.getElementById("local");
+        var localKeyInput = document.getElementById("localkey");
         var saveBtn = document.getElementById("save");
         var status = document.getElementById("status");
 
@@ -133,6 +138,7 @@
             body: JSON.stringify({
               token: tokenInput.value.trim(),
               localEndpoint: localInput.value.trim() || undefined,
+              localApiKey: localKeyInput.value.trim() || undefined,
             }),
           })
             .then(async function (r) {

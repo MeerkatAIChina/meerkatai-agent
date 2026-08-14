@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Readable } from "node:stream";
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join, normalize } from "node:path";
 import { LRUCache } from "lru-cache";
@@ -756,10 +756,24 @@ function setupDefaults(): { tensoris: SeedProvider; localSecure: SeedProvider; d
     name: "local-secure",
     protocol: "openai-compatible",
     baseUrl: "",
-    models: [{ id: "meerkat-triz-v1" }],
+    models: [{ id: "Meerkat-TRIZ-v1" }],
   };
   const defaults = readSeed<Record<string, unknown>>("defaults.json") ?? {};
   return { tensoris, localSecure, defaults };
+}
+
+function writeSemanticConfig(baseUrl: string, apiKey: string, model: string): void {
+  const dataDir = process.env.MEERKAT_DATA_DIR?.trim();
+  if (!dataDir) return;
+  try {
+    writeFileSync(
+      join(dataDir, "local-model.json"),
+      JSON.stringify({ baseUrl, apiKey, model }, null, 2),
+      "utf8",
+    );
+  } catch (e) {
+    swallow("setup:semantic-config", e);
+  }
 }
 
 let setupCache: { at: number; needs: boolean } | null = null;
@@ -785,9 +799,9 @@ function serveSetupHtml(res: ServerResponse): void {
 }
 
 async function registerProviders(res: ServerResponse, rawBody: string): Promise<void> {
-  let body: { token?: unknown; localEndpoint?: unknown };
+  let body: { token?: unknown; localEndpoint?: unknown; localApiKey?: unknown };
   try {
-    body = JSON.parse(rawBody) as { token?: unknown; localEndpoint?: unknown };
+    body = JSON.parse(rawBody) as { token?: unknown; localEndpoint?: unknown; localApiKey?: unknown };
   } catch {
     return json(res, 400, { error: "bad_request" });
   }
@@ -816,10 +830,14 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
   }
   const localEndpoint =
     typeof body.localEndpoint === "string" ? body.localEndpoint.trim().replace(/\/+$/, "") : "";
+  const localApiKey = typeof body.localApiKey === "string" ? body.localApiKey.trim() : "";
   let localReachable: boolean | null = null;
   if (localEndpoint) {
     try {
-      const probe = await fetch(`${localEndpoint}/models`, { signal: AbortSignal.timeout(3_000) });
+      const probe = await fetch(`${localEndpoint}/models`, {
+        signal: AbortSignal.timeout(3_000),
+        ...(localApiKey ? { headers: { authorization: `Bearer ${localApiKey}` } } : {}),
+      });
       localReachable = probe.ok;
     } catch (e) {
       swallow("setup:local-probe", e);
@@ -833,9 +851,11 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
         protocol: localSecure.protocol,
         baseUrl: localEndpoint,
         models: localSecure.models,
+        ...(localApiKey ? { apiKey: localApiKey } : {}),
         validate: false,
       }),
     );
+    writeSemanticConfig(localEndpoint, localApiKey, localSecure.models[0]?.id ?? "");
   }
   const pickerModels = Array.isArray(defaults.webuiModels)
     ? defaults.webuiModels.filter((m): m is string => typeof m === "string" && m.length > 0)

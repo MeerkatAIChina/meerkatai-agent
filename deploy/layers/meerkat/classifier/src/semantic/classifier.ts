@@ -1,6 +1,7 @@
 interface SemanticConfig {
   endpoint: string;
   model: string;
+  apiKey?: string;
   timeoutMs: number;
 }
 
@@ -38,7 +39,10 @@ export async function classifySemantic(text: string): Promise<SemanticResult> {
 
   const response = await fetch(config.endpoint, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
+    },
     body: JSON.stringify({
       model: config.model,
       messages: [{ role: "user", content: `${CLASSIFY_PROMPT}\n\n用户消息: ${text}` }],

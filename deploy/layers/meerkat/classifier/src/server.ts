@@ -7,7 +7,7 @@ import type { ClassifyRequest } from "./types.ts";
 const PORT = parseInt(process.env["PORT"] ?? "8080", 10);
 const ROUTES_PATH = process.env["ROUTES_PATH"] ?? fileURLToPath(new URL("routes.jsonc", import.meta.url));
 const SEMANTIC_ENDPOINT = process.env["SEMANTIC_ENDPOINT"];
-const SEMANTIC_MODEL = process.env["SEMANTIC_MODEL"] ?? "meerkat-triz-v1";
+const SEMANTIC_MODEL = process.env["SEMANTIC_MODEL"] ?? "Meerkat-TRIZ-v1";
 
 loadRoutes(ROUTES_PATH);
 
@@ -15,6 +15,7 @@ if (SEMANTIC_ENDPOINT) {
   configureSemantic({
     endpoint: SEMANTIC_ENDPOINT,
     model: SEMANTIC_MODEL,
+    apiKey: process.env["SEMANTIC_API_KEY"],
     timeoutMs: parseInt(process.env["SEMANTIC_TIMEOUT_MS"] ?? "1200", 10),
   });
 }

@@ -3,5 +3,5 @@
   "name": "local-secure",
   "protocol": "openai-compatible",
   "baseUrl": "",
-  "models": [{ "id": "meerkat-triz-v1" }]
+  "models": [{ "id": "Meerkat-TRIZ-v1" }]
 }
