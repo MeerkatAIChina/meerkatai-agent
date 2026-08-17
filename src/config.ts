@@ -33,8 +33,8 @@ export interface Config {
   databaseUrl?: string;
   harness: "mock" | "pi" | "opencode" | "codex" | "claude";
   securityPosture: SecurityPosture;
-  sandboxBackend: "aws" | "local" | "sprites" | "none";
-  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "none";
+  sandboxBackend: "aws" | "local" | "sprites" | "none" | "wsl2";
+  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "none" | "wsl2";
   deployProvider: "docker" | "aws";
   egressServiceHosts?: string[];
   brandingDefault?: { accent?: string; mark?: string; selfLabel?: string };
@@ -149,6 +149,7 @@ export interface Config {
   eagerProvisionEnabled: boolean;
   awsSandbox: AwsSandboxEnv;
   localSandbox: LocalSandboxEnv;
+  wsl2Sandbox: Wsl2SandboxEnv;
   spritesSandbox: SpritesSandboxEnv;
   awsDeploy: AwsDeployEnv;
 }
@@ -253,6 +254,15 @@ interface LocalSandboxEnv {
   cpus?: number;
   memoryMb?: number;
   defaultTimeoutSec?: number;
+}
+
+interface Wsl2SandboxEnv {
+  distro: string;
+}
+
+function wsl2SandboxEnv(env: NodeJS.ProcessEnv): Wsl2SandboxEnv {
+  const d = env.WSL2_SANDBOX_DISTRO?.trim();
+  return { distro: d || "meerkat-sandbox" };
 }
 
 function localSandboxEnv(env: NodeJS.ProcessEnv): LocalSandboxEnv {
@@ -503,8 +513,11 @@ function harnessEnvStrict(value: string | undefined): Config["harness"] {
 function sandboxBackendEnvStrict(value: string | undefined, name = "SANDBOX_BACKEND"): Config["sandboxBackend"] {
   if (value === undefined || value.trim() === "") return "local";
   const backend = value.trim();
-  if (backend === "aws" || backend === "local" || backend === "sprites" || backend === "none") return backend;
-  throw new Error(`${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, or none, or unset it.`);
+  if (backend === "aws" || backend === "local" || backend === "sprites" || backend === "none" || backend === "wsl2")
+    return backend;
+  throw new Error(
+    `${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, wsl2, or none, or unset it.`,
+  );
 }
 
 function secretsBackendEnvStrict(value: string | undefined, prefix: string): Config["secretsBackend"] {
@@ -613,7 +626,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
-    throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, local, or none.");
+    throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, local, wsl2, or none.");
   }
   const sandboxBackend = sandboxBackendEnvStrict(env.SANDBOX_BACKEND);
   const secondaryRaw = env.SANDBOX_SECONDARY_BACKEND?.trim();
@@ -906,6 +919,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     eagerProvisionEnabled: boolEnvStrict("EAGER_PROVISION", env.EAGER_PROVISION) ?? false,
     awsSandbox: awsSandboxEnv(env),
     localSandbox: localSandboxEnv(env),
+    wsl2Sandbox: wsl2SandboxEnv(env),
     spritesSandbox: spritesSandboxEnv(env),
     awsDeploy: awsDeployEnv(env),
   };

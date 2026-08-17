@@ -61,7 +61,7 @@ test("exec with the right token runs", async () => {
     body: JSON.stringify({ cmd: "echo hi" }),
   });
   assert.equal(r.status, 200);
-  const body = await r.json();
+  const body = (await r.json()) as { stdout: string; code: number };
   if (process.platform === "win32") {
     assert.notEqual(body.code, 0);
   } else {

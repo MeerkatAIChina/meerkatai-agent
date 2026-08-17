@@ -102,6 +102,7 @@ import { createPostgresFileArtifactStore } from "./files/postgres-file-artifact-
 import { createAwsSandbox, type StoredMicrovm } from "./sandbox/aws-sandbox.ts";
 import { createLocalSandbox } from "./sandbox/local-sandbox.ts";
 import { createNoneSandbox } from "./sandbox/none-sandbox.ts";
+import { createWsl2Sandbox } from "./sandbox/wsl2-sandbox.ts";
 import { createSpritesSandbox } from "./sandbox/sprites-sandbox.ts";
 import {
   createSandboxRouter,
@@ -582,6 +583,12 @@ export function buildApp(
       ...config.localSandbox,
       onError: sandboxOnError,
     });
+  const buildWsl2 = (): Sandbox =>
+    createWsl2Sandbox(workspace, {
+      ...config.wsl2Sandbox,
+      agentToken: randomBytes(32).toString("hex"),
+      onError: sandboxOnError,
+    });
   const buildSprites = (): Sandbox =>
     createSpritesSandbox(workspace, {
       ...config.spritesSandbox,
@@ -610,6 +617,7 @@ export function buildApp(
     sprites: buildSprites,
     aws: buildAws,
     none: () => createNoneSandbox(),
+    wsl2: buildWsl2,
   };
   const sandboxBackends: Partial<Record<SandboxBackendName, Sandbox>> = {
     [config.sandboxBackend]: buildBackend[config.sandboxBackend](),

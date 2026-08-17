@@ -414,3 +414,15 @@ test("baseModelProviders constrains the base model only when a provider is decla
     "with no declaration the shipped default stands, so upgrading never moves a deployment's model or its billing",
   );
 });
+
+test("WSL2_SANDBOX_DISTRO overrides the default distro", () => {
+  assert.equal(loadConfig({ SANDBOX_BACKEND: "wsl2", WSL2_SANDBOX_DISTRO: "custom" }).wsl2Sandbox.distro, "custom");
+});
+
+test("wsl2Sandbox defaults to meerkat-sandbox", () => {
+  assert.equal(loadConfig({ SANDBOX_BACKEND: "wsl2" }).wsl2Sandbox.distro, "meerkat-sandbox");
+});
+
+test("SANDBOX_BACKEND accepts wsl2", () => {
+  assert.equal(loadConfig({ SANDBOX_BACKEND: "wsl2" }).sandboxBackend, "wsl2");
+});
