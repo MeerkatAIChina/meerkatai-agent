@@ -16,6 +16,8 @@ fn main() {
                 "diagnostics",
                 "portal_token",
                 "restart_core",
+                "wsl2_status",
+                "enable_wsl2",
             ]),
         ),
     )

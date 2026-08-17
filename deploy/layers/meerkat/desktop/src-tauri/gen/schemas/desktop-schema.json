@@ -183,6 +183,12 @@
           "markdownDescription": "Enables the diagnostics command without any pre-configured scope."
         },
         {
+          "description": "Enables the enable_wsl2 command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-enable-wsl2",
+          "markdownDescription": "Enables the enable_wsl2 command without any pre-configured scope."
+        },
+        {
           "description": "Enables the portal_token command without any pre-configured scope.",
           "type": "string",
           "const": "allow-portal-token",
@@ -213,10 +219,22 @@
           "markdownDescription": "Enables the status command without any pre-configured scope."
         },
         {
+          "description": "Enables the wsl2_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-wsl2-status",
+          "markdownDescription": "Enables the wsl2_status command without any pre-configured scope."
+        },
+        {
           "description": "Denies the diagnostics command without any pre-configured scope.",
           "type": "string",
           "const": "deny-diagnostics",
           "markdownDescription": "Denies the diagnostics command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the enable_wsl2 command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-enable-wsl2",
+          "markdownDescription": "Denies the enable_wsl2 command without any pre-configured scope."
         },
         {
           "description": "Denies the portal_token command without any pre-configured scope.",
@@ -247,6 +265,12 @@
           "type": "string",
           "const": "deny-status",
           "markdownDescription": "Denies the status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the wsl2_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-wsl2-status",
+          "markdownDescription": "Denies the wsl2_status command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

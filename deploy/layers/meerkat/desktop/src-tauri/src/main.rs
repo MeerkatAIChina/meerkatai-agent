@@ -2,6 +2,7 @@
 
 mod auth;
 mod proc;
+mod sandbox;
 mod secrets;
 
 use std::path::PathBuf;
@@ -33,6 +34,16 @@ fn restart_core(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn wsl2_status(boot: State<'_, proc::Boot>) -> sandbox::SandboxStatus {
+    sandbox::status(&boot.data_dir, &boot.payload_dir)
+}
+
+#[tauri::command]
+fn enable_wsl2(boot: State<'_, proc::Boot>) -> Result<(), String> {
+    sandbox::enable_wsl2(&boot.data_dir)
+}
+
+#[tauri::command]
 fn status(state: State<'_, proc::PortsState>) -> Result<Vec<String>, String> {
     let ports = state.0.lock().map_err(|e| e.to_string())?;
     Ok(proc::live_status(*ports))
@@ -47,7 +58,9 @@ fn main() {
             retry,
             diagnostics,
             portal_token,
-            restart_core
+            restart_core,
+            wsl2_status,
+            enable_wsl2
         ])
         .setup(|app| {
             let payload_dir = std::env::var("MEERKAT_PAYLOAD_DIR")
