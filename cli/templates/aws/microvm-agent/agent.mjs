@@ -6,6 +6,12 @@ import path from "node:path";
 const PORT = Number(process.env.AGENT_PORT || 8080);
 const MAX_BUFFER = 256 * 1024 * 1024;
 const START_MS = Date.now();
+const AUTH_TOKEN = process.env.AGENT_AUTH_TOKEN || "";
+
+function authorized(req) {
+  if (!AUTH_TOKEN) return true;
+  return req.headers["x-agent-token"] === AUTH_TOKEN;
+}
 
 function readBody(req, cap = MAX_BUFFER) {
   return new Promise((resolve, reject) => {
@@ -81,9 +87,18 @@ const server = http.createServer((req, res) => {
         startMs: START_MS,
         uptimeSec: Math.round((Date.now() - START_MS) / 1000),
       });
-    if (req.method === "POST" && route === "/exec") return handleExec(req, res);
-    if (req.method === "POST" && route === "/write") return handleWrite(req, res);
-    if (req.method === "POST" && route === "/read") return handleRead(req, res);
+    if (req.method === "POST" && route === "/exec") {
+      if (!authorized(req)) return send(res, 401, { error: "unauthorized" });
+      return handleExec(req, res);
+    }
+    if (req.method === "POST" && route === "/write") {
+      if (!authorized(req)) return send(res, 401, { error: "unauthorized" });
+      return handleWrite(req, res);
+    }
+    if (req.method === "POST" && route === "/read") {
+      if (!authorized(req)) return send(res, 401, { error: "unauthorized" });
+      return handleRead(req, res);
+    }
     return send(res, 404, { error: "not found", route });
   })().catch((e) => send(res, 500, { error: String((e && e.message) || e) }));
 });
