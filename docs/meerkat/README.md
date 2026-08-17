@@ -46,4 +46,5 @@ docs/meerkat/
 | 版本 | 需求 | 状态 |
 |------|------|------|
 | [v0.0](./v0.0/) | 数据分级模型路由 + 消费品行业领域 Skills 包 | 已实现并端到端验证（feature/meerkat 分支，不合并 main） |
-| [v0.1](./v0.1/) | 桌面化交付物（Tauri 封装） | 已实现，Windows 10 真机验收通过（tag `desktop-v0.1.0`）；macOS 未真机验证 |
+| [v0.1](./v0.1/) | 桌面化交付物（Tauri 封装） | 已实现，Windows 10 真机验收通过（Release `v0.1.0-alpha`）；macOS 未真机验证 |
+| [v0.1.1](./v0.1.1/) | 桌面化沙箱（WSL2 / sandbox-runtime）+ 优化项 | 需求调研完成，待设计评审 |
