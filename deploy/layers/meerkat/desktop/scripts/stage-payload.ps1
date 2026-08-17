@@ -41,6 +41,15 @@ Remove-Item -Recurse -Force $StageCls
 
 Copy-Item -Recurse (Join-Path $Desktop "seeds\*") "$Payload\config\seeds\"
 
+$rootfs = Join-Path $Desktop "payload-sandbox\rootfs.tar.gz"
+if (Test-Path $rootfs) {
+  New-Item -ItemType Directory -Force -Path "$Payload\sandbox" | Out-Null
+  Copy-Item $rootfs "$Payload\sandbox\"
+  Copy-Item (Join-Path $Desktop "payload-sandbox\fingerprint.txt") "$Payload\sandbox\"
+} else {
+  Write-Host "warn: payload-sandbox/rootfs.tar.gz missing — run scripts/build-rootfs.sh first (Windows sandbox will ship disabled)"
+}
+
 Get-ChildItem $Payload | ForEach-Object {
   $size = (Get-ChildItem $_.FullName -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
   "{0,8:N1} MB  {1}" -f $size, $_.Name

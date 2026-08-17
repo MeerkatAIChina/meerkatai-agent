@@ -70,4 +70,11 @@ rm -rf "$STAGE_CLS"
 
 cp -r "$DESKTOP/seeds"/* "$PAYLOAD/config/seeds/"
 
+if [ -f "$DESKTOP/payload-sandbox/rootfs.tar.gz" ]; then
+  mkdir -p "$PAYLOAD/sandbox"
+  cp "$DESKTOP/payload-sandbox/rootfs.tar.gz" "$DESKTOP/payload-sandbox/fingerprint.txt" "$PAYLOAD/sandbox/"
+else
+  echo "warn: payload-sandbox/rootfs.tar.gz missing — run scripts/build-rootfs.sh first (Windows sandbox will ship disabled)"
+fi
+
 du -sh "$PAYLOAD" "$PAYLOAD"/* 2>/dev/null || true

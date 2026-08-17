@@ -29,6 +29,12 @@ env \
 CORE_PID=$!
 trap 'kill $CORE_PID 2>/dev/null || true; sleep 1; rm -rf "$DATA_DIR" 2>/dev/null || true' EXIT
 
+if [ -f "$PAYLOAD/sandbox/rootfs.tar.gz" ]; then
+  echo "sandbox rootfs staged ($(du -h "$PAYLOAD/sandbox/rootfs.tar.gz" | cut -f1))"
+else
+  echo "sandbox rootfs absent (mac build or skipped)"
+fi
+
 for _ in $(seq 1 20); do
   curl -sf -m 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
   sleep 1
