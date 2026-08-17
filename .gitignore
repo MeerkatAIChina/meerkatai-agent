@@ -24,4 +24,5 @@ docs/master.html
 
 # desktop build artifacts
 deploy/layers/meerkat/desktop/payload/
+deploy/layers/meerkat/desktop/payload-sandbox/
 deploy/layers/meerkat/desktop/.node-cache/
