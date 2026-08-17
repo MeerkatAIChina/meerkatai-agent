@@ -33,8 +33,8 @@ export interface Config {
   databaseUrl?: string;
   harness: "mock" | "pi" | "opencode" | "codex" | "claude";
   securityPosture: SecurityPosture;
-  sandboxBackend: "aws" | "local" | "sprites";
-  sandboxSecondaryBackend?: "aws" | "local" | "sprites";
+  sandboxBackend: "aws" | "local" | "sprites" | "none";
+  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "none";
   deployProvider: "docker" | "aws";
   egressServiceHosts?: string[];
   brandingDefault?: { accent?: string; mark?: string; selfLabel?: string };
@@ -503,8 +503,8 @@ function harnessEnvStrict(value: string | undefined): Config["harness"] {
 function sandboxBackendEnvStrict(value: string | undefined, name = "SANDBOX_BACKEND"): Config["sandboxBackend"] {
   if (value === undefined || value.trim() === "") return "local";
   const backend = value.trim();
-  if (backend === "aws" || backend === "local" || backend === "sprites") return backend;
-  throw new Error(`${name}=${JSON.stringify(value)} is not recognized — use aws, local, or sprites, or unset it.`);
+  if (backend === "aws" || backend === "local" || backend === "sprites" || backend === "none") return backend;
+  throw new Error(`${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, or none, or unset it.`);
 }
 
 function secretsBackendEnvStrict(value: string | undefined, prefix: string): Config["secretsBackend"] {
@@ -613,7 +613,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
-    throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, or local.");
+    throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, local, or none.");
   }
   const sandboxBackend = sandboxBackendEnvStrict(env.SANDBOX_BACKEND);
   const secondaryRaw = env.SANDBOX_SECONDARY_BACKEND?.trim();
