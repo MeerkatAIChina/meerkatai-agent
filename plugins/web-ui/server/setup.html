@@ -93,6 +93,12 @@
         <input id="proxy" type="text" autocomplete="off" placeholder="http://127.0.0.1:7890" />
         <p class="hint">直连 GitHub 不稳定的网络下填写，用于拉取技能包。保存后会自动重启核心服务生效。</p>
       </section>
+      <section>
+        <label>沙箱（代码执行能力） <small>选填</small></label>
+        <div id="sandbox-status" style="font-size:13px;line-height:1.6">检测中…</div>
+        <button type="button" id="sandbox-enable" hidden style="width:auto;padding:8px 16px;font-size:13px">启用沙箱（需要管理员授权）</button>
+        <p class="hint">启用后 Meerkat 可以运行脚本与生成文件；未启用时仅对话能力可用。macOS 版本即将支持。</p>
+      </section>
       <button id="save">验证并保存</button>
       <p id="status"></p>
     </main>
@@ -115,6 +121,29 @@
         var proxyInput = document.getElementById("proxy");
         var saveBtn = document.getElementById("save");
         var status = document.getElementById("status");
+
+        (function () {
+          var el = document.getElementById("sandbox-status");
+          var btn = document.getElementById("sandbox-enable");
+          function refreshSandbox() {
+            if (!window.__TAURI__) { el.textContent = "当前环境不支持沙箱"; return; }
+            window.__TAURI__.core.invoke("wsl2_status").then(function (s) {
+              if (!s.supported) { el.textContent = "此机器不支持沙箱（" + (s.reason || "系统版本过低") + "）"; }
+              else if (s.imported && s.fingerprint_current) { el.textContent = "✅ 沙箱已就绪"; }
+              else if (s.pending_reboot) { el.textContent = "已启用，重启电脑后生效"; }
+              else if (!s.wsl_enabled) { el.textContent = "未启用"; btn.hidden = false; }
+              else { el.textContent = "已启用，将在下次启动时完成初始化"; }
+            }).catch(function () { el.textContent = "沙箱状态不可用"; });
+          }
+          btn.addEventListener("click", function () {
+            btn.disabled = true;
+            window.__TAURI__.core.invoke("enable_wsl2")
+              .then(function () { refreshSandbox(); })
+              .catch(function (e) { el.textContent = "启用失败：" + e; })
+              .finally(function () { btn.disabled = false; });
+          });
+          refreshSandbox();
+        })();
 
         function say(text, cls) {
           status.textContent = text;
