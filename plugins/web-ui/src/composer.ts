@@ -21,10 +21,12 @@ import {
 import {
   api,
   fetchRuntimeConfig,
+  fetchSessionLocks,
   updateRuntimeConfig,
   type ApprovalDecision,
   type PendingApproval,
   type RuntimeConfig,
+  type SessionLockInfo,
 } from "./core-bridge";
 import { errMessage, swallow } from "../../chassis/src/errors";
 import { icon } from "./ui";
@@ -263,7 +265,34 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
     return modelOptionFor(picked ?? defaultModelValue(scopeKey()), scopeKey());
   }
 
+  let sessionLock: SessionLockInfo | null = null;
+  let lockRequest = 0;
+  let lockFetchedFor: string | null = null;
+
+  async function refreshSessionLock(agent?: Agent): Promise<void> {
+    const request = ++lockRequest;
+    const sessionId = ctx.chat.state.sessionId;
+    if (!isDesktop() || !sessionId) {
+      sessionLock = null;
+      lockFetchedFor = null;
+      return;
+    }
+    const locks = await fetchSessionLocks();
+    if (request !== lockRequest || sessionId !== ctx.chat.state.sessionId) return;
+    sessionLock = locks.find((lock) => lock.sessionId === sessionId) ?? null;
+    lockFetchedFor = sessionId;
+    ctx.chat.drawActiveChat(agent);
+  }
+
+  function ensureSessionLock(agent?: Agent): void {
+    const sessionId = ctx.chat.state.sessionId;
+    if (!isDesktop() || !sessionId || lockFetchedFor === sessionId) return;
+    lockFetchedFor = sessionId;
+    void refreshSessionLock(agent);
+  }
+
   async function refreshRuntimeSelection(scopeId: string | null, agent?: Agent): Promise<void> {
+    void refreshSessionLock(agent);
     const request = ++runtimeRequest;
     const scopeKey = runtimeScopeKey(scopeId);
     const seeded = scopeKey !== null && seededRuntime?.scopeId === scopeKey ? seededRuntime.config : null;
@@ -352,6 +381,7 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
         composerState.effortLevel !== effectiveEffort ||
         fastOn !== effectiveFast);
     const inputBlocked = runtimePending || ctx.chat.state.resolvingApprovals.size > 0 || approvalPauses.length > 0;
+    ensureSessionLock(agent);
     const attachingDisabled = inputBlocked;
     let placeholder = "Ask anything";
     if (inputBlocked) placeholder = runtimePending ? "Loading runtime…" : "Approve or deny to continue";
@@ -552,29 +582,41 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
                           </button>`
                         : nothing
                     }
-                    ${menuControl({
-                      kind: "model",
-                      label: selectedModel.buttonLabel,
-                      title: "Model",
-                      selected: selectedModel.value,
-                      align: "right",
-                      options: getModelOptionsForHarness(selectedModel.harnessId, scopeKey()).map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                      })),
-                      disabled: inputBlocked,
-                      onSelect: (value: string) => selectModel(value, agent),
-                    })}
-                    ${menuControl({
-                      kind: "harness",
-                      label: selectedModel.harnessLabel,
-                      title: "Harness",
-                      selected: selectedModel.harnessId,
-                      align: "right",
-                      options: getHarnessOptions(scopeKey()),
-                      disabled: inputBlocked,
-                      onSelect: (value: string) => selectHarness(value, agent),
-                    })}
+                    ${sessionLock
+                      ? html`<button
+                          class="menu-btn session-lock-btn"
+                          type="button"
+                          disabled
+                          title="此会话已锁定到本地隐私模型（会话锁），可在锁管理页解除"
+                        >
+                          🔒 ${sessionLock.modelId}
+                        </button>`
+                      : html`
+                          ${menuControl({
+                            kind: "model",
+                            label: selectedModel.buttonLabel,
+                            title: "Model",
+                            selected: selectedModel.value,
+                            align: "right",
+                            options: getModelOptionsForHarness(selectedModel.harnessId, scopeKey()).map((option) => ({
+                              value: option.value,
+                              label: option.label,
+                            })),
+                            disabled: inputBlocked,
+                            onSelect: (value: string) => selectModel(value, agent),
+                          })}
+                          ${menuControl({
+                            kind: "harness",
+                            label: selectedModel.harnessLabel,
+                            title: "Harness",
+                            selected: selectedModel.harnessId,
+                            align: "right",
+                            options: getHarnessOptions(scopeKey()),
+                            disabled: inputBlocked,
+                            onSelect: (value: string) => selectHarness(value, agent),
+                          })}
+                        `
+                    }
                   `
             }
             ${sendControls(agent)}
@@ -1253,6 +1295,9 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
       } else {
         await agent.prompt(text);
       }
+      lockFetchedFor = null;
+      void refreshSessionLock(agent);
+      setTimeout(() => void refreshSessionLock(agent), 2000);
     } catch (err) {
       ctx.chat.state.pendingSend = null;
       if (ctx.chat.state.threadRef && ctx.chat.state.sessionId === null) dropPendingSession(ctx.chat.state.threadRef);

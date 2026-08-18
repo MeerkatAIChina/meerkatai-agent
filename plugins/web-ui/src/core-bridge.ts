@@ -522,6 +522,24 @@ export async function updateRuntimeConfig(
   });
 }
 
+export interface SessionLockInfo {
+  sessionId: string;
+  harnessId: string;
+  modelId: string;
+  title?: string | null;
+  scopeId?: string;
+}
+
+export async function fetchSessionLocks(): Promise<SessionLockInfo[]> {
+  try {
+    const body = await api<{ locks?: SessionLockInfo[] }>("/api/locks");
+    return Array.isArray(body.locks) ? body.locks : [];
+  } catch (e) {
+    swallow("web-ui: fetch session locks", e);
+    return [];
+  }
+}
+
 export type WorkObserver = (work: WorkBlock) => void;
 
 export interface RunSlot {
