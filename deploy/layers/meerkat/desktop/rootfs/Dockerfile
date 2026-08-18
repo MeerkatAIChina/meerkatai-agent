@@ -12,5 +12,7 @@ RUN curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-lin
 RUN useradd -r -s /usr/sbin/nologin sandbox
 RUN mkdir -p /opt/qm
 COPY aws/microvm-agent/agent.mjs /opt/qm/agent.mjs
+COPY deploy/layers/meerkat/desktop/rootfs/egress-proxy.mjs /opt/qm/egress-proxy.mjs
+COPY deploy/layers/meerkat/desktop/rootfs/egress-lock.sh /opt/qm/egress-lock.sh
 ARG FINGERPRINT=dev
 RUN echo "${FINGERPRINT}" > /etc/qm-sandbox-fingerprint

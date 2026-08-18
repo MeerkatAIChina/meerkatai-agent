@@ -26,6 +26,8 @@ import type {
 const RO_LAYERS_TAR = ".ro-layers.tar";
 const RO_LAYERS_MANIFEST = ".ro-layers.manifest";
 const AGENT_PATH = "/opt/qm/agent.mjs";
+const PROXY_PATH = "/opt/qm/egress-proxy.mjs";
+const FENCE_PATH = "/opt/qm/egress-lock.sh";
 
 export interface Wsl2SandboxOptions {
   distro?: string;
@@ -34,6 +36,7 @@ export interface Wsl2SandboxOptions {
   fetchImpl?: typeof fetch;
   defaultTimeoutSec?: number;
   agentPortForTest?: number;
+  egress?: { allowlist: string[] };
   onError?: (e: { category: string; code: string; message: string; scopeLabel?: string }) => void;
 }
 
@@ -65,6 +68,56 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
   const queue = createKeyedQueue<string>();
 
   let agentPort: number | undefined;
+  let egressProxyPort: number | undefined;
+  let fenceApplied = false;
+
+  async function ensureEgressFence(): Promise<void> {
+    if (!opts.egress || fenceApplied) return;
+    const port = await freePort();
+    const allow = opts.egress.allowlist.join(",");
+    const launch = await wsl(
+      [
+        "-d",
+        distro,
+        "-u",
+        "root",
+        "--",
+        "sh",
+        "-c",
+        `EGRESS_PORT=${port} EGRESS_ALLOW=${shq(allow)} setsid nohup node ${PROXY_PATH} >/var/log/qm-egress.log 2>&1 &`,
+      ],
+      15_000,
+    );
+    if (launch.code !== 0)
+      throw new Error(`wsl2 sandbox: egress proxy launch failed: ${launch.stderr.trim() || launch.stdout.trim()}`);
+    const probeDeadline = Date.now() + 5_000;
+    let up = false;
+    while (Date.now() < probeDeadline) {
+      const probe = await wsl(
+        ["-d", distro, "-u", "root", "--", "sh", "-c", `curl -sm 2 -o /dev/null http://127.0.0.1:${port}/`],
+        5_000,
+      );
+      if (probe.code === 0) {
+        up = true;
+        break;
+      }
+      await sleep(200);
+    }
+    if (!up) throw new Error("wsl2 sandbox: egress proxy never became reachable in the guest");
+    egressProxyPort = port;
+    const fence = await wsl(["-d", distro, "-u", "root", "--", "sh", FENCE_PATH], 15_000);
+    if (fence.code !== 0) {
+      opts.onError?.({
+        category: "sandbox_egress",
+        code: "fence_apply_failed",
+        message: fence.stderr.trim(),
+      });
+      throw new Error(
+        "wsl2 sandbox: egress fence could not be applied (iptables unavailable in this guest kernel?) - sandbox networking fails closed",
+      );
+    }
+    fenceApplied = true;
+  }
 
   async function ensureDistro(): Promise<void> {
     const list = await wsl(["-l", "-q"], 15_000);
@@ -146,6 +199,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
         throw new Error(`wsl2 sandbox: agent launch failed: ${launch.stderr.trim() || launch.stdout.trim()}`);
       agentPort = port;
       await waitAgent();
+      await ensureEgressFence();
     });
   }
 
@@ -230,7 +284,13 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
       return queue(`scope:${scope}`, async () => {
         await ensureAgent();
         const existed = (await execRaw(`test -d ${shq(home)}`, 15)).code === 0;
-        const env = provOpts?.env && Object.keys(provOpts.env).length ? provOpts.env : undefined;
+        const egressEnv: Record<string, string> = egressProxyPort
+          ? {
+              HTTP_PROXY: `http://127.0.0.1:${egressProxyPort}`,
+              HTTPS_PROXY: `http://127.0.0.1:${egressProxyPort}`,
+            }
+          : {};
+        const env = { ...egressEnv, ...(provOpts?.env ?? {}) };
         const handle: SandboxHandle = {
           id: home,
           rootDir: workspaceDir,
@@ -239,7 +299,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
           ...(scratch ? { scratch: true } : {}),
           backend: "wsl2",
           scopeId: scope,
-          ...(env ? { env } : {}),
+          ...(Object.keys(env).length ? { env } : {}),
         };
         try {
           const prep = await execRaw(`mkdir -p ${shq(workspaceDir)} && ${ephemeralCredLinkScript(home)}`, 30);

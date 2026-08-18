@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { baseModelProviders, configuredModelForHarness, providerKeysPresent, type Config } from "./config.ts";
@@ -583,12 +583,27 @@ export function buildApp(
       ...config.localSandbox,
       onError: sandboxOnError,
     });
-  const buildWsl2 = (): Sandbox =>
-    createWsl2Sandbox(workspace, {
+  const buildWsl2 = (): Sandbox => {
+    let egress: { allowlist: string[] } | undefined;
+    const egressPath = process.env.SANDBOX_EGRESS_PATH?.trim();
+    if (egressPath) {
+      try {
+        const seed = JSON.parse(readFileSync(egressPath, "utf8")) as { allow?: unknown };
+        if (Array.isArray(seed.allow)) {
+          const allowlist = seed.allow.filter((d): d is string => typeof d === "string" && d.trim().length > 0);
+          if (allowlist.length) egress = { allowlist };
+        }
+      } catch (e) {
+        console.warn(`[wiring] sandbox egress seed unreadable (${egressPath}): ${errMessage(e)}`);
+      }
+    }
+    return createWsl2Sandbox(workspace, {
       ...config.wsl2Sandbox,
       agentToken: randomBytes(32).toString("hex"),
+      ...(egress ? { egress } : {}),
       onError: sandboxOnError,
     });
+  };
   const buildSprites = (): Sandbox =>
     createSpritesSandbox(workspace, {
       ...config.spritesSandbox,

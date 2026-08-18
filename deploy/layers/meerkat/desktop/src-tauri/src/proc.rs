@@ -242,6 +242,15 @@ fn spawn_component(
                 .env("PORT", port.to_string())
                 .env("DATA_DIR", &ctx.data_dir)
                 .env("SANDBOX_BACKEND", ctx.sandbox_backend)
+                .env(
+                    "SANDBOX_EGRESS_PATH",
+                    ctx.payload_dir
+                        .join("config")
+                        .join("seeds")
+                        .join("sandbox-egress.json")
+                        .to_string_lossy()
+                        .to_string(),
+                )
                 .env("SESSION_STORE", "sqlite")
                 .env(
                     "CLASSIFIER_URL",

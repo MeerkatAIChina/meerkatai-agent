@@ -1,0 +1,11 @@
+{
+  "allow": [
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org",
+    "registry.npmmirror.com",
+    "github.com",
+    "objects.githubusercontent.com",
+    "mirrors.aliyun.com"
+  ]
+}
