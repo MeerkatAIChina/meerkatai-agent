@@ -8,6 +8,8 @@ import {
   type MemoryRecallMode,
 } from "./memory/policy.ts";
 import { parseMemoryStrategyKind, type MemoryStrategyKind } from "./memory/strategy.ts";
+import { sanitizeBranding } from "./resolution/branding.ts";
+import type { OrgBranding } from "./resolution/config-store.ts";
 import { validateCoreSecretEnv } from "./deployment/secret-schema.ts";
 import { DEFAULT_CAPTURE_QUIET_MS } from "./memory/strategies/per-turn.ts";
 import { parseSecurityPosture, type SecurityPosture } from "./security/security-posture.ts";
@@ -31,13 +33,15 @@ export interface Config {
   sessionStore: "memory" | "postgres" | "sqlite";
   sqlitePath?: string;
   databaseUrl?: string;
+  databaseCaCert?: string;
+  databaseCaCertFile?: string;
   harness: "mock" | "pi" | "opencode" | "codex" | "claude";
   securityPosture: SecurityPosture;
-  sandboxBackend: "aws" | "local" | "sprites" | "none" | "wsl2";
-  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "none" | "wsl2";
+  sandboxBackend: "aws" | "local" | "sprites" | "smolmachines" | "none" | "wsl2";
+  sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "smolmachines" | "none" | "wsl2";
   deployProvider: "docker" | "aws";
   egressServiceHosts?: string[];
-  brandingDefault?: { accent?: string; mark?: string; selfLabel?: string };
+  brandingDefault?: OrgBranding;
   modelId?: string;
   opencodeModel?: string;
   codexModel?: string;
@@ -151,6 +155,7 @@ export interface Config {
   localSandbox: LocalSandboxEnv;
   wsl2Sandbox: Wsl2SandboxEnv;
   spritesSandbox: SpritesSandboxEnv;
+  smolmachinesSandbox: SmolmachinesSandboxEnv;
   awsDeploy: AwsDeployEnv;
 }
 
@@ -258,11 +263,13 @@ interface LocalSandboxEnv {
 
 interface Wsl2SandboxEnv {
   distro: string;
+  egressPath?: string;
 }
 
 function wsl2SandboxEnv(env: NodeJS.ProcessEnv): Wsl2SandboxEnv {
   const d = env.WSL2_SANDBOX_DISTRO?.trim();
-  return { distro: d || "meerkat-sandbox" };
+  const p = env.SANDBOX_EGRESS_PATH?.trim();
+  return { distro: d || "meerkat-sandbox", ...(p ? { egressPath: p } : {}) };
 }
 
 function localSandboxEnv(env: NodeJS.ProcessEnv): LocalSandboxEnv {
@@ -295,6 +302,40 @@ function spritesSandboxEnv(env: NodeJS.ProcessEnv): SpritesSandboxEnv {
     ...(env.SPRITES_BASE_URL ? { baseUrl: env.SPRITES_BASE_URL } : {}),
     ...(env.SPRITES_NAME_PREFIX ? { namePrefix: env.SPRITES_NAME_PREFIX } : {}),
     ...(env.SPRITES_EGRESS_PROXY_URL ? { egressProxyUrl: env.SPRITES_EGRESS_PROXY_URL } : {}),
+    ...(numEnvStrict("SANDBOX_TIMEOUT_SEC", env.SANDBOX_TIMEOUT_SEC) !== undefined
+      ? { defaultTimeoutSec: numEnvStrict("SANDBOX_TIMEOUT_SEC", env.SANDBOX_TIMEOUT_SEC) }
+      : {}),
+  };
+}
+
+interface SmolmachinesSandboxEnv {
+  token?: string;
+  baseUrl?: string;
+  namePrefix?: string;
+  image?: string;
+  cpus?: number;
+  memoryMb?: number;
+  diskGb?: number;
+  egressProxyUrl?: string;
+  defaultTimeoutSec?: number;
+}
+
+function smolmachinesSandboxEnv(env: NodeJS.ProcessEnv): SmolmachinesSandboxEnv {
+  return {
+    ...(env.SMOLMACHINES_TOKEN ? { token: env.SMOLMACHINES_TOKEN } : {}),
+    ...(env.SMOLMACHINES_BASE_URL ? { baseUrl: env.SMOLMACHINES_BASE_URL } : {}),
+    ...(env.SMOLMACHINES_NAME_PREFIX ? { namePrefix: env.SMOLMACHINES_NAME_PREFIX } : {}),
+    ...(env.SMOLMACHINES_IMAGE ? { image: env.SMOLMACHINES_IMAGE } : {}),
+    ...(numEnvStrict("SMOLMACHINES_CPUS", env.SMOLMACHINES_CPUS) !== undefined
+      ? { cpus: numEnvStrict("SMOLMACHINES_CPUS", env.SMOLMACHINES_CPUS) }
+      : {}),
+    ...(numEnvStrict("SMOLMACHINES_MEMORY_MB", env.SMOLMACHINES_MEMORY_MB) !== undefined
+      ? { memoryMb: numEnvStrict("SMOLMACHINES_MEMORY_MB", env.SMOLMACHINES_MEMORY_MB) }
+      : {}),
+    ...(numEnvStrict("SMOLMACHINES_DISK_GB", env.SMOLMACHINES_DISK_GB) !== undefined
+      ? { diskGb: numEnvStrict("SMOLMACHINES_DISK_GB", env.SMOLMACHINES_DISK_GB) }
+      : {}),
+    ...(env.SMOLMACHINES_EGRESS_PROXY_URL ? { egressProxyUrl: env.SMOLMACHINES_EGRESS_PROXY_URL } : {}),
     ...(numEnvStrict("SANDBOX_TIMEOUT_SEC", env.SANDBOX_TIMEOUT_SEC) !== undefined
       ? { defaultTimeoutSec: numEnvStrict("SANDBOX_TIMEOUT_SEC", env.SANDBOX_TIMEOUT_SEC) }
       : {}),
@@ -487,17 +528,12 @@ function gitProxyEnvStrict(value: string | undefined): string | undefined {
 }
 
 function orgBrandingFromEnv(env: NodeJS.ProcessEnv): Config["brandingDefault"] {
-  const clean = (v: string | undefined): string =>
-    (v ?? "").replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029<>]/g, "").trim();
-  const accentRaw = clean(env.ORG_BRAND_ACCENT);
-  const accent = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(accentRaw) ? accentRaw : undefined;
-  const mark =
-    clean(env.ORG_BRAND_MARK)
-      .replace(/["\\{}]/g, "")
-      .slice(0, 2) || undefined;
-  const selfLabel = clean(env.ORG_BRAND_SELF_LABEL).slice(0, 40) || undefined;
-  const branding = { ...(accent ? { accent } : {}), ...(mark ? { mark } : {}), ...(selfLabel ? { selfLabel } : {}) };
-  return Object.keys(branding).length ? branding : undefined;
+  return sanitizeBranding({
+    accent: env.ORG_BRAND_ACCENT,
+    mark: env.ORG_BRAND_MARK,
+    selfLabel: env.ORG_BRAND_SELF_LABEL,
+    orgName: env.ORG_BRAND_ORG_NAME,
+  });
 }
 
 function harnessEnvStrict(value: string | undefined): Config["harness"] {
@@ -513,10 +549,17 @@ function harnessEnvStrict(value: string | undefined): Config["harness"] {
 function sandboxBackendEnvStrict(value: string | undefined, name = "SANDBOX_BACKEND"): Config["sandboxBackend"] {
   if (value === undefined || value.trim() === "") return "local";
   const backend = value.trim();
-  if (backend === "aws" || backend === "local" || backend === "sprites" || backend === "none" || backend === "wsl2")
+  if (
+    backend === "aws" ||
+    backend === "local" ||
+    backend === "sprites" ||
+    backend === "smolmachines" ||
+    backend === "none" ||
+    backend === "wsl2"
+  )
     return backend;
   throw new Error(
-    `${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, wsl2, or none, or unset it.`,
+    `${name}=${JSON.stringify(value)} is not recognized — use aws, local, sprites, smolmachines, wsl2, or none, or unset it.`,
   );
 }
 
@@ -626,7 +669,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
-    throw new Error("SANDBOX_BACKEND must be set explicitly in production — use sprites, aws, local, wsl2, or none.");
+    throw new Error(
+      "SANDBOX_BACKEND must be set explicitly in production — use sprites, smolmachines, aws, local, wsl2, or none.",
+    );
   }
   const sandboxBackend = sandboxBackendEnvStrict(env.SANDBOX_BACKEND);
   const secondaryRaw = env.SANDBOX_SECONDARY_BACKEND?.trim();
@@ -752,6 +797,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sessionStore,
     ...(sqlitePath ? { sqlitePath } : {}),
     ...(env.DATABASE_URL ? { databaseUrl: env.DATABASE_URL } : {}),
+    ...(env.DATABASE_CA_CERT ? { databaseCaCert: env.DATABASE_CA_CERT } : {}),
+    ...(env.DATABASE_CA_CERT_FILE ? { databaseCaCertFile: env.DATABASE_CA_CERT_FILE } : {}),
     harness: harnessEnvStrict(env.HARNESS),
     securityPosture: securityPostureEnvStrict(env.HARNESS_SECURITY_POSTURE),
     securityScreenBackend,
@@ -921,6 +968,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     localSandbox: localSandboxEnv(env),
     wsl2Sandbox: wsl2SandboxEnv(env),
     spritesSandbox: spritesSandboxEnv(env),
+    smolmachinesSandbox: smolmachinesSandboxEnv(env),
     awsDeploy: awsDeployEnv(env),
   };
 }

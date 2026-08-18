@@ -1,6 +1,5 @@
 import { html, nothing, render, type TemplateResult } from "lit";
 import {
-  ArrowLeft,
   Box,
   Brain,
   ChevronDown,
@@ -14,6 +13,9 @@ import {
   Plus,
   RefreshCw,
   Rocket,
+  Search,
+  ShieldCheck,
+  Webhook,
   type IconNode,
 } from "lucide";
 import "@mariozechner/mini-lit/dist/ThemeToggle.js";
@@ -36,6 +38,7 @@ import { clearAllDrafts, saveDraft, storedDraft } from "./drafts";
 import { deepLinkPath, isPlainLeftClick, parseDeepLink, UI_BASE } from "./deep-link";
 import {
   addBlankPane,
+  adoptRemoteSplit,
   canvasToast,
   drawCanvas,
   exitSplitIfActive,
@@ -57,13 +60,17 @@ import {
   toggleWebOnly,
 } from "./sessions";
 import { openCronById, renderCronsPage, resetActiveCron, routeCronsHistory } from "./crons";
+import { openWebhookById, renderWebhooksPage, resetActiveWebhook, routeWebhooksHistory } from "./webhooks";
 import { renderFiles } from "./files";
+import { setScopedSession } from "./session-scope";
+import { openChatSearch, SEARCH_HOTKEY_LABEL } from "./search";
+import { hideTooltip, showTooltip } from "./tooltip";
 import { clearConnectorNotice, noteConnectorResult, renderConnectors, resetKeychainState } from "./connectors";
 import { renderDeploys } from "./deploys";
 import { renderMemory, resetMemoryState } from "./memory";
 import { renderSkills } from "./skills";
 import { contextsState, ensureContexts, renderContexts, resetContextsState, resolveProjectScope } from "./contexts";
-import { appState, isView, type AuthMode, type Me, type View } from "./shell-state";
+import { appState, can, isView, type AuthMode, type Me, type View } from "./shell-state";
 import { trapDialogFocus } from "./dialog-focus";
 export { appState, can, type Me, type View } from "./shell-state";
 
@@ -83,14 +90,11 @@ export const ADMIN_BASE = (() => {
 })();
 export const ADMIN_HOME_URL = `${ADMIN_BASE}/`;
 
-export function adminSessionLogUrl(sessionId: string, scopeId: string): string {
-  const q = new URLSearchParams({ view: "history", scope: scopeId, session: sessionId });
-  return `${ADMIN_BASE}/?${q.toString()}`;
-}
-
-export function syncUrlFromState(): void {
+export function syncUrlFromState(sessionOverride?: string | null): void {
   const chatState = mainConversation().state;
-  const sessionId = splitState.active ? null : (chatState.sessionId ?? chatState.rememberedSessionId);
+  const fromState =
+    sessionOverride !== undefined ? sessionOverride : (chatState.sessionId ?? chatState.rememberedSessionId);
+  const sessionId = splitState.active ? null : fromState;
   const next = deepLinkPath(UI_BASE, appState.currentView, sessionId, contextsState.selected);
   if (`${location.pathname}${location.search}` !== next) history.replaceState(null, "", next);
 }
@@ -147,9 +151,9 @@ const NAV_WORKSPACE_KEY = "web-ui:nav-workspace";
 
 function loadNavOpen(key: string): boolean {
   try {
-    return localStorage.getItem(key) !== "0";
+    return localStorage.getItem(key) === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -176,6 +180,7 @@ const ICON = {
   files: Files,
   keychain: KeyRound,
   deploys: Rocket,
+  webhooks: Webhook,
   crons: Clock,
   memory: Brain,
   skills: Box,
@@ -446,7 +451,7 @@ export function mountShell(): void {
               <span class="user-name">${appState.me?.user ?? ""}</span>
             </div>
             <a class="icon-btn subtle" href=${ADMIN_HOME_URL} title="Back to admin" aria-label="Back to admin"
-              >${icon(ArrowLeft, 17)}</a
+              >${icon(ShieldCheck, 17)}</a
             >
             <theme-toggle .includeSystem=${true} title="Color scheme: light / dark / system"></theme-toggle>
             <button class="icon-btn subtle" title="Sign out" aria-label="Sign out" @click=${signOut}>
@@ -528,30 +533,49 @@ export function renderSidebarTop(): void {
           html`
             ${navRow("contexts", ICON.contexts, "Projects")} ${navRow("chats", ICON.chats, "Chats")}
             ${navRow("files", ICON.files, "Files")} ${navRow("crons", ICON.crons, "Crons")}
-            ${navRow("keychain", ICON.keychain, "Keychain")} ${navRow("deploys", ICON.deploys, "Apps")}
-            ${navRow("memory", ICON.memory, "Memory")} ${navRow("skills", ICON.skills, "Skills")}
+            ${navRow("webhooks", ICON.webhooks, "Webhooks")} ${navRow("keychain", ICON.keychain, "Keychain")}
+            ${navRow("deploys", ICON.deploys, "Apps")} ${navRow("memory", ICON.memory, "Memory")}
+            ${navRow("skills", ICON.skills, "Skills")}
+            ${
+              can("admin")
+                ? html`<a class="navrow" href=${ADMIN_HOME_URL} title="Admin">
+                    ${icon(ShieldCheck, 17)}<span>Admin</span>
+                  </a>`
+                : nothing
+            }
           `,
         )}
       </nav>
-      ${
-        appState.currentView === "chats"
-          ? html`
-              <div class="section-label recents-label">
-                <span>Sessions</span>
-                <button
-                  class="web-only-toggle ${sessionsState.webOnly ? "on" : ""}"
-                  type="button"
-                  role="switch"
-                  aria-checked=${sessionsState.webOnly ? "true" : "false"}
-                  title=${sessionsState.webOnly ? "Showing web chats only" : "Hide non-web conversations"}
-                  @click=${toggleWebOnly}
-                >
-                  <span>Web only</span><span class="mini-switch"><span class="mini-knob"></span></span>
-                </button>
-              </div>
-            `
-          : ""
-      }
+      ${html`
+        <div class="section-label recents-label">
+          <span>Sessions</span>
+          <button
+            class="chat-search-open"
+            type="button"
+            aria-label="Search your chats"
+            @click=${() => {
+              hideTooltip();
+              openChatSearch();
+            }}
+            @mouseenter=${(e: Event) => showTooltip(e.currentTarget as Element, `Search your chats · ${SEARCH_HOTKEY_LABEL}`)}
+            @mouseleave=${(e: Event) => hideTooltip(e.currentTarget as Element)}
+            @focus=${(e: Event) => showTooltip(e.currentTarget as Element, `Search your chats · ${SEARCH_HOTKEY_LABEL}`)}
+            @blur=${(e: Event) => hideTooltip(e.currentTarget as Element)}
+          >
+            ${icon(Search, 13)}
+          </button>
+          <button
+            class="web-only-toggle ${sessionsState.webOnly ? "on" : ""}"
+            type="button"
+            role="switch"
+            aria-checked=${sessionsState.webOnly ? "true" : "false"}
+            title=${sessionsState.webOnly ? "Showing web chats only" : "Hide non-web conversations"}
+            @click=${toggleWebOnly}
+          >
+            <span>Web only</span><span class="mini-switch"><span class="mini-knob"></span></span>
+          </button>
+        </div>
+      `}
     `,
     appState.topEl,
   );
@@ -564,6 +588,7 @@ function onNavClick(e: Event): void {
   if (!isView(view)) return;
   if (e instanceof MouseEvent && !isPlainLeftClick(e)) return;
   e.preventDefault();
+  setScopedSession(null);
   switchView(view);
   closeSidebarOnNarrowView();
 }
@@ -584,12 +609,15 @@ export function switchView(v: View): void {
   }
   renderSidebarTop();
   syncUrlFromState();
-  if (v !== "chats" && appState.listEl) render(nothing, appState.listEl);
   switch (v) {
     case "chats":
       if (splitState.active) drawCanvas();
       else void renderChatsPage();
       renderList();
+      break;
+    case "webhooks":
+      resetActiveWebhook();
+      void renderWebhooksPage();
       break;
     case "crons":
       resetActiveCron();
@@ -624,6 +652,9 @@ function refreshActiveView(v: View): void {
       break;
     case "contexts":
       void renderContexts();
+      break;
+    case "webhooks":
+      void renderWebhooksPage();
       break;
     case "crons":
       void renderCronsPage();
@@ -756,10 +787,11 @@ export function replacePanePreservingFocus(host: HTMLElement): void {
 }
 
 window.addEventListener("popstate", () => {
-  if (appState.currentView !== "crons") return;
+  if (appState.currentView !== "crons" && appState.currentView !== "webhooks") return;
   const { view, item } = parseDeepLink(UI_BASE, location.pathname, location.search);
-  if (view !== "crons") return;
-  routeCronsHistory(item);
+  if (view !== appState.currentView) return;
+  if (view === "crons") routeCronsHistory(item);
+  else routeWebhooksHistory(item);
 });
 
 window.addEventListener("focus", () => {
@@ -836,6 +868,7 @@ export async function boot(): Promise<void> {
   ensureDeliveryStream();
   warmDeferredChunks();
   loadPersistedSplit();
+  await adoptRemoteSplit();
 
   const params = new URLSearchParams(location.search);
   const {
@@ -876,6 +909,7 @@ export async function boot(): Promise<void> {
       if (scope) contextsState.selected = scope;
     }
     if (wanted === "crons" && wantedItem) openCronById(wantedItem);
+    if (wanted === "webhooks" && wantedItem) openWebhookById(wantedItem);
     switchView(wanted as View);
   } else if (wantedSession) {
     const match = sessionsState.list.find((s) => s.id === wantedSession);

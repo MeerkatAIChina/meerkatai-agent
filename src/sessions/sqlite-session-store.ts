@@ -4,6 +4,7 @@ import type { Session, SessionEntry, ScopeId } from "../types.ts";
 import type {
   AttributedTurn,
   CronGroupSummary,
+  EntrySearchHit,
   GetEntriesOptions,
   GetTapeOptions,
   LeaseAttempt,
@@ -23,11 +24,13 @@ import type {
 import {
   cronIdOf,
   isOverheardEntry,
+  promptEnvelopeBody,
   sessionBucket,
   sessionCategory,
   sessionOrigin,
   userMessagePreview,
 } from "./session-store.ts";
+import { entrySearchAuthor, entrySearchText, matchesSearchTerms, searchTerms } from "./entry-search.ts";
 
 type Row = Record<string, unknown>;
 
@@ -115,7 +118,8 @@ function rowToLlmRequest(r: Row): LlmRequestRecord {
     model: r.model as string,
     scopeLabel: r.scope_label as ScopeId,
     createdAt: num(r.created_at),
-    request: JSON.parse(r.request as string),
+    request: r.request != null ? JSON.parse(r.request as string) : null,
+    promptHash: r.prompt_hash != null ? (r.prompt_hash as string) : null,
     truncated: num(r.truncated) !== 0,
     ttftMs: nullableNum(r.ttft_ms),
     durationMs: nullableNum(r.duration_ms),
@@ -191,11 +195,32 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
     CREATE TABLE IF NOT EXISTS session_llm_requests (
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn_seq INTEGER,
       step INTEGER NOT NULL, model TEXT NOT NULL, scope_label TEXT NOT NULL,
-      request TEXT NOT NULL, truncated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+      request TEXT, prompt_hash TEXT, truncated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
       ttft_ms INTEGER, duration_ms INTEGER, step_gap_ms INTEGER,
       tool_wall_json TEXT, usage_json TEXT, transport_json TEXT, gap_phases_json TEXT
     );
+    CREATE TABLE IF NOT EXISTS llm_prompt_envelopes (
+      hash TEXT PRIMARY KEY, body TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
   `);
+  const llmCols = db.prepare("PRAGMA table_info(session_llm_requests)").all() as Row[];
+  if (llmCols.length > 0 && !llmCols.some((c) => c.name === "prompt_hash")) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE session_llm_requests_new (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, turn_seq INTEGER,
+        step INTEGER NOT NULL, model TEXT NOT NULL, scope_label TEXT NOT NULL,
+        request TEXT, prompt_hash TEXT, truncated INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+        ttft_ms INTEGER, duration_ms INTEGER, step_gap_ms INTEGER,
+        tool_wall_json TEXT, usage_json TEXT, transport_json TEXT, gap_phases_json TEXT
+      );
+      INSERT INTO session_llm_requests_new (id, session_id, turn_seq, step, model, scope_label, request, truncated, created_at, ttft_ms, duration_ms, step_gap_ms, tool_wall_json, usage_json, transport_json, gap_phases_json)
+        SELECT id, session_id, turn_seq, step, model, scope_label, request, truncated, created_at, ttft_ms, duration_ms, step_gap_ms, tool_wall_json, usage_json, transport_json, gap_phases_json FROM session_llm_requests;
+      DROP TABLE session_llm_requests;
+      ALTER TABLE session_llm_requests_new RENAME TO session_llm_requests;
+      COMMIT;
+    `);
+  }
 
   const q = {
     sessionByThread: db.prepare("SELECT * FROM sessions WHERE thread_ref = ?"),
@@ -233,9 +258,15 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
     tapeSince: db.prepare("SELECT * FROM session_tape WHERE session_id = ? AND seq > ? ORDER BY seq"),
     deleteTape: db.prepare("DELETE FROM session_tape WHERE session_id = ?"),
     insertLlm: db.prepare(
-      "INSERT INTO session_llm_requests (id, session_id, turn_seq, step, model, scope_label, request, truncated, created_at, ttft_ms, duration_ms, step_gap_ms, tool_wall_json, usage_json, transport_json, gap_phases_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO session_llm_requests (id, session_id, turn_seq, step, model, scope_label, prompt_hash, truncated, created_at, ttft_ms, duration_ms, step_gap_ms, tool_wall_json, usage_json, transport_json, gap_phases_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ),
-    llmBySession: db.prepare("SELECT * FROM session_llm_requests WHERE session_id = ? ORDER BY rowid"),
+    insertEnvelope: db.prepare(
+      "INSERT INTO llm_prompt_envelopes (hash, body, created_at) VALUES (?, ?, ?) ON CONFLICT (hash) DO NOTHING",
+    ),
+    envelopeByHash: db.prepare("SELECT body FROM llm_prompt_envelopes WHERE hash = ?"),
+    llmBySession: db.prepare(
+      "SELECT * FROM session_llm_requests WHERE session_id = ? ORDER BY created_at ASC, step ASC",
+    ),
     deleteLlm: db.prepare("DELETE FROM session_llm_requests WHERE session_id = ?"),
     windowGet: db.prepare("SELECT * FROM participants WHERE session_id = ? AND principal_id = ?"),
     windowInsert: db.prepare(
@@ -438,6 +469,8 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
     },
 
     async recordLlmRequest(sessionId, rec: NewLlmRequest) {
+      const envelope = promptEnvelopeBody(rec.promptEnvelope);
+      if (envelope) q.insertEnvelope.run(envelope.hash, envelope.body, now());
       const full: LlmRequestRecord = {
         id: randomUUID(),
         sessionId,
@@ -446,7 +479,9 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
         model: rec.model,
         scopeLabel: rec.scopeLabel as ScopeId,
         createdAt: now(),
-        request: rec.request,
+        request: null,
+        promptHash: envelope?.hash ?? null,
+        ...(rec.promptEnvelope !== undefined ? { promptEnvelope: rec.promptEnvelope } : {}),
         truncated: rec.truncated ?? false,
         ttftMs: rec.ttftMs ?? null,
         durationMs: rec.durationMs ?? null,
@@ -463,7 +498,7 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
         full.step,
         full.model,
         full.scopeLabel,
-        JSON.stringify(full.request ?? null),
+        full.promptHash,
         full.truncated ? 1 : 0,
         full.createdAt,
         full.ttftMs,
@@ -487,7 +522,12 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
                 (want != null && r.turnSeq !== null && want.has(r.turnSeq)) || (!!opts?.orphans && r.turnSeq === null),
             )
           : all;
-      return filtered.map((r) => (opts?.omitRequest ? { ...r, request: null } : { ...r }));
+      return filtered.map((r) => {
+        if (opts?.omitRequest) return { ...r, request: null };
+        const body =
+          r.promptHash != null ? (q.envelopeByHash.get(r.promptHash) as Row | undefined)?.body : undefined;
+        return typeof body === "string" ? { ...r, promptEnvelope: JSON.parse(body) } : { ...r };
+      });
     },
 
     async addParticipant(sessionId, principalId, title, opts) {
@@ -554,6 +594,15 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
       q.deleteLlm.run(sessionId);
     },
 
+    async deleteSessionIfEmpty(sessionId) {
+      if (!sessionRow(sessionId)) return false;
+      if (entryCountOf(sessionId) > 0) return false;
+      const held = q.leaseById.get(sessionId) as Row | undefined;
+      if (held && now() < num(held.expires_at)) return false;
+      await this.deleteSession(sessionId);
+      return true;
+    },
+
     async updateParticipantView(sessionId, principalId, patch) {
       if (patch.title !== undefined) q.windowSetTitle.run(patch.title, sessionId, principalId);
       if (patch.archived !== undefined) q.windowSetArchived.run(patch.archived ? 1 : 0, sessionId, principalId);
@@ -566,6 +615,34 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
       if (!win) return [];
       const log = entriesOf(sessionId);
       return log.filter((e) => e.seq >= win.validFromSeq && (win.validToSeq === null || e.seq < win.validToSeq));
+    },
+
+    async searchEntries(principalId, query, limit = 40): Promise<EntrySearchHit[]> {
+      const terms = searchTerms(query);
+      if (!terms.length) return [];
+      const searchable = new Set(["user", "assistant", "text"]);
+      const hits: EntrySearchHit[] = [];
+      for (const w of q.windowsByPrincipal.all(principalId) as Row[]) {
+        const win = rowToWindow(w);
+        const sessionId = w.session_id as string;
+        for (const e of entriesOf(sessionId)) {
+          if (!searchable.has(e.type)) continue;
+          if (e.seq < win.validFromSeq || (win.validToSeq !== null && e.seq >= win.validToSeq)) continue;
+          const text = entrySearchText(e.payload);
+          if (!text || !matchesSearchTerms(text, terms)) continue;
+          const author = entrySearchAuthor(e);
+          hits.push({
+            sessionId,
+            seq: e.seq,
+            type: e.type,
+            ...(author ? { author } : {}),
+            text,
+            createdAt: e.createdAt,
+          });
+        }
+      }
+      hits.sort((a, b) => b.createdAt - a.createdAt || idDesc(a.sessionId, b.sessionId) || b.seq - a.seq);
+      return hits.slice(0, Math.max(1, Math.min(limit, 200)));
     },
 
     async listAll() {

@@ -1,10 +1,12 @@
 import type { ModelProviderAvailability } from "../model/pi-models.ts";
 import type { ModelCredentialStore } from "../model/model-credential-store.ts";
 import type { CustomProviderStore } from "../model/custom-provider-store.ts";
+import type { McpServerStore } from "../mcp/mcp-server-store.ts";
+import type { McpToolService } from "../mcp/mcp-tool-service.ts";
 import type { ReplayDedupe } from "../auth/replay-dedupe.ts";
 import type { FetchLike, OAuthClientResolver } from "../connectors/oauth.ts";
 import type { ConsentLinkStore } from "../connectors/consent-link.ts";
-import type { ScopedConfigStore } from "../resolution/config-store.ts";
+import type { OrgBranding, ScopedConfigStore } from "../resolution/config-store.ts";
 import type { AclStore } from "../acl/acl-store.ts";
 import type { CredentialUsageSink } from "../admin/credential-usage-sink.ts";
 import type { EgressAuditSink } from "../admin/egress-audit-sink.ts";
@@ -25,6 +27,7 @@ import type { SandboxMigrationRunner } from "../sandbox/sandbox-migration-runner
 import type { EgressEnforcement, Sandbox } from "../sandbox/sandbox.ts";
 import type { EnvironmentStore } from "../environments/environment-store.ts";
 import type { Scheduler } from "../cron/scheduler.ts";
+import type { WebhookReceiver } from "../webhooks/webhook-receiver.ts";
 import type { IdentityService } from "../identity/identity-service.ts";
 import type { DeviceFlowCutoverStore } from "../credentials/device-flow-cutover.ts";
 import type {
@@ -47,6 +50,7 @@ import type { DeploymentLayerStore } from "../deployment/deployment-layer-store.
 import type { AmbientJudgmentStore } from "../surface-cache/ambient-judgment-store.ts";
 import type { AckEmojiPickStore } from "../surface-cache/ack-emoji-pick-store.ts";
 import type { ChannelPolicyStore } from "../surface-cache/channel-policy-store.ts";
+import type { UiStateStore } from "../surfaces/ui-state.ts";
 import type { RateLimiter } from "../ratelimit/rate-limiter.ts";
 import type { AdvisoryLock } from "../persistence/advisory-lock.ts";
 import type { SlackInstallationStore, SlackSocketAppIdReader } from "../surfaces/slack-installation.ts";
@@ -70,6 +74,7 @@ export interface ServerDeps {
   oauthEnv?: NodeJS.ProcessEnv;
   resolveClient?: OAuthClientResolver;
   consentLinks?: ConsentLinkStore;
+  apiBaseUrl?: string;
   publicUrl?: string;
   portalUrl?: string;
   config?: ScopedConfigStore;
@@ -83,10 +88,12 @@ export interface ServerDeps {
   modelProviders?: ModelProviderAvailability;
   providerKeys?: ModelProviderAvailability;
   modelCredentials?: ModelCredentialStore;
+  mcpServers?: McpServerStore;
+  mcpToolService?: McpToolService;
   modelCredentialFetch?: typeof fetch;
   customProviders?: CustomProviderStore;
   refreshCustomProviders?: () => Promise<void>;
-  brandingDefault?: { accent?: string; mark?: string; selfLabel?: string };
+  brandingDefault?: OrgBranding;
   harnessId?: string;
   admin?: AdminService;
   rateLimiter?: RateLimiter;
@@ -103,6 +110,7 @@ export interface ServerDeps {
   sandboxBackend?: string;
   egressDeclaredEnforcement?: EgressEnforcement;
   egressEnforcement?: EgressEnforcement;
+  egressControlPlaneConfigured?: boolean;
   sandboxMigration?: SandboxMigrationRunner;
   sandbox?: Sandbox;
   advisoryLock?: AdvisoryLock;
@@ -112,6 +120,7 @@ export interface ServerDeps {
   ambientJudgments?: AmbientJudgmentStore;
   ackEmojiPicks?: AckEmojiPickStore;
   channelPolicy?: ChannelPolicyStore;
+  uiState?: UiStateStore;
   environments?: EnvironmentStore;
   deploymentLayer?: DeploymentLayerStore;
   brokeredServices?: () => readonly string[];
@@ -121,6 +130,7 @@ export interface ServerDeps {
   deployAppsSessionSecret?: string;
   deployAppsLoginUrl?: string;
   scheduler?: Scheduler;
+  webhookReceiver?: WebhookReceiver;
   identity?: IdentityService;
   keychain?: Keychain;
   serviceCreds?: ServiceCredentialStore;

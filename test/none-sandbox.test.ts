@@ -27,5 +27,5 @@ test("SANDBOX_BACKEND accepts none", () => {
 });
 
 test("SANDBOX_BACKEND rejects unknown values with the full enum in the message", () => {
-  assert.throws(() => loadConfig({ SANDBOX_BACKEND: "docker" }), /aws, local, sprites, wsl2, or none/);
+  assert.throws(() => loadConfig({ SANDBOX_BACKEND: "docker" }), /aws, local, sprites, smolmachines, wsl2, or none/);
 });

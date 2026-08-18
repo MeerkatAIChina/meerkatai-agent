@@ -80,6 +80,7 @@ export interface Session {
   awaitingInput?: boolean;
   backgroundJobs?: number;
   watches?: number;
+  crons?: number;
 }
 
 export type EntryType =
@@ -217,6 +218,7 @@ export interface CronFireLogEntry {
 export interface Cron extends TriggerBase {
   schedule: CronSchedule;
   nextFireAt?: number;
+  lastAttemptAt?: number;
   title?: string;
   archived?: boolean;
   action?: string;
@@ -224,7 +226,26 @@ export interface Cron extends TriggerBase {
   createdAt: number;
   runAs?: "owner" | "scopeFloor" | "scopeShared";
   members?: Principal[];
+  unattendedGrants?: string[];
   fireLog?: CronFireLogEntry[];
+}
+
+interface WebhookVerification {
+  scheme: "hmac-sha256" | "github" | "slack" | "stripe";
+  secret?: string;
+}
+
+interface WebhookFilter {
+  path: string;
+  in: string[];
+}
+
+export interface Webhook extends TriggerBase {
+  action: string;
+  verification: WebhookVerification;
+  filters?: WebhookFilter[];
+  lastDeliveryId?: string;
+  lastError?: string;
 }
 
 export interface Monitor extends TriggerBase {
@@ -266,6 +287,7 @@ export interface SurfaceContextQuery {
   viewerToken?: string;
   file?: { ts: string; threadTs?: string; name?: string };
   openGroup?: { participants: string[] };
+  syncDirectory?: boolean;
 }
 
 export interface SurfaceContextResult {
@@ -340,7 +362,7 @@ export interface GatewayContext {
   details?: Record<string, string>;
   instructions?: string;
   reactionGuidance?: string;
-  botName?: string;
+  botHandle?: string;
 }
 
 export interface ConversationTurn {
@@ -386,11 +408,13 @@ export interface TurnRequest {
   entryTs?: string;
   gatewayContext?: GatewayContext;
   triggered?: boolean;
+  unattendedGrants?: string[];
   securityScreenData?: string;
   triggerDestination?: Destination;
   ownerKeychainUnion?: boolean;
   unprompted?: boolean;
   liveActor?: boolean;
+  botActor?: boolean;
   conversationHeader?: string;
   priorTurns?: ConversationTurn[];
   overheard?: OverheardMessage[];
@@ -403,6 +427,7 @@ export interface TurnRequest {
   thinkingLevel?: string;
   fastMode?: boolean;
   readOnly?: boolean;
+  skipMemory?: boolean;
   surfaceTools?: boolean;
   addressed?: boolean;
   envelopeWrapped?: boolean;

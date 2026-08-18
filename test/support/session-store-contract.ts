@@ -411,7 +411,7 @@ export function runSessionStoreContract(name: string, makeStore: (opts?: StoreOp
       step: 0,
       model: "claude-x",
       scopeLabel: s.scopeId,
-      request: { system: "you are helpful", messages: [{ role: "user", content: "hi" }] },
+      promptEnvelope: { system: "you are helpful", tools: [{ name: "execute" }] },
     });
     assert.ok(rec.id, "stamps an id");
     assert.equal(rec.truncated, false, "defaults truncated to false");
@@ -423,7 +423,6 @@ export function runSessionStoreContract(name: string, makeStore: (opts?: StoreOp
       step: 1,
       model: "claude-x",
       scopeLabel: s.scopeId,
-      request: { messages: [] },
       truncated: true,
       ttftMs: 1200,
       durationMs: 8400,
@@ -440,10 +439,27 @@ export function runSessionStoreContract(name: string, makeStore: (opts?: StoreOp
     );
     assert.equal(list[0]!.turnSeq, 0, "correlated to the turn's user entry seq");
     assert.equal(list[1]!.truncated, true, "truncated flag round-trips");
+    assert.equal(list[0]!.request, null, "message-array bodies are never stored");
     assert.deepEqual(
-      (list[0]!.request as { messages: unknown[] }).messages,
-      [{ role: "user", content: "hi" }],
-      "request body round-trips",
+      list[0]!.promptEnvelope,
+      { system: "you are helpful", tools: [{ name: "execute" }] },
+      "prompt envelope round-trips via its hash",
+    );
+    assert.ok(list[0]!.promptHash, "envelope rows carry the dedup hash");
+    assert.equal(list[1]!.promptHash, null, "rows recorded without an envelope stay bare");
+    const repeat = await store.recordLlmRequest(s.id, {
+      turnSeq: 1,
+      step: 0,
+      model: "claude-x",
+      scopeLabel: s.scopeId,
+      promptEnvelope: { system: "you are helpful", tools: [{ name: "execute" }] },
+    });
+    assert.equal(repeat.promptHash, list[0]!.promptHash, "identical envelopes dedupe to one stored body");
+    const rehydrated = await store.listLlmRequests(s.id, { turnSeqs: [1] });
+    assert.deepEqual(
+      rehydrated[0]!.promptEnvelope,
+      { system: "you are helpful", tools: [{ name: "execute" }] },
+      "the deduped row still hydrates its envelope",
     );
     assert.equal(list[1]!.ttftMs, 1200, "per-call TTFT round-trips");
     assert.equal(list[1]!.durationMs, 8400, "per-call duration round-trips");
@@ -465,7 +481,7 @@ export function runSessionStoreContract(name: string, makeStore: (opts?: StoreOp
   test(`${name}: listLlmRequests filters by turnSeq in the store (no load-all-then-filter)`, async () => {
     const store = makeStore();
     const s = await store.getOrCreateByThread("t1", "dm", scopeId("personal", "U1"));
-    const base = { model: "claude-x", scopeLabel: s.scopeId, request: { messages: [] } };
+    const base = { model: "claude-x", scopeLabel: s.scopeId, promptEnvelope: { system: "sys" } };
     await store.recordLlmRequest(s.id, { ...base, turnSeq: 0, step: 0 });
     await store.recordLlmRequest(s.id, { ...base, turnSeq: 5, step: 0 });
     await store.recordLlmRequest(s.id, { ...base, turnSeq: 5, step: 1 });
@@ -498,7 +514,7 @@ export function runSessionStoreContract(name: string, makeStore: (opts?: StoreOp
     const meta = await store.listLlmRequests(s.id, { omitRequest: true });
     assert.equal(meta.length, 4, "every row still listed");
     assert.ok(
-      meta.every((r) => r.request === null),
+      meta.every((r) => r.request === null && r.promptEnvelope === undefined),
       "bodies omitted",
     );
     assert.ok(

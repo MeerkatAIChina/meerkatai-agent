@@ -22,6 +22,9 @@ test("ORG_BRAND_* parses into a validated branding default", () => {
   assert.equal(loadConfig({ ORG_BRAND_ACCENT: "#abcde" }).brandingDefault, undefined);
   assert.deepEqual(loadConfig({ ORG_BRAND_MARK: 'a"bc' }).brandingDefault, { mark: "ab" });
   assert.equal(loadConfig({ ORG_BRAND_SELF_LABEL: "x".repeat(80) }).brandingDefault?.selfLabel?.length, 40);
+  assert.deepEqual(loadConfig({ ORG_BRAND_ORG_NAME: "Acme Corp" }).brandingDefault, { orgName: "Acme Corp" });
+  assert.equal(loadConfig({ ORG_BRAND_ORG_NAME: "x".repeat(80) }).brandingDefault?.orgName?.length, 40);
+  assert.deepEqual(loadConfig({ ORG_BRAND_SELF_LABEL: "{{straylight}}" }).brandingDefault, { selfLabel: "straylight" });
 });
 
 test("store kinds default to memory and accept postgres", () => {
@@ -157,12 +160,12 @@ test("production names a mock harness rather than letting it pass as a real depl
   assert.match(mock[1]!, /HARNESS is "mock"/);
 });
 
-test("SESSION_STORE=sqlite selects sqlite; leftover RUN_STORE/ARTIFACT_STORE=sqlite are ignored, not fatal", () => {
+test("SESSION_STORE=sqlite selects sqlite; leftover RUN_STORE/ARTIFACT_STORE=sqlite throw (no silent downgrade)", () => {
   const cfg = loadConfig({ SESSION_STORE: "sqlite" });
   assert.equal(cfg.sessionStore, "sqlite");
   assert.ok(cfg.sqlitePath?.endsWith("meerkat.db"));
-  assert.equal(loadConfig({ RUN_STORE: "sqlite" }).runStore, "memory");
-  assert.doesNotThrow(() => loadConfig({ ARTIFACT_STORE: "sqlite" }));
+  assert.throws(() => loadConfig({ RUN_STORE: "sqlite" }), /RUN_STORE=sqlite is not supported/);
+  assert.throws(() => loadConfig({ ARTIFACT_STORE: "sqlite" }), /ARTIFACT_STORE=sqlite is not supported/);
 });
 
 test("a harmless ARTIFACT_STORE=memory (now a dead knob) is ignored, not fatal", () => {
