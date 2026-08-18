@@ -6741,6 +6741,12 @@ h3.ambient-field-label {
 [data-density] .composer-error {
   flex-basis: 100%;
 }
+.session-lock-btn {
+  cursor: pointer;
+}
+.session-lock-btn:hover {
+  filter: brightness(1.15);
+}
 .pane-card {
   min-height: 0;
   overflow: hidden;

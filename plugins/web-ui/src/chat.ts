@@ -1027,7 +1027,6 @@ export function createChatSurface(
                 </div>`
               : nothing
           }
-          ${isDesktop() ? chatHeader(activeChatTitle(), "", false) : nothing}
           ${contextBanner()}
           ${
             glanceTier
@@ -1100,11 +1099,6 @@ export function createChatSurface(
     >
       ${icon(glyph, 13)}<span><strong>${label}</strong> context</span>
     </div>`;
-  }
-
-  function activeChatTitle(): string {
-    const s = sessionsState.list.find((row) => row.id === chatState.sessionId);
-    return s?.title?.trim() || "New chat";
   }
 
   function chatHeader(title: string | TemplateResult, detail: string, readOnly: boolean): TemplateResult {

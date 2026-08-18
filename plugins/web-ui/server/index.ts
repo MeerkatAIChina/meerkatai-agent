@@ -781,6 +781,12 @@ function setupDefaults(): { tensoris: SeedProvider; localSecure: SeedProvider; d
   return { tensoris, localSecure, defaults };
 }
 
+function localRetargetModels(): Array<{ harnessId: string; modelId: string }> {
+  return setupDefaults()
+    .localSecure.models.map((m) => ({ harnessId: "pi", modelId: m.id }))
+    .filter((m) => Boolean(m.modelId));
+}
+
 function writeSemanticConfig(baseUrl: string, apiKey: string, model: string): void {
   const dataDir = process.env.MEERKAT_DATA_DIR?.trim();
   if (!dataDir) return;
@@ -1138,13 +1144,41 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     if (DESKTOP && method === "GET" && path === "/api/locks") {
       const r = await coreFetch("GET", `/v1/admin/session-locks?scope=${encodeURIComponent(`org:${ORG}`)}`);
+      if (r.status === 200) {
+        try {
+          const parsed = JSON.parse(r.text) as Record<string, unknown>;
+          parsed.retargetModels = localRetargetModels();
+          return json(res, 200, parsed);
+        } catch {
+          void 0;
+        }
+      }
       res.writeHead(r.status, { "content-type": "application/json" });
       return void res.end(r.text);
     }
     const lockMatch = DESKTOP ? path.match(/^\/api\/locks\/([0-9a-fA-F-]{36})$/) : null;
-    if (lockMatch && (method === "PUT" || method === "DELETE")) {
+    if (lockMatch && method === "PUT") {
+      let target: { harnessId?: unknown; modelId?: unknown };
+      try {
+        target = JSON.parse((await readBody(req)) || "{}") as typeof target;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const allowed = localRetargetModels().some((m) => m.harnessId === target.harnessId && m.modelId === target.modelId);
+      if (!allowed) {
+        return json(res, 400, {
+          error: "retarget_not_local",
+          message: "锁定会话只能重指到本地隐私模型，不能指向通用模型。",
+        });
+      }
       const corePath = `/v1/admin/sessions/${lockMatch[1]}/lock?scope=${encodeURIComponent(`org:${ORG}`)}`;
-      const r = await coreFetch(method, corePath, method === "PUT" ? await readBody(req) : "");
+      const r = await coreFetch("PUT", corePath, JSON.stringify(target));
+      res.writeHead(r.status, { "content-type": "application/json" });
+      return void res.end(r.text);
+    }
+    if (lockMatch && method === "DELETE") {
+      const corePath = `/v1/admin/sessions/${lockMatch[1]}/lock?scope=${encodeURIComponent(`org:${ORG}`)}`;
+      const r = await coreFetch("DELETE", corePath, "");
       res.writeHead(r.status, { "content-type": "application/json" });
       return void res.end(r.text);
     }
