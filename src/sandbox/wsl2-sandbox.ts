@@ -191,7 +191,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
           "--",
           "sh",
           "-c",
-          `AGENT_PORT=${port} AGENT_AUTH_TOKEN=${token} setsid nohup node ${AGENT_PATH} >/var/log/qm-agent.log 2>&1 &`,
+          `AGENT_PORT=${port} AGENT_AUTH_TOKEN=${token} AGENT_RUN_USER=sandbox setsid nohup node ${AGENT_PATH} >/var/log/qm-agent.log 2>&1 &`,
         ],
         15_000,
       );

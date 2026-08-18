@@ -1,5 +1,5 @@
 import http from "node:http";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -7,6 +7,18 @@ const PORT = Number(process.env.AGENT_PORT || 8080);
 const MAX_BUFFER = 256 * 1024 * 1024;
 const START_MS = Date.now();
 const AUTH_TOKEN = process.env.AGENT_AUTH_TOKEN || "";
+const RUN_USER = process.env.AGENT_RUN_USER || "";
+let runUid = null;
+let runGid = null;
+if (RUN_USER) {
+  try {
+    runUid = Number(execFileSync("id", ["-u", RUN_USER]).toString().trim());
+    runGid = Number(execFileSync("id", ["-g", RUN_USER]).toString().trim());
+  } catch (e) {
+    console.error(`[microvm-agent] AGENT_RUN_USER=${RUN_USER} cannot be resolved: ${e.message}`);
+    process.exit(1);
+  }
+}
 
 function authorized(req) {
   if (!AUTH_TOKEN) return true;
@@ -42,9 +54,14 @@ async function handleExec(req, res) {
   const cmd = body.cmd;
   if (typeof cmd !== "string") return send(res, 400, { error: "missing cmd" });
   const timeoutMs = Math.max(1, Number(body.timeoutSec || 60)) * 1000;
+  const file = runUid === null ? "/bin/sh" : "setpriv";
+  const args =
+    runUid === null
+      ? ["-c", cmd]
+      : ["--reuid", String(runUid), "--regid", String(runGid), "--clear-groups", "/bin/sh", "-c", cmd];
   execFile(
-    "/bin/sh",
-    ["-c", cmd],
+    file,
+    args,
     { timeout: timeoutMs, maxBuffer: MAX_BUFFER, killSignal: "SIGKILL" },
     (err, stdout, stderr) => {
       const timedOut = !!(err && err.killed && err.signal === "SIGKILL");

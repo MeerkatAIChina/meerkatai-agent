@@ -68,3 +68,44 @@ test("exec with the right token runs", async () => {
     assert.match(body.stdout, /hi/);
   }
 });
+
+const posixOnly = process.platform === "win32" ? { skip: "setpriv requires POSIX (runs on Linux CI / guest)" } : {};
+
+test("AGENT_RUN_USER drops exec privileges", posixOnly, async () => {
+  const p2 = await freePort();
+  const d2 = spawn(process.execPath, [join(process.cwd(), "aws/microvm-agent/agent.mjs")], {
+    env: { ...process.env, AGENT_PORT: String(p2), AGENT_RUN_USER: "nobody" },
+    stdio: "ignore",
+  });
+  try {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      try {
+        if ((await fetch(`http://127.0.0.1:${p2}/health`)).status === 200) break;
+      } catch {
+        void 0;
+      }
+      if (Date.now() > deadline) throw new Error("run-user daemon never became reachable");
+      await sleep(100);
+    }
+    const r = await fetch(`http://127.0.0.1:${p2}/exec`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cmd: "id -u" }),
+    });
+    const body = (await r.json()) as { stdout: string };
+    assert.match(body.stdout.trim(), /^65534$/);
+  } finally {
+    d2.kill("SIGKILL");
+  }
+});
+
+test("without AGENT_RUN_USER exec stays root", posixOnly, async () => {
+  const r = await fetch(`http://127.0.0.1:${port}/exec`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-agent-token": TOKEN },
+    body: JSON.stringify({ cmd: "id -u" }),
+  });
+  const body = (await r.json()) as { stdout: string };
+  assert.match(body.stdout.trim(), /^0$/);
+});
