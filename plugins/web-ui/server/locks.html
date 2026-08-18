@@ -24,7 +24,22 @@
         background: var(--bg);
         color: var(--text);
       }
-      main { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
+      main { max-width: 720px; margin: 0 auto; padding: 20px 24px 32px; }
+      .pagebar { display: flex; align-items: center; margin-bottom: 22px; }
+      .btn-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font: inherit;
+        font-size: 13px;
+        padding: 8px 16px;
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--line);
+        cursor: pointer;
+      }
+      .btn-back:hover { border-color: var(--accent); color: #fff; }
       h1 { font-size: 20px; margin: 0 0 6px; }
       .sub { color: var(--muted); font-size: 13px; margin: 0 0 28px; line-height: 1.6; }
       .empty {
@@ -79,16 +94,16 @@
       #status { font-size: 13px; min-height: 20px; margin-top: 16px; line-height: 1.5; }
       #status.err { color: var(--red); }
       #status.ok { color: var(--green); }
-      .toplink { font-size: 12px; color: var(--muted); text-decoration: none; }
-      .toplink:hover { color: var(--text); }
     </style>
   </head>
   <body>
     <main>
+      <div class="pagebar">
+        <button id="backBtn" class="btn-back" type="button">← 返回对话</button>
+      </div>
       <h1>会话锁定管理</h1>
       <p class="sub">
         被隐私防线锁定的会话会永久使用指定的本地模型。你可以把锁定重指到另一个可用模型，或解除锁定（解除后历史中的敏感内容可能随后续问题发往通用模型，请谨慎）。
-        <a class="toplink" href="/">← 返回对话</a>
       </p>
       <div id="list"><div class="empty">加载中…</div></div>
       <p id="status"></p>
@@ -97,8 +112,9 @@
       (function () {
         var KEY = "meerkat.portal_token";
         var portal = localStorage.getItem(KEY) || "";
-        var back = document.querySelector(".toplink");
-        if (back && portal) back.href = "/?portal_token=" + encodeURIComponent(portal);
+        document.getElementById("backBtn").addEventListener("click", function () {
+          location.href = portal ? "/?portal_token=" + encodeURIComponent(portal) : "/";
+        });
         var list = document.getElementById("list");
         var status = document.getElementById("status");
         var modelOptions = [];
