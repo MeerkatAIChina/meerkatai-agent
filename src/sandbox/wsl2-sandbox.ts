@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type AddressInfo } from "node:net";
 import type { WorkspaceLayer } from "../types.ts";
 import type { WorkspaceStore } from "../workspace/workspace-store.ts";
@@ -29,10 +30,21 @@ const AGENT_PATH = "/opt/qm/agent.mjs";
 const PROXY_PATH = "/opt/qm/egress-proxy.mjs";
 const FENCE_PATH = "/opt/qm/egress-lock.sh";
 
+export type WslSpawn = (args: string[], env: Record<string, string>) => ChildProcess;
+
+export function spawnWslChild(args: string[], env: Record<string, string>): ChildProcess {
+  return spawn("wsl.exe", args, {
+    env: { ...process.env, ...env, WSLENV: Object.keys(env).join(":") },
+    stdio: ["ignore", "ignore", "pipe"],
+    windowsHide: true,
+  });
+}
+
 export interface Wsl2SandboxOptions {
   distro?: string;
   agentToken: string;
   wsl?: WslExec;
+  spawnWsl?: WslSpawn;
   fetchImpl?: typeof fetch;
   defaultTimeoutSec?: number;
   agentPortForTest?: number;
@@ -68,6 +80,8 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
   const queue = createKeyedQueue<string>();
 
   let agentPort: number | undefined;
+  let agentChild: ChildProcess | undefined;
+  let proxyChild: ChildProcess | undefined;
   let egressProxyPort: number | undefined;
   let fenceApplied = false;
 
@@ -75,21 +89,16 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
     if (!opts.egress || fenceApplied) return;
     const port = await freePort();
     const allow = opts.egress.allowlist.join(",");
-    const launch = await wsl(
-      [
-        "-d",
-        distro,
-        "-u",
-        "root",
-        "--",
-        "sh",
-        "-c",
-        `EGRESS_PORT=${port} EGRESS_ALLOW=${shq(allow)} setsid nohup node ${PROXY_PATH} >/var/log/qm-egress.log 2>&1 &`,
-      ],
-      15_000,
-    );
-    if (launch.code !== 0)
-      throw new Error(`wsl2 sandbox: egress proxy launch failed: ${launch.stderr.trim() || launch.stdout.trim()}`);
+    const spawner = opts.spawnWsl ?? (opts.agentPortForTest ? undefined : spawnWslChild);
+    if (spawner) {
+      proxyChild = spawner(["-d", distro, "-u", "root", "--exec", "node", PROXY_PATH], {
+        EGRESS_PORT: String(port),
+        EGRESS_ALLOW: allow,
+      });
+      proxyChild.on("exit", () => {
+        proxyChild = undefined;
+      });
+    }
     const probeDeadline = Date.now() + 5_000;
     let up = false;
     while (Date.now() < probeDeadline) {
@@ -103,7 +112,8 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
       }
       await sleep(200);
     }
-    if (!up) throw new Error("wsl2 sandbox: egress proxy never became reachable in the guest");
+    if (!up && !opts.agentPortForTest)
+      throw new Error("wsl2 sandbox: egress proxy never became reachable in the guest");
     egressProxyPort = port;
     const fence = await wsl(["-d", distro, "-u", "root", "--", "sh", FENCE_PATH], 15_000);
     if (fence.code !== 0) {
@@ -182,30 +192,32 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
         }
       }
       const port = opts.agentPortForTest ?? (await freePort());
-      const launch = await wsl(
-        [
-          "-d",
-          distro,
-          "-u",
-          "root",
-          "--",
-          "sh",
-          "-c",
-          `AGENT_PORT=${port} AGENT_AUTH_TOKEN=${token} AGENT_RUN_USER=sandbox setsid nohup node ${AGENT_PATH} >/var/log/qm-agent.log 2>&1 &`,
-        ],
-        15_000,
-      );
-      if (launch.code !== 0)
-        throw new Error(`wsl2 sandbox: agent launch failed: ${launch.stderr.trim() || launch.stdout.trim()}`);
+      const spawner = opts.spawnWsl ?? (opts.agentPortForTest ? undefined : spawnWslChild);
+      if (spawner) {
+        agentChild = spawner(["-d", distro, "-u", "root", "--exec", "node", AGENT_PATH], {
+          AGENT_PORT: String(port),
+          AGENT_AUTH_TOKEN: token,
+          AGENT_RUN_USER: "sandbox",
+        });
+        agentChild.on("exit", () => {
+          agentPort = undefined;
+          agentChild = undefined;
+        });
+      }
       agentPort = port;
       await waitAgent();
       await ensureEgressFence();
     });
   }
 
-  async function execRaw(command: string, timeoutSec: number, signal?: AbortSignal): Promise<ExecResult> {
+  async function execRaw(command: string, timeoutSec: number, signal?: AbortSignal, asRoot = false): Promise<ExecResult> {
     await ensureAgent();
-    const res = await daemon("/exec", { cmd: command, timeoutSec }, (timeoutSec + 15) * 1000, signal);
+    const res = await daemon(
+      "/exec",
+      { cmd: command, timeoutSec, ...(asRoot ? { root: true } : {}) },
+      (timeoutSec + 15) * 1000,
+      signal,
+    );
     if (res.status !== 200) throw new Error(`wsl2 sandbox exec failed (${res.status}): ${res.text.slice(0, 300)}`);
     const j = JSON.parse(res.text) as { stdout: string; stderr: string; code: number; timedOut: boolean };
     return { stdout: j.stdout ?? "", stderr: j.stderr ?? "", code: j.code, timedOut: !!j.timedOut };
@@ -302,7 +314,12 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
           ...(Object.keys(env).length ? { env } : {}),
         };
         try {
-          const prep = await execRaw(`mkdir -p ${shq(workspaceDir)} && ${ephemeralCredLinkScript(home)}`, 30);
+          const prep = await execRaw(
+            `mkdir -p ${shq(workspaceDir)} && chown -R sandbox:sandbox ${shq(home)} && ${ephemeralCredLinkScript(home)}`,
+            30,
+            undefined,
+            true,
+          );
           if (prep.code !== 0) throw new Error(`wsl2 sandbox provision prep failed: ${prep.stderr.slice(0, 200)}`);
           await materializeRoLayers(
             workspace,
@@ -311,7 +328,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
             {
               readFile: (h, rel) => sandbox.readFile(h, rel),
               writeFileBytes: (h, rel, data) => sandbox.writeFileBytes(h, rel, data),
-              exec: (script, t) => execRaw(script, t),
+              exec: (script, t) => execRaw(script, t, undefined, true),
             },
             { manifest: RO_LAYERS_MANIFEST, tar: RO_LAYERS_TAR, label: "wsl2" },
           );
@@ -328,12 +345,13 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
       const exports = Object.entries(handle.env ?? {})
         .map(([k, v]) => `export ${k}=${shq(v)}`)
         .join("; ");
-      const script = `${nonInteractiveShellPrefix()}${exports ? exports + "; " : ""}cd ${handle.rootDir} 2>/dev/null; ${command}`;
+      const home = handle.homeDir ? `export HOME=${shq(handle.homeDir)}; ` : "";
+      const script = `${nonInteractiveShellPrefix()}${home}${exports ? exports + "; " : ""}cd ${handle.rootDir} 2>/dev/null; ${command}`;
       const signal = execOpts?.signal;
       if (!signal) return execRaw(script, timeoutSec);
       const killUid = randomUUID();
       const fireKill = () => {
-        execRaw(killScript(killUid), 15).catch(swallowAs("wsl2-sandbox: kill in-flight exec", undefined));
+        execRaw(killScript(killUid), 15, undefined, true).catch(swallowAs("wsl2-sandbox: kill in-flight exec", undefined));
       };
       if (signal.aborted) fireKill();
       const onAbort = () => fireKill();
@@ -365,7 +383,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
       if (tdOpts?.destroy) {
         const home = handle.homeDir ?? handle.id;
         await queue(`scope:${handle.scopeId ?? handle.id}`, async () => {
-          const r = await execRaw(`rm -rf ${shq(home)}`, 60);
+          const r = await execRaw(`rm -rf ${shq(home)}`, 60, undefined, true);
           if (r.code !== 0)
             opts.onError?.({
               category: "sandbox_park",

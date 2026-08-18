@@ -1,18 +1,28 @@
-import type { WslExec } from "../../src/sandbox/wsl-exec.ts";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
+import type { WslExec, } from "../../src/sandbox/wsl-exec.ts";
+import type { WslSpawn } from "../../src/sandbox/wsl2-sandbox.ts";
 
 export interface FakeWsl {
   wslExec: WslExec;
+  spawnWsl: WslSpawn;
   distros: Set<string>;
-  agentLaunched: { port: number; token: string } | null;
+  spawned: Array<{ args: string[]; env: Record<string, string> }>;
   wslDown: boolean;
 }
 
 export function installFakeWsl(): FakeWsl {
   const self: FakeWsl = {
     distros: new Set(["meerkat-sandbox"]),
-    agentLaunched: null,
+    spawned: [],
     wslDown: false,
     wslExec: async (args) => exec(args),
+    spawnWsl: (args, env) => {
+      self.spawned.push({ args, env });
+      const child = new EventEmitter() as ChildProcess;
+      child.kill = () => true;
+      return child;
+    },
   };
   const ok = (stdout = "") => ({ code: 0, stdout, stderr: "" });
   const fail = (stderr: string) => ({ code: 1, stdout: "", stderr });
@@ -22,12 +32,6 @@ export function installFakeWsl(): FakeWsl {
     if (args[0] === "-d") {
       const distro = args[1]!;
       if (!self.distros.has(distro)) return fail("There is no distribution with the supplied name.");
-      const shIdx = args.indexOf("sh");
-      if (shIdx > 0 && args[shIdx + 1] === "-c") {
-        const script = args[shIdx + 2]!;
-        const m = script.match(/AGENT_PORT=(\d+) AGENT_AUTH_TOKEN=(\S+)/);
-        if (m) self.agentLaunched = { port: Number(m[1]), token: m[2]! };
-      }
       return ok();
     }
     return fail(`fake wsl: unsupported args ${args.join(" ")}`);

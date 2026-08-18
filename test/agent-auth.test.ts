@@ -95,6 +95,13 @@ test("AGENT_RUN_USER drops exec privileges", posixOnly, async () => {
     });
     const body = (await r.json()) as { stdout: string };
     assert.match(body.stdout.trim(), /^65534$/);
+    const root = await fetch(`http://127.0.0.1:${p2}/exec`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cmd: "id -u", root: true }),
+    });
+    const rootBody = (await root.json()) as { stdout: string };
+    assert.match(rootBody.stdout.trim(), /^0$/);
   } finally {
     d2.kill("SIGKILL");
   }

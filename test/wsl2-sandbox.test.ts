@@ -55,6 +55,7 @@ function makeSandbox(fake: FakeWsl) {
   return createWsl2Sandbox(createLocalWorkspaceStore(dir), {
     agentToken: AGENT_TOKEN,
     wsl: fake.wslExec,
+    spawnWsl: fake.spawnWsl,
     agentPortForTest: daemonPort,
   });
 }
@@ -85,8 +86,10 @@ test("agent is launched with the per-boot token through wsl", posixOnly, async (
   const fake = installFakeWsl();
   const sb = makeSandbox(fake);
   const h = await sb.provision(rw("personal:U0") as never);
-  assert.ok(fake.agentLaunched);
-  assert.equal(fake.agentLaunched!.token, AGENT_TOKEN);
+  const agentSpawn = fake.spawned.find((s) => s.args.includes("/opt/qm/agent.mjs"));
+  assert.ok(agentSpawn);
+  assert.equal(agentSpawn!.env.AGENT_AUTH_TOKEN, AGENT_TOKEN);
+  assert.equal(agentSpawn!.env.AGENT_RUN_USER, "sandbox");
   assert.ok(h.rootDir.endsWith("/workspace"));
 });
 

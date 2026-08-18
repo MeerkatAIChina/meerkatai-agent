@@ -53,12 +53,12 @@ async function handleExec(req, res) {
   const body = JSON.parse((await readBody(req)).toString("utf8") || "{}");
   const cmd = body.cmd;
   if (typeof cmd !== "string") return send(res, 400, { error: "missing cmd" });
+  const asRoot = body.root === true || runUid === null;
   const timeoutMs = Math.max(1, Number(body.timeoutSec || 60)) * 1000;
-  const file = runUid === null ? "/bin/sh" : "setpriv";
-  const args =
-    runUid === null
-      ? ["-c", cmd]
-      : ["--reuid", String(runUid), "--regid", String(runGid), "--clear-groups", "/bin/sh", "-c", cmd];
+  const file = asRoot ? "/bin/sh" : "setpriv";
+  const args = asRoot
+    ? ["-c", cmd]
+    : ["--reuid", String(runUid), "--regid", String(runGid), "--clear-groups", "/bin/sh", "-c", cmd];
   execFile(
     file,
     args,
@@ -79,6 +79,13 @@ async function handleWrite(req, res) {
     return send(res, 400, { error: "need path + b64" });
   fs.mkdirSync(path.dirname(body.path), { recursive: true });
   fs.writeFileSync(body.path, Buffer.from(body.b64, "base64"));
+  if (runUid !== null) {
+    try {
+      fs.chownSync(body.path, runUid, runGid);
+    } catch {
+      void 0;
+    }
+  }
   send(res, 200, { ok: true });
 }
 
