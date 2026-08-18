@@ -125,6 +125,13 @@
           <div class="reason" hidden></div>
         </div>
       </div>
+      <div class="item pending" id="item-sandbox">
+        <span class="dot"></span>
+        <div class="body">
+          <div class="row"><span class="name">沙箱</span><span class="meta"></span></div>
+          <div class="reason" hidden></div>
+        </div>
+      </div>
       <div class="actions" id="actions">
         <button id="retry">重试</button>
         <button id="copy">复制诊断信息</button>
@@ -140,7 +147,7 @@
       const { listen } = window.__TAURI__.event;
       const { invoke } = window.__TAURI__.core;
 
-      const state = { classifier: "pending", core: "pending", web_ui: "pending" };
+      const state = { classifier: "pending", core: "pending", web_ui: "pending", sandbox: "pending" };
       let ports = null;
 
       function render(component) {
@@ -234,6 +241,32 @@
         maybeEnter();
       });
 
+      function refreshSandbox(s) {
+        if (state.sandbox === "ready") return;
+        if (!s.supported) {
+          state.sandbox = "degraded";
+          render("sandbox");
+          setReason("sandbox", `此机器不支持沙箱（${s.reason ?? "系统版本过低"}）`);
+        } else if (!s.wsl_enabled) {
+          state.sandbox = "degraded";
+          render("sandbox");
+          setReason("sandbox", "未启用（可在设置页开启）");
+        } else if (s.imported && s.fingerprint_current) {
+          state.sandbox = "ready";
+          render("sandbox");
+        } else if (s.pending_reboot) {
+          state.sandbox = "degraded";
+          render("sandbox");
+          setReason("sandbox", "已启用，重启电脑后生效");
+        }
+      }
+
+      invoke("wsl2_status").then(refreshSandbox).catch(() => {
+        state.sandbox = "degraded";
+        render("sandbox");
+        setReason("sandbox", "沙箱状态不可用");
+      });
+
       async function syncStatus() {
         try {
           const ready = await invoke("status");
@@ -245,6 +278,10 @@
             }
           }
           maybeEnter();
+        } catch (_) {}
+        try {
+          const s = await invoke("wsl2_status");
+          refreshSandbox(s);
         } catch (_) {}
       }
       syncStatus();

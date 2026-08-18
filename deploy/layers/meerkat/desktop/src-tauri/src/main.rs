@@ -89,6 +89,16 @@ fn main() {
                 data_dir: data_dir.clone(),
             });
 
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Meerkat")
+                .inner_size(1200.0, 800.0)
+                .build()?;
+
+            let sandbox_err = sandbox::ensure_rootfs(app.handle(), &payload_dir, &data_dir).err();
+            if let Some(err) = sandbox_err {
+                eprintln!("meerkat sandbox rootfs setup failed: {err}");
+            }
+
             let ctx_result = secrets::load_or_create(&data_dir).and_then(|secrets| {
                 let node = proc::resolve_node(&payload_dir).ok_or_else(|| {
                     std::io::Error::new(
@@ -101,6 +111,7 @@ fn main() {
                     payload_dir: payload_dir.clone(),
                     data_dir: data_dir.clone(),
                     secrets,
+                    sandbox_backend: proc::sandbox_backend_of(&data_dir, &payload_dir),
                 })
             });
 
@@ -151,10 +162,6 @@ fn main() {
                 }
             }
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Meerkat")
-                .inner_size(1200.0, 800.0)
-                .build()?;
             Ok(())
         })
         .build(tauri::generate_context!())

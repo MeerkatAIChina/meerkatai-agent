@@ -59,6 +59,7 @@ pub struct StackCtx {
     pub payload_dir: PathBuf,
     pub data_dir: PathBuf,
     pub secrets: Secrets,
+    pub sandbox_backend: &'static str,
 }
 
 pub struct Stack {
@@ -240,7 +241,7 @@ fn spawn_component(
                 .env("HOST", "127.0.0.1")
                 .env("PORT", port.to_string())
                 .env("DATA_DIR", &ctx.data_dir)
-                .env("SANDBOX_BACKEND", "local")
+                .env("SANDBOX_BACKEND", ctx.sandbox_backend)
                 .env("SESSION_STORE", "sqlite")
                 .env(
                     "CLASSIFIER_URL",
@@ -473,6 +474,18 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
     }
 }
 
+pub fn sandbox_backend_of(data_dir: &std::path::Path, payload_dir: &std::path::Path) -> &'static str {
+    if !cfg!(windows) {
+        return "none";
+    }
+    let st = crate::sandbox::status(data_dir, payload_dir);
+    if st.supported && st.wsl_enabled && st.imported && st.fingerprint_current {
+        "wsl2"
+    } else {
+        "none"
+    }
+}
+
 pub fn retry(app: &AppHandle) -> Result<(), String> {
     let shared = app.state::<SharedStack>();
     let mut guard = shared.lock().map_err(|e| e.to_string())?;
@@ -516,6 +529,7 @@ pub fn retry(app: &AppHandle) -> Result<(), String> {
                 payload_dir: boot.payload_dir.clone(),
                 data_dir: boot.data_dir.clone(),
                 secrets,
+                sandbox_backend: sandbox_backend_of(&boot.data_dir, &boot.payload_dir),
             };
             app.manage(fresh.clone());
             fresh
