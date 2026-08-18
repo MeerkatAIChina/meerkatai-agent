@@ -68,6 +68,7 @@ import {
   userMessagesBefore,
   type WorkBlock,
   withBase,
+  withPortalToken,
 } from "./core-bridge";
 import { isDesktop } from "./composer";
 import { buildTimeline, toolRowKind, type TimelineItem, type ToolPayload, type ToolRowModel } from "./timeline";
@@ -1026,6 +1027,7 @@ export function createChatSurface(
                 </div>`
               : nothing
           }
+          ${isDesktop() ? chatHeader(activeChatTitle(), "", false) : nothing}
           ${contextBanner()}
           ${
             glanceTier
@@ -1100,6 +1102,11 @@ export function createChatSurface(
     </div>`;
   }
 
+  function activeChatTitle(): string {
+    const s = sessionsState.list.find((row) => row.id === chatState.sessionId);
+    return s?.title?.trim() || "New chat";
+  }
+
   function chatHeader(title: string | TemplateResult, detail: string, readOnly: boolean): TemplateResult {
     return html`
       <header class="chat-topbar">
@@ -1110,7 +1117,7 @@ export function createChatSurface(
         <div class="topbar-actions">
           ${
             isDesktop()
-              ? html`<a class="icon-btn subtle" title="会话锁管理" href="/admin/locks"
+              ? html`<a class="icon-btn subtle" title="会话锁管理" href=${withPortalToken("/admin/locks")}
                   >${icon(Lock, 17)}</a
                 >`
               : nothing

@@ -23,6 +23,7 @@ import {
   fetchRuntimeConfig,
   fetchSessionLocks,
   updateRuntimeConfig,
+  withPortalToken,
   type ApprovalDecision,
   type PendingApproval,
   type RuntimeConfig,
@@ -589,8 +590,10 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
                       ? html`<button
                           class="menu-btn session-lock-btn"
                           type="button"
-                          disabled
-                          title="此会话已锁定到本地隐私模型（会话锁），可在锁管理页解除"
+                          title="此会话已锁定到本地隐私模型（会话锁），点击打开锁管理页"
+                          @click=${() => {
+                            window.location.href = withPortalToken("/admin/locks");
+                          }}
                         >
                           🔒 ${sessionLock.modelId}
                         </button>`

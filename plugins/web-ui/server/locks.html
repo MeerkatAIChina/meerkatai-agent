@@ -97,6 +97,8 @@
       (function () {
         var KEY = "meerkat.portal_token";
         var portal = localStorage.getItem(KEY) || "";
+        var back = document.querySelector(".toplink");
+        if (back && portal) back.href = "/?portal_token=" + encodeURIComponent(portal);
         var list = document.getElementById("list");
         var status = document.getElementById("status");
         var modelOptions = [];

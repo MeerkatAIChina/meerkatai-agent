@@ -12,7 +12,7 @@ export function withBase(path: string): string {
   return `${BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-function withPortalToken(url: string): string {
+export function withPortalToken(url: string): string {
   const token = (window as unknown as { __MEERKAT_PORTAL_TOKEN__?: string }).__MEERKAT_PORTAL_TOKEN__;
   if (!token) return url;
   return `${url}${url.includes("?") ? "&" : "?"}portal_token=${encodeURIComponent(token)}`;
