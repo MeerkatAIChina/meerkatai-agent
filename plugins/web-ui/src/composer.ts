@@ -77,13 +77,15 @@ function loadThreadPicks(): Map<string, ModelOptionValue> {
 
 let threadModelPicks = loadThreadPicks();
 let seededRuntime: { scopeId: string | null; config: RuntimeConfig } | null = null;
+let desktopMode = false;
 
 export function seedRuntimeConfig(scopeId: string | null, config: RuntimeConfig): void {
   seededRuntime = { scopeId: runtimeScopeKey(scopeId), config };
+  if (config.desktop === true) desktopMode = true;
 }
 
 export function isDesktop(): boolean {
-  return seededRuntime?.config.desktop === true;
+  return desktopMode || seededRuntime?.config.desktop === true;
 }
 
 function runtimeScopeKey(scopeId: string | null): string | null {
@@ -316,6 +318,7 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
   function applySelectedRuntime(config: RuntimeConfig, agent?: Agent): void {
     activeRuntimeConfig = config;
     composerState.error = "";
+    if (config.desktop === true) desktopMode = true;
     setFastModeModelIds(scopeKey(), config.fastModeModelIds);
     orgFastModeDefault = config.interactiveFastMode === true;
     applyRuntimeOptions(
