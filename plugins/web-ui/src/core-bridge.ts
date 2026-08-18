@@ -492,6 +492,7 @@ export interface RuntimeConfig {
   upgradeAvailable: boolean;
   fastModeModelIds?: string[];
   interactiveFastMode?: boolean;
+  desktop?: boolean;
 }
 
 export async function fetchRuntimeConfig(scopeId?: string | null): Promise<RuntimeConfig | null> {

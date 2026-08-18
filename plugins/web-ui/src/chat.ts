@@ -18,6 +18,7 @@ import {
   Files,
   GitFork,
   Hash,
+  Lock,
   Maximize2,
   Paperclip,
   Pencil,
@@ -68,6 +69,7 @@ import {
   type WorkBlock,
   withBase,
 } from "./core-bridge";
+import { isDesktop } from "./composer";
 import { buildTimeline, toolRowKind, type TimelineItem, type ToolPayload, type ToolRowModel } from "./timeline";
 import { CONNECTOR_NAMES, connectorLinksIn, stripConnectorLinks, type ConnectorLink } from "./connector-link";
 import { deepLinkPath, UI_BASE } from "./deep-link";
@@ -1106,6 +1108,13 @@ export function createChatSurface(
           <div class="chat-subtitle">${readOnly ? "Read-only" : detail}</div>
         </div>
         <div class="topbar-actions">
+          ${
+            isDesktop()
+              ? html`<a class="icon-btn subtle" title="会话锁管理" href="/admin/locks"
+                  >${icon(Lock, 17)}</a
+                >`
+              : nothing
+          }
           ${
             chatState.sessionId && can("admin")
               ? html`<a

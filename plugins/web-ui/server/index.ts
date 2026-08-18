@@ -1302,6 +1302,15 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const scopeId = url.searchParams.get("scopeId") || `personal:${user}`;
       const qs = new URLSearchParams({ principalId: user, scopeId });
       const r = await coreFetch("GET", `/v1/runtime-config?${qs.toString()}`);
+      if (DESKTOP && r.status === 200) {
+        try {
+          const parsed = JSON.parse(r.text) as Record<string, unknown>;
+          parsed.desktop = true;
+          return json(res, 200, parsed);
+        } catch {
+          void 0;
+        }
+      }
       return relay(res, r);
     }
 

@@ -80,6 +80,10 @@ export function seedRuntimeConfig(scopeId: string | null, config: RuntimeConfig)
   seededRuntime = { scopeId: runtimeScopeKey(scopeId), config };
 }
 
+export function isDesktop(): boolean {
+  return seededRuntime?.config.desktop === true;
+}
+
 function runtimeScopeKey(scopeId: string | null): string | null {
   if (scopeId) return scopeId;
   const user = appState.me?.user;
