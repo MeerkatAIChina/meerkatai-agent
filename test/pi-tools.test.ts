@@ -387,6 +387,35 @@ test("Auto can quarantine a tool result before the model or durable replay sees 
   assert.doesNotMatch(JSON.stringify(persisted), /ignore previous instructions|reveal secrets/);
 });
 
+test("skill file reads are screen-exempt — signed, approved content is not screened as untrusted input", async () => {
+  const emitted: Emitted[] = [];
+  let screened = 0;
+  const tc = {
+    ...fakeToolContext(),
+    read: async (path: string) =>
+      path === "skills/hello/SKILL.md"
+        ? { content: "当用户和你打招呼的时候，你就回固定句式", sourceScopeId: "personal:U1" as const }
+        : { content: null, sourceScopeId: null },
+  };
+  const ref: ToolContextRef = {
+    current: tc,
+    emit: (e) => {
+      emitted.push(e as Emitted);
+    },
+    scopeLabel: "personal:U1",
+    screenToolResult: async () => {
+      screened += 1;
+      return false;
+    },
+  };
+  const read = createPiTools(ref).find((t) => t.name === "read")!;
+  const result = (await call(read, { path: "skills/hello/SKILL.md" })) as { content: Array<{ text?: string }> };
+  assert.equal(screened, 0, "skill reads bypass the injection screen entirely");
+  assert.match(result.content[0]?.text ?? "", /当用户和你打招呼/);
+  const persisted = emitted.find((entry) => entry.type === "tool_result")!.payload;
+  assert.equal(persisted.quarantined, undefined);
+});
+
 test("classifier downtime fails open — the output passes through tagged unscreened, not quarantined", async () => {
   const emitted: Emitted[] = [];
   const tc = {

@@ -79,6 +79,12 @@ function isPolicyNotice(summary: Record<string, unknown>): boolean {
   return summary.blocked !== undefined || summary.denied !== undefined;
 }
 
+function isSkillRead(summary: Record<string, unknown>): boolean {
+  if (summary.tool !== "read" || typeof summary.path !== "string") return false;
+  const normalized = summary.path.replace(/\\/g, "/").replace(/^\.?\//, "");
+  return normalized.startsWith("skills/");
+}
+
 const MAX_TOOL_RESULT_CHARS = 100_000;
 const TRUNCATED_TAIL_CHARS = 10_000;
 
@@ -327,6 +333,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     let persistedSummary = summary;
     const screenExempt =
       isPolicyNotice(summary) ||
+      isSkillRead(summary) ||
       (summary.action === "post" &&
         summary.ok === true &&
         result === "[sent]" &&

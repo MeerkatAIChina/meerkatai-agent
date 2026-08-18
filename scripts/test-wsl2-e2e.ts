@@ -1,5 +1,5 @@
-import { createWsl2Sandbox } from "./src/sandbox/wsl2-sandbox.ts";
-import { createLocalWorkspaceStore } from "./src/workspace/workspace-store.ts";
+import { createWsl2Sandbox } from "../src/sandbox/wsl2-sandbox.ts";
+import { createLocalWorkspaceStore } from "../src/workspace/workspace-store.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,8 +12,9 @@ const sb = createWsl2Sandbox(createLocalWorkspaceStore(mkdtempSync(join(tmpdir()
   egress: { allowlist: seed.allow },
 });
 
-const results = [];
-const check = (name, ok, detail) => results.push(`${ok ? "PASS" : "FAIL"} ${name} :: ${detail}`);
+const results: string[] = [];
+const check = (name: string, ok: boolean, detail: unknown) =>
+  results.push(`${ok ? "PASS" : "FAIL"} ${name} :: ${detail}`);
 
 const h = await sb.provision([{ scopeId: "personal:e2e", mountPath: "", mode: "rw" }]);
 check("provision", !!h.rootDir.endsWith("/workspace"), h.rootDir);
@@ -44,10 +45,14 @@ check("direct bypass dropped", /BLOCKED/.test(direct.stdout) || direct.stdout.tr
 const flush = await sb.run(h, "iptables -F OUTPUT 2>&1 || echo DENIED");
 check("cannot flush iptables", /DENIED|Permission denied/.test(flush.stdout + flush.stderr), (flush.stdout + flush.stderr).trim().slice(0, 60));
 
-const proc = await sb.startProcess(h, "sleep 30");
-const procs = await sb.listProcesses(h);
-check("process sessions", procs.some((p) => p.processId === proc.processId), `${procs.length} procs`);
-await sb.signalProcess(h, proc.processId, "KILL");
+if (sb.startProcess && sb.listProcesses && sb.signalProcess) {
+  const proc = await sb.startProcess(h, "sleep 30");
+  const procs = await sb.listProcesses(h);
+  check("process sessions", procs.some((p) => p.processId === proc.processId), `${procs.length} procs`);
+  await sb.signalProcess(h, proc.processId, "KILL");
+} else {
+  check("process sessions", false, "sandbox backend lacks process API");
+}
 
 await sb.teardown(h);
 console.log(results.join("\n"));

@@ -54,3 +54,25 @@
   - 仅前端收敛下拉 —— 直接调 API 即可绕过，不构成防线；
   - core 侧加模型隐私分级 —— 内核需新增概念，桌面单机场景收益不抵复杂度。
 - **后果**：「解除锁定」成为唯一让锁定会话离开本地模型的途径，且有确认警告；本地模型升级/更名后的标准操作是更新 seeds 里的 `providers.local-secure.json` 再重指。同城双本地模型（如将来 TRIZ 与隐私模型分开部署）时，把两个 provider 的模型都加入 `localRetargetModels()` 即可，语义不变。
+
+## ADR-005：skills 目录的 read 结果豁免注入筛查——可信签名内容不进检测器
+
+- **状态**：已接受（验收期修复，issue #3）
+- **背景**：auto 安全姿态下所有工具结果过注入筛查（`screenToolResult`）。skill 的本质是「通过文件读取消递给 agent 的指令」，与注入攻击「外部文本嵌着指挥 agent 的指令」结构同构，检测器无法区分——用户验收时 hello skill 被隔离（`[tool output quarantined by Auto security posture]`），skill 机制实质性失效。而 qm 的 skill 创建链路本就有签名 + 审批（skills 表 `signature`/`approvals`），可信内容被当不可信输入再查一遍，是信任边界错位。
+- **决策**：`pi-tools.ts` 的 `recordResult` 既有 `screenExempt` 通道上新增 `isSkillRead(summary)` 豁免：`tool === "read"` 且归一化路径以 `skills/` 开头即跳过注入筛查。路径前缀对齐 skill materialize 的落盘约定（`SKILLS_DIR = "skills"`，`src/skills/materialization-paths.ts`）。
+- **理由**：注入防线的目标是**外部**不可信内容（网页、附件、工具返回的第三方数据）；skill 是用户/部署方签名审批的一等可信内容，豁免不削弱防线。路径判据足够：`skills/` 目录由 materializer 管理，agent 自己写入该目录再读回的内容派生自已筛查的模型输出，不构成新注入面。
+- **被否决**：
+  - 调宽筛查提示词让检测器「认出 skill」—— 小模型判定不稳定，且每次读取都花一次筛查调用；
+  - skill 内容直接进系统提示词不落地文件 —— 改动面大，上游 materialize 机制就是按文件读取设计的。
+- **后果**：内核缝改动（`src/harness/pi-tools.ts`，+7 行），对上游语义是纯新增豁免分支；有测试把守（`test/pi-tools.test.ts`：skill 读取零筛查调用、不隔离、内容完整到达模型）。
+
+## ADR-006：桌面版辅助调用整体走本地模型——复用上游 PI_*_MODEL 环境缝，零内核改动
+
+- **状态**：已接受（验收期修复，issue #2 + #4）
+- **背景**：会话锁只覆写主对话模型，辅助调用（标题生成、安全筛查、detect、judge）走 `auxiliaryModelFor(orgBaseModelId())`，桌面版即云端 gpt-5.4-nano。两处实证：标题生成携带 L1 原文出网（#2）；锁定会话的工具结果送云端做注入筛查（#4，session_llm_requests 表 step=-1 记录实证）。且泄露不限于锁定会话——任何会话的工具结果都会出网过筛查。
+- **决策**：桌面壳 `proc.rs` 启动 core 时，当本地模型已配置（`read_local_model` 命中），注入 `PI_DETECT_MODEL` / `PI_TITLE_MODEL` / `PI_JUDGE_MODEL` = 本地模型 ID。这是上游原生配置缝（`config.ts:787-789` → `piHarnessConfigOptions` → harness 的 `detectModelId/titleModelId/judgeModelId` 覆盖），**零内核改动**。本地模型未配置时维持原行为（fallback 到 org 基础模型）。
+- **理由**：隐私产品的桌面交付里，所有幕后模型调用都应留在本地——辅助调用处理的内容（会话原文、工具结果）与主对话同等敏感。上游已留好缝，不值得为此发明新机制。
+- **被否决**：
+  - 逐调用点改造（orchestrator 查锁再决定辅助模型）—— 锁感知逻辑侵入多条路径，而桌面版「全部辅助调用本地化」语义更简单更强；
+  - 筛查改走分类器 sidecar —— 分类器是隐私分级/路由语义，不是注入检测语义，硬接会混淆两条防线；筛查本地化由 `PI_DETECT_MODEL` 已达同等效果。
+- **后果**：桌面版标题、筛查、detect、judge 全部留在本地；上游与非桌面部署零行为变化。未来新增辅助调用类型时须走同一 env 缝，否则会在桌面版重新开出网口。

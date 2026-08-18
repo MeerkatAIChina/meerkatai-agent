@@ -268,6 +268,11 @@ fn spawn_component(
                     &ctx.secrets.portal_identity_secret,
                 )
                 .env("SKILL_SIGNING_SECRET", &ctx.secrets.skill_signing_secret);
+            if let Some(local) = read_local_model(&ctx.data_dir) {
+                cmd.env("PI_DETECT_MODEL", &local.model)
+                    .env("PI_TITLE_MODEL", &local.model)
+                    .env("PI_JUDGE_MODEL", &local.model);
+            }
             if let Some(proxy) = read_git_proxy(&ctx.data_dir) {
                 cmd.env("SKILL_PACK_GIT_PROXY", proxy);
             }
