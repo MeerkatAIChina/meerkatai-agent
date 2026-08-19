@@ -222,6 +222,9 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
     `);
   }
 
+  const dropLeasesFromDeadProcesses = db.prepare("DELETE FROM session_leases");
+  dropLeasesFromDeadProcesses.run();
+
   const q = {
     sessionByThread: db.prepare("SELECT * FROM sessions WHERE thread_ref = ?"),
     sessionById: db.prepare("SELECT * FROM sessions WHERE id = ?"),
