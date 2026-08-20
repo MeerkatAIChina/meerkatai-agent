@@ -333,6 +333,23 @@ test("accepts a public IPv6-literal repository without DNS resolution", async ()
   }
 });
 
+test("skips local DNS validation when a git proxy is configured, letting the proxy resolve remotely", async () => {
+  await assert.rejects(
+    () =>
+      createGitFetcher({
+        gitBin: process.execPath,
+        gitProxy: "http://127.0.0.1:7890",
+        lookup: async () => {
+          throw new Error("unexpected local lookup behind a proxy");
+        },
+      }).resolveRef(src({ url: "https://github.com/acme/skills" })),
+    (error: Error) => {
+      assert.ok(!/could not be resolved|public network address/.test(error.message), error.message);
+      return true;
+    },
+  );
+});
+
 test("an explicitly authorized local pack fetches only when the local-import channel is enabled", async () => {
   const { dir, sha } = makeSourceRepo();
   try {

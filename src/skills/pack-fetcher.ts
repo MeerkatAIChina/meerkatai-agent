@@ -94,6 +94,15 @@ async function validateRepoUrl(
     throw new Error("skill pack url must use credential-free https");
   }
   const host = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+  if (gitProxy) {
+    return {
+      url: url.toString(),
+      gitConfig: [
+        ["http.followRedirects", "false"],
+        ["http.proxy", gitProxy],
+      ],
+    };
+  }
   const literal = isIP(host) !== 0;
   let addresses: string[];
   try {
@@ -108,16 +117,11 @@ async function validateRepoUrl(
   const resolved = addresses.map((address) => (isIP(address) === 6 ? `[${address}]` : address)).join(",");
   return {
     url: url.toString(),
-    gitConfig: gitProxy
-      ? [
-          ["http.followRedirects", "false"],
-          ["http.proxy", gitProxy],
-        ]
-      : [
-          ["http.followRedirects", "false"],
-          ...(!literal ? [["http.curloptResolve", `${host}:${port}:${resolved}`] as [string, string]] : []),
-          ["http.proxy", ""],
-        ],
+    gitConfig: [
+      ["http.followRedirects", "false"],
+      ...(!literal ? [["http.curloptResolve", `${host}:${port}:${resolved}`] as [string, string]] : []),
+      ["http.proxy", ""],
+    ],
   };
 }
 
