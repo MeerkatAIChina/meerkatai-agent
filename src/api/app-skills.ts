@@ -2,7 +2,7 @@ import type { ScopeId } from "../types.ts";
 import { parseScopeId, scopeId } from "../types.ts";
 import { orgId as orgIdOf } from "../config.ts";
 import type { SkillManifest } from "../skills/skill-store.ts";
-import type { SkillPack, SkillPackStore } from "../skills/skill-pack-store.ts";
+import { upstreamSource, type SkillPack, type SkillPackStore } from "../skills/skill-pack-store.ts";
 import type { SkillPackFetcher } from "../skills/pack-fetcher.ts";
 import { planIngest, importPack, collectSharedBundle, type ImportResult } from "../skills/ingest.ts";
 import { computeBundleHash } from "../skills/skill-bundle-store.ts";
@@ -101,16 +101,17 @@ async function reconcilePack(
   fetcher: SkillPackFetcher,
   id: string,
   targets: ReconcileTarget[],
+  source?: SkillPack,
 ): Promise<ImportResult> {
   const pack = await packs.get(id);
   if (!pack) throw new Error(`unknown skill pack: ${id}`);
   let repo: Awaited<ReturnType<SkillPackFetcher["fetch"]>>;
   try {
-    repo = await fetcher.fetch(pack);
+    repo = await fetcher.fetch(source ?? pack);
   } catch (e) {
     await packs.recordImport(id, {
       at: Date.now(),
-      commit: pack.ref,
+      commit: pack.lastImport?.commit ?? pack.ref,
       status: "error",
       error: e instanceof Error ? e.message : String(e),
     });
@@ -176,7 +177,7 @@ async function reconcilePack(
     } catch (e) {
       await packs.recordImport(id, {
         at: Date.now(),
-        commit: pack.ref,
+        commit: pack.lastImport?.commit ?? pack.ref,
         status: "error",
         error: e instanceof Error ? e.message : String(e),
       });
@@ -307,7 +308,7 @@ export function createSkillMethods(
       } catch (e) {
         await packs.recordImport(pack.id, {
           at: Date.now(),
-          commit: pack.ref,
+          commit: pack.lastImport?.commit ?? pack.ref,
           status: "error",
           error: e instanceof Error ? e.message : String(e),
         });
@@ -354,10 +355,34 @@ export function createSkillMethods(
         scopes.map((scopeId) => ({ scopeId, selected })),
       );
     },
-    async syncSkillPack(id) {
+    async syncSkillPack(id, opts) {
       const { packs, fetcher } = requireRegistry(deps);
       const pack = await packs.get(id);
       if (!pack) throw new Error(`unknown skill pack: ${id}`);
+      if (opts?.onlyIfUpdate) {
+        let head: string;
+        try {
+          head = await fetcher.resolveRef(upstreamSource(pack));
+        } catch (e) {
+          await packs.recordImport(id, {
+            at: Date.now(),
+            commit: pack.lastImport?.commit ?? pack.ref,
+            status: "error",
+            error: e instanceof Error ? e.message : String(e),
+          });
+          throw e;
+        }
+        if (pack.lastImport?.status === "ok" && head === pack.lastImport.commit) {
+          return {
+            imported: [],
+            updated: [],
+            skipped: [],
+            archived: [],
+            counts: pack.lastImport.counts ?? {},
+            upToDate: true,
+          };
+        }
+      }
       const importedByScope = new Map<ScopeId, string[]>();
       for (const { scopeId, upstreamName } of await importedPackSkills(deps, id)) {
         const arr = importedByScope.get(scopeId) ?? [];
@@ -366,7 +391,7 @@ export function createSkillMethods(
       }
       const targets = [...importedByScope].map(([scopeId, selected]) => ({ scopeId, selected }));
       if (!targets.length) targets.push({ scopeId: pack.targetScopeId, selected: [] });
-      return reconcilePack(deps, packs, fetcher, id, targets);
+      return reconcilePack(deps, packs, fetcher, id, targets, upstreamSource(pack));
     },
     async removeSkillPack(id) {
       const { packs } = requireRegistry(deps);

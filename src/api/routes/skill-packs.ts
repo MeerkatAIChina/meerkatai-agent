@@ -161,7 +161,8 @@ async function importPack(ctx: ApiCtx): Promise<void> {
 async function syncPack(ctx: ApiCtx): Promise<void> {
   const actor = await authorizeAdmin(ctx, orgScope(ctx.deps));
   if (!actor) return;
-  const result = await ctx.app.syncSkillPack(ctx.params.id!);
+  const body = (ctx.body as Record<string, unknown> | null) ?? {};
+  const result = await ctx.app.syncSkillPack(ctx.params.id!, { onlyIfUpdate: body.onlyIfUpdate === true });
   audit(ctx.deps, {
     principalId: actor.id,
     action: "skill_pack.sync",

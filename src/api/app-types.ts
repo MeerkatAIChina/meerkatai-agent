@@ -454,7 +454,7 @@ export interface App {
   updateSkillPack(id: string, patch: Partial<Omit<SkillPack, "id" | "createdAt">>): Promise<SkillPack>;
   skillPackCatalog(id: string): Promise<IngestPlan & { bundlePaths: string[] }>;
   importSkillPack(id: string, selected: "all" | string[], scopeIds?: ScopeId[]): Promise<ImportResult>;
-  syncSkillPack(id: string): Promise<ImportResult>;
+  syncSkillPack(id: string, opts?: { onlyIfUpdate?: boolean }): Promise<ImportResult & { upToDate?: boolean }>;
   removeSkillPack(id: string): Promise<{ removed: number }>;
   createOwnedSkill(input: {
     principalId: string;

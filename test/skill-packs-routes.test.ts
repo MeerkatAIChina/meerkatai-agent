@@ -1166,3 +1166,96 @@ test("patch local:true is rejected without the server flag or with a non-local u
     await s.close();
   }
 });
+
+const SNAP_COMMIT_1 = "1111111111111111111111111111111111111111";
+const SNAP_COMMIT_2 = "2222222222222222222222222222222222222222";
+
+function makeSnapshotDir(commit: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "qm-snap-routes-"));
+  mkdirSync(join(dir, "skills", "snap-demo"), { recursive: true });
+  writeFileSync(join(dir, "skills", "snap-demo", "SKILL.md"), md("name: snap-demo\ndescription: d\nscope: company"));
+  writeFileSync(
+    join(dir, ".skillpack-meta.json"),
+    JSON.stringify({ upstreamUrl: "https://example.com/org/repo.git", ref: "main", commit, snapshotAt: "2026-08-20T00:00:00Z" }),
+  );
+  return dir;
+}
+
+async function registerAndImport(base: string, dir: string): Promise<string> {
+  const reg = await json(
+    await fetch(`${base}/v1/admin/skill-packs`, {
+      method: "POST",
+      headers: ADMIN,
+      body: JSON.stringify({ url: dir, ref: "main", allowLocal: true, trustTier: "internal", subset: "all" }),
+    }),
+  );
+  const id = reg.pack.id as string;
+  const imp = await fetch(`${base}/v1/admin/skill-packs/${id}/import`, {
+    method: "POST",
+    headers: ADMIN,
+    body: JSON.stringify({ selected: "all" }),
+  });
+  assert.equal(imp.status, 200);
+  return id;
+}
+
+test("sync onlyIfUpdate skips the fetch when upstream HEAD matches the last good commit", async () => {
+  const dir = makeSnapshotDir(SNAP_COMMIT_1);
+  const s = start();
+  try {
+    const id = await registerAndImport(s.base, dir);
+    const sync = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs/${id}/sync`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ onlyIfUpdate: true }),
+      }),
+    );
+    assert.equal(sync.upToDate, true);
+    writeFileSync(
+      join(dir, ".skillpack-meta.json"),
+      JSON.stringify({ ref: "main", commit: SNAP_COMMIT_2, snapshotAt: "2026-08-20T01:00:00Z" }),
+    );
+    const sync2 = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs/${id}/sync`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ onlyIfUpdate: true }),
+      }),
+    );
+    assert.notEqual(sync2.upToDate, true);
+    const packs = await json(await fetch(`${s.base}/v1/admin/skill-packs`, { headers: ADMIN }));
+    assert.equal(packs.packs.find((p: { id: string }) => p.id === id).lastImport.commit, SNAP_COMMIT_2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    await s.close();
+  }
+});
+
+test("a failed sync preserves the last good commit", async () => {
+  const dir = makeSnapshotDir(SNAP_COMMIT_1);
+  const s = start();
+  try {
+    const id = await registerAndImport(s.base, dir);
+    await json(
+      await fetch(`${s.base}/v1/admin/skill-packs/${id}`, {
+        method: "PATCH",
+        headers: ADMIN,
+        body: JSON.stringify({ url: join(dir, "does-not-exist") }),
+      }),
+    );
+    const sync = await fetch(`${s.base}/v1/admin/skill-packs/${id}/sync`, {
+      method: "POST",
+      headers: ADMIN,
+      body: JSON.stringify({}),
+    });
+    assert.notEqual(sync.status, 200);
+    const packs = await json(await fetch(`${s.base}/v1/admin/skill-packs`, { headers: ADMIN }));
+    const pack = packs.packs.find((p: { id: string }) => p.id === id);
+    assert.equal(pack.lastImport.status, "error");
+    assert.equal(pack.lastImport.commit, SNAP_COMMIT_1, "the last good commit survives the failed sync");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    await s.close();
+  }
+});
