@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSkillPackStore, type NewSkillPack } from "../src/skills/skill-pack-store.ts";
+import { createSkillPackStore, upstreamSource, type NewSkillPack } from "../src/skills/skill-pack-store.ts";
 import { scopeId } from "../src/types.ts";
 
 const base: NewSkillPack = {
@@ -45,4 +45,39 @@ test("update throws on an unknown id; remove deletes", async () => {
   const s = await store.create(base);
   await store.remove(s.id);
   assert.equal(await store.get(s.id), null);
+});
+
+test("upstreamSource swaps the fetch url to upstreamUrl and clears local", async () => {
+  const packs = createSkillPackStore();
+  const pack = await packs.create({
+    kind: "git",
+    url: "C:\\payload\\skillpacks\\triz",
+    ref: "main",
+    syncMode: "pinned",
+    trustTier: "internal",
+    targetScopeId: scopeId("org", "acme"),
+    subset: "all",
+    createdBy: "u",
+    local: true,
+    upstreamUrl: "https://github.com/org/repo.git",
+  });
+  const src = upstreamSource(pack);
+  assert.equal(src.url, "https://github.com/org/repo.git");
+  assert.equal(src.local, false);
+  assert.equal(src.upstreamUrl, "https://github.com/org/repo.git");
+});
+
+test("upstreamSource returns the pack unchanged without upstreamUrl", async () => {
+  const packs = createSkillPackStore();
+  const pack = await packs.create({
+    kind: "git",
+    url: "https://github.com/org/repo.git",
+    ref: "main",
+    syncMode: "pinned",
+    trustTier: "internal",
+    targetScopeId: scopeId("org", "acme"),
+    subset: "all",
+    createdBy: "u",
+  });
+  assert.equal(upstreamSource(pack).url, "https://github.com/org/repo.git");
 });

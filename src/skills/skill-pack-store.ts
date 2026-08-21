@@ -26,6 +26,7 @@ export interface SkillPack {
   targetScopeId: ScopeId;
   subset: "all" | string[];
   authCredentialSlug?: string;
+  upstreamUrl?: string;
   local?: boolean;
   createdBy: string;
   createdAt: number;
@@ -68,4 +69,9 @@ export function createSkillPackStore(
       await packs.merge(id, { lastImport: result });
     },
   };
+}
+
+export function upstreamSource(pack: SkillPack): SkillPack {
+  const upstream = pack.upstreamUrl?.trim();
+  return upstream ? { ...pack, url: upstream, local: false } : pack;
 }
