@@ -41,6 +41,27 @@ Remove-Item -Recurse -Force $StageCls
 
 Copy-Item -Recurse (Join-Path $Desktop "seeds\*") "$Payload\config\seeds\"
 
+$entries = Select-String -Path (Join-Path $Root "deploy\layers\meerkat\skillpacks.conf") -Pattern '^\s*"([^"]+)"' |
+  ForEach-Object { $_.Matches[0].Groups[1].Value }
+New-Item -ItemType Directory -Force -Path "$Payload\skillpacks" | Out-Null
+$seedPacks = @()
+foreach ($entry in $entries) {
+  $parts = $entry.Split("|")
+  $url = $parts[0]
+  $ref = if ($parts.Length -gt 1) { $parts[1] } else { "main" }
+  $slug = [System.IO.Path]::GetFileNameWithoutExtension($url)
+  $dest = Join-Path $Payload "skillpacks\$slug"
+  Write-Host "snapshot $url#$ref -> payload/skillpacks/$slug"
+  git clone --depth 1 --branch $ref --quiet $url $dest
+  if ($LASTEXITCODE -ne 0) { throw "git clone failed: $url" }
+  $commit = (git -C $dest rev-parse HEAD).Trim()
+  Remove-Item -Recurse -Force (Join-Path $dest ".git")
+  $meta = @{ upstreamUrl = $url; ref = $ref; commit = $commit; snapshotAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") }
+  [System.IO.File]::WriteAllText((Join-Path $dest ".skillpack-meta.json"), ($meta | ConvertTo-Json -Compress))
+  $seedPacks += @{ name = $slug; url = "skillpacks/$slug"; upstreamUrl = $url; ref = $ref; local = $true }
+}
+[System.IO.File]::WriteAllText("$Payload\config\seeds\skillpacks.json", (@{ packs = $seedPacks } | ConvertTo-Json -Compress))
+
 $rootfs = Join-Path $Desktop "payload-sandbox\rootfs.tar.gz"
 if (Test-Path $rootfs) {
   New-Item -ItemType Directory -Force -Path "$Payload\sandbox" | Out-Null

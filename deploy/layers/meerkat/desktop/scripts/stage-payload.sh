@@ -70,6 +70,29 @@ rm -rf "$STAGE_CLS"
 
 cp -r "$DESKTOP/seeds"/* "$PAYLOAD/config/seeds/"
 
+source "$ROOT/deploy/layers/meerkat/skillpacks.conf"
+mkdir -p "$PAYLOAD/skillpacks"
+SEED_OUT="$PAYLOAD/config/seeds/skillpacks.json"
+first=1
+printf '{"packs":[' > "$SEED_OUT"
+for entry in "${SKILLPACKS[@]}"; do
+  url="${entry%%|*}"
+  ref="${entry#*|}"; [ "$ref" = "$url" ] && ref="main"
+  slug="$(basename "$url" .git)"
+  dest="$PAYLOAD/skillpacks/$slug"
+  echo "snapshot $url#$ref -> payload/skillpacks/$slug"
+  git clone --depth 1 --branch "$ref" --quiet "$url" "$dest"
+  commit="$(git -C "$dest" rev-parse HEAD)"
+  rm -rf "$dest/.git"
+  printf '{"upstreamUrl":"%s","ref":"%s","commit":"%s","snapshotAt":"%s"}' \
+    "$url" "$ref" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dest/.skillpack-meta.json"
+  [ "$first" -eq 0 ] && printf ',' >> "$SEED_OUT"
+  first=0
+  printf '{"name":"%s","url":"skillpacks/%s","upstreamUrl":"%s","ref":"%s","local":true}' \
+    "$slug" "$slug" "$url" "$ref" >> "$SEED_OUT"
+done
+printf ']}' >> "$SEED_OUT"
+
 if [ -f "$DESKTOP/payload-sandbox/rootfs.tar.gz" ]; then
   mkdir -p "$PAYLOAD/sandbox"
   cp "$DESKTOP/payload-sandbox/rootfs.tar.gz" "$DESKTOP/payload-sandbox/fingerprint.txt" "$PAYLOAD/sandbox/"

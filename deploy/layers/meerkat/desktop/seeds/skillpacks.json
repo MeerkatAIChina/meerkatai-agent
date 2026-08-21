@@ -1,8 +1,0 @@
-{
-  "packs": [
-    {
-      "url": "https://github.com/MeerkatAIChina/meerkat-skills-triz.git",
-      "ref": "main"
-    }
-  ]
-}
