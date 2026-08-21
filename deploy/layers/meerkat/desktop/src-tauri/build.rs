@@ -18,6 +18,7 @@ fn main() {
                 "restart_core",
                 "wsl2_status",
                 "enable_wsl2",
+                "skillpacks_status",
             ]),
         ),
     )

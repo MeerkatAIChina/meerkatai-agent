@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-skillpacks-status"
+description = "Enables the skillpacks_status command without any pre-configured scope."
+commands.allow = ["skillpacks_status"]
+
+[[permission]]
+identifier = "deny-skillpacks-status"
+description = "Denies the skillpacks_status command without any pre-configured scope."
+commands.deny = ["skillpacks_status"]

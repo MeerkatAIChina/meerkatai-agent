@@ -12,6 +12,7 @@
     "allow-portal-token",
     "allow-restart-core",
     "allow-wsl2-status",
-    "allow-enable-wsl2"
+    "allow-enable-wsl2",
+    "allow-skillpacks-status"
   ]
 }

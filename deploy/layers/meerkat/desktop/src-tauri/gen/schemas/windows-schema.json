@@ -213,6 +213,12 @@
           "markdownDescription": "Enables the retry command without any pre-configured scope."
         },
         {
+          "description": "Enables the skillpacks_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-skillpacks-status",
+          "markdownDescription": "Enables the skillpacks_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-status",
@@ -259,6 +265,12 @@
           "type": "string",
           "const": "deny-retry",
           "markdownDescription": "Denies the retry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the skillpacks_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-skillpacks-status",
+          "markdownDescription": "Denies the skillpacks_status command without any pre-configured scope."
         },
         {
           "description": "Denies the status command without any pre-configured scope.",
