@@ -28,3 +28,31 @@
   - 缩短 TTL 或用心跳续租 —— 治标，崩溃与 TTL 的竞态窗口仍在；
   - 租约表加进程指纹列、启动时按指纹清 —— 等价于全清（单实例下旧指纹必死），多一个字段多一份复杂度。
 - **后果**：桌面版进程重启后会话立即可用，不再有人工感知的卡死窗；回归测试把守（`test/sqlite-session-store.test.ts`：模拟 kill-during-turn 后重开），另有桌面活体验证脚本 `deploy/layers/meerkat/desktop/scripts/verify-issue5.ts`（双进程 plant/retry，修复前复现 403 session busy、修复后 PASS）。多实例部署若将来改用 SQLite 后端，须重新评估本决策（不变量依赖单实例前提）。
+
+## ADR-003：本地 skill 快照直读通道——以 `.skillpack-meta.json` 为标记跳过 git
+
+- **状态**：已接受（issue #6，设计评审 2026-08-20 拍板选项 1-A）
+- **背景**：issue #6 方案 A 的隐含假设「种子指向本地路径 + `local:true` 即可零新增内核缝」不成立——core fetcher（`src/skills/pack-fetcher.ts:279`）即使对本地路径也是 `git clone` 本地目录，无 git 客户机器上本地导入同样失败（客户日志的 `spawn git ENOENT` 即源于此）。快照随包内置后若首启仍依赖 git，「首启零依赖」就是空话。
+- **决策**：`fetch` 与 `resolveRef` 中，当 `permitsLocal(pack)` 且路径为本地路径且存在 `.skillpack-meta.json` 时跳过 git：`fetch` 直接 `readTree` 读目录（maxFiles/maxTotalBytes 护栏不变），commit 取元数据；`resolveRef` 直接返回元数据 commit。无元数据的本地路径保持 legacy `git clone` 行为逐字节不变（meta 文件是显式 opt-in 标记，dev 流与 bare repo 场景不回归）。元数据损坏或缺 commit 字段 → 显式报错，不静默兜底。
+- **理由**：直读只是把 `git clone` 换成等价的读目录，本地包的授权前提（`local:true` + `ALLOW_LOCAL_SKILL_PACKS` 受控通道）一层不少；构建期快照是纯目录，本来就不需要 git 语义。
+- **信任边界**：meta 文件随包签名交付，直读仅认 meta 标记的快照目录。
+- **被否决**：
+  - 随包内置 portable git —— 安装包增重几十 MB，多一个要维护的组件，且只为模拟一次读目录；
+  - 所有本地路径一律直读（不设 meta 标记）—— dev 流依赖本地 bare repo / 分支检出语义，一律直读会造成回归，meta 标记把新行为限定为显式 opt-in。
+- **后果**：内核缝改动（`pack-fetcher.ts` 的 `fetch`/`resolveRef` 各加一个提前分支）；无 git 机器全链路不 spawn git；回归测试把守（注入必炸 `gitBin` 证明零 git 调用；meta 缺失走 legacy；meta 损坏显式报错）。
+
+## ADR-004：`SkillPack.upstreamUrl` 双地址身份——本地快照为身份与首启源，GitHub 为更新通道
+
+- **状态**：已接受（issue #6，设计评审 2026-08-20 拍板选项 2-A）
+- **背景**：`SkillPack.url` 同时承担「身份（web-ui 按 url 匹配判重）」与「抓取源（sync 按 url 拉取）」两个职责。快照内置后 pack 以本地路径注册，`POST /sync` 对本地路径永远拉不到 GitHub 新内容，更新通道无从谈起。
+- **决策**：
+  1. `SkillPack` 增加 `upstreamUrl?: string` 软字段（store 基于 `DurableMap` 整条 JSON 存取，无 SQLite 迁移）：`url` 恒为本地快照路径（身份稳定），`upstreamUrl` 存 GitHub 地址；
+  2. import 恒走 `url`（本地）；sync/`resolveRef` 有 `upstreamUrl` 时走 upstream，原有 https/无凭据/SSRF/代理校验逐字节不变，只是源地址字段换了；
+  3. register/patch 接受 `upstreamUrl`（https、无内嵌凭据，否则 400）；patch 放开 `local` 字段并加守卫（仅 `ALLOW_LOCAL_SKILL_PACKS=1` 环境且最终 url 为本地路径才允许置 `local:true`），支撑 v0.1.1 老客户已注册 GitHub url 的 pack 原地迁移（pack id 与已导入技能保留）；
+  4. sync 抓取失败时 `recordImport` 保留上一个成功 commit（现失败路径写 `commit: pack.ref` 即 `"main"`，会毁掉 `updateAvailable` 比对基准）；
+  5. 桌面更新时机 = 启动单次 `POST /sync {onlyIfUpdate:true}` + 手动重同步——桌面本就没有周期 tick（`SKILL_SYNC_POLL_MS` 默认 0，`wiring.ts:1495` 仅 `>0` 时启动），不新增轮询、不新增 env。
+- **理由**：一个技能包、两个来源地址是方案 A 的内在结构，把第二个地址建模为字段是最小且诚实的表达；身份与抓取源解耦后，首启与更新各自独立演化。
+- **被否决**：
+  - web-ui 编排「PATCH 换成 GitHub url → sync → PATCH 换回」—— 零内核改动但有真实竞态：sync 中途进程死亡，pack 停在 GitHub url 上，下次启动本地匹配直接失效，且丑陋；
+  - v0.1.2 砍掉在线更新通道（技能更新 = 下一个安装包）—— 违背 issue「GitHub 降级为更新通道」的既定语义。
+- **后果**：`skill-pack-store.ts` / `skill-packs.ts`（routes）/ `app-skills.ts` / `skill-sync-engine.ts` 四处小改；upstream 抓取安全语义不变；测试把守（`onlyIfUpdate` 两分支、迁移 patch 守卫、失败保留 commit、upstream 源解析）。
