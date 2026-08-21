@@ -411,3 +411,60 @@ test("the blanket non-production allowLocalRepos still admits local paths withou
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const SNAPSHOT_COMMIT = "0123456789abcdef0123456789abcdef01234567";
+
+function makeSnapshot(): { dir: string; commit: string } {
+  const dir = mkdtempSync(join(tmpdir(), "qm-snap-fixture-"));
+  mkdirSync(join(dir, "skills", "demo"), { recursive: true });
+  writeFileSync(
+    join(dir, "skills", "demo", "SKILL.md"),
+    "---\nname: demo\ndescription: d\nscope: company\n---\n# Body",
+  );
+  writeFileSync(
+    join(dir, ".skillpack-meta.json"),
+    JSON.stringify({
+      upstreamUrl: "https://example.com/org/repo.git",
+      ref: "main",
+      commit: SNAPSHOT_COMMIT,
+      snapshotAt: "2026-08-20T00:00:00Z",
+    }),
+  );
+  return { dir, commit: SNAPSHOT_COMMIT };
+}
+
+test("snapshot pack: fetch reads the tree directly with no git, commit from metadata", async () => {
+  const { dir, commit } = makeSnapshot();
+  try {
+    const f = createGitFetcher({ allowLocalRepos: true, gitBin: "definitely-not-a-git-binary" });
+    const repo = await f.fetch(src({ url: dir, ref: "main" }));
+    assert.equal(repo.commit, commit);
+    assert.ok(repo.files.some((x) => x.path === "skills/demo/SKILL.md"));
+    assert.ok(!repo.files.some((x) => x.path === ".skillpack-meta.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("snapshot pack: resolveRef returns the metadata commit with no git", async () => {
+  const { dir, commit } = makeSnapshot();
+  try {
+    const f = createGitFetcher({ allowLocalRepos: true, gitBin: "definitely-not-a-git-binary" });
+    assert.equal(await f.resolveRef(src({ url: dir, ref: "main" })), commit);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("corrupt snapshot metadata fails explicitly", async () => {
+  const { dir } = makeSnapshot();
+  try {
+    const f = createGitFetcher({ allowLocalRepos: true, gitBin: "definitely-not-a-git-binary" });
+    writeFileSync(join(dir, ".skillpack-meta.json"), "not json");
+    await assert.rejects(() => f.fetch(src({ url: dir, ref: "main" })), /snapshot metadata is corrupt/);
+    writeFileSync(join(dir, ".skillpack-meta.json"), JSON.stringify({ commit: "not-a-sha" }));
+    await assert.rejects(() => f.resolveRef(src({ url: dir, ref: "main" })), /snapshot metadata is corrupt/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

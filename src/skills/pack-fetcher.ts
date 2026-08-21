@@ -163,6 +163,27 @@ export async function resolvePackAuth(
 const SHA_RE = /^[0-9a-f]{7,40}$/;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 
+const SNAPSHOT_META_FILE = ".skillpack-meta.json";
+
+async function readSnapshotCommit(dir: string): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(dir, SNAPSHOT_META_FILE), "utf8");
+  } catch {
+    return null;
+  }
+  let commit: unknown;
+  try {
+    commit = (JSON.parse(raw) as { commit?: unknown }).commit;
+  } catch {
+    throw new Error(`skill pack snapshot metadata is corrupt: ${dir}`);
+  }
+  if (typeof commit !== "string" || !SHA_RE.test(commit)) {
+    throw new Error(`skill pack snapshot metadata is corrupt: ${dir}`);
+  }
+  return commit;
+}
+
 const execFileP = promisify(execFile);
 
 function scrub(s: string, auth: GitAuth | undefined): string {
@@ -275,6 +296,13 @@ export function createGitFetcher(opts: GitFetcherOptions = {}): SkillPackFetcher
       if (ref && !SHA_RE.test(ref) && !BRANCH_RE.test(ref)) throw new Error(`invalid skill pack ref: ${ref}`);
       const allowLocal = permitsLocal(pack);
       const repo = await validateRepoUrl(pack.url, allowLocal, lookup, gitProxy);
+      if (allowLocal && isLocalRepoPath(repo.url)) {
+        const snapshotCommit = await readSnapshotCommit(repo.url);
+        if (snapshotCommit) {
+          const files = (await readTree(repo.url)).filter((f) => f.path !== SNAPSHOT_META_FILE);
+          return { commit: snapshotCommit, files };
+        }
+      }
       const auth = opts.resolveAuth ? await opts.resolveAuth(pack) : undefined;
 
       const work = await mkdtemp(join(tmpdir(), "qm-skill-src-"));
@@ -295,6 +323,10 @@ export function createGitFetcher(opts: GitFetcherOptions = {}): SkillPackFetcher
       if (ref && !SHA_RE.test(ref) && !BRANCH_RE.test(ref)) throw new Error(`invalid skill pack ref: ${ref}`);
       const allowLocal = permitsLocal(pack);
       const repo = await validateRepoUrl(pack.url, allowLocal, lookup, gitProxy);
+      if (allowLocal && isLocalRepoPath(repo.url)) {
+        const snapshotCommit = await readSnapshotCommit(repo.url);
+        if (snapshotCommit) return snapshotCommit;
+      }
       const auth = opts.resolveAuth ? await opts.resolveAuth(pack) : undefined;
       const target = ref && BRANCH_RE.test(ref) && !SHA_RE.test(ref) ? ref : "HEAD";
       const work = await mkdtemp(join(tmpdir(), "qm-skill-ref-"));
