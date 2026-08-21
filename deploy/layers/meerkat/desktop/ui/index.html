@@ -132,6 +132,13 @@
           <div class="reason" hidden></div>
         </div>
       </div>
+      <div class="item pending" id="item-skillpacks">
+        <span class="dot"></span>
+        <div class="body">
+          <div class="row"><span class="name">技能包</span><span class="meta"></span></div>
+          <div class="reason" hidden></div>
+        </div>
+      </div>
       <div class="actions" id="actions">
         <button id="retry">重试</button>
         <button id="copy">复制诊断信息</button>
@@ -147,7 +154,7 @@
       const { listen } = window.__TAURI__.event;
       const { invoke } = window.__TAURI__.core;
 
-      const state = { classifier: "pending", core: "pending", web_ui: "pending", sandbox: "pending" };
+      const state = { classifier: "pending", core: "pending", web_ui: "pending", sandbox: "pending", skillpacks: "pending" };
       let ports = null;
 
       function render(component) {
@@ -238,8 +245,42 @@
 
       invoke("ports").then((p) => {
         ports = p;
+        pollSkillpacks();
         maybeEnter();
       });
+
+      let skillpacksPolling = false;
+      async function pollSkillpacks() {
+        if (skillpacksPolling || !ports) return;
+        skillpacksPolling = true;
+        try {
+          for (;;) {
+            try {
+              const data = await invoke("skillpacks_status");
+              const packs = data.packs ?? [];
+              const next = packs.some((p) => p.phase === "degraded")
+                ? "degraded"
+                : packs.length > 0 && packs.every((p) => p.phase === "ready")
+                  ? "ready"
+                  : "pending";
+              if (next !== state.skillpacks) {
+                state.skillpacks = next;
+                render("skillpacks");
+              }
+              const bad = packs.filter((p) => p.phase === "degraded");
+              if (bad.length) setReason("skillpacks", bad.map((p) => p.detail || p.name).join("；"));
+              if (next === "pending") setMeta("skillpacks", "同步中");
+              if (next !== "pending") break;
+            } catch {
+              await new Promise((r) => setTimeout(r, 2000));
+              continue;
+            }
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        } finally {
+          skillpacksPolling = false;
+        }
+      }
 
       function refreshSandbox(s) {
         if (state.sandbox === "ready") return;

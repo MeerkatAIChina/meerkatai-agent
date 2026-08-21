@@ -49,12 +49,37 @@ fn status(state: State<'_, proc::PortsState>) -> Result<Vec<String>, String> {
     Ok(proc::live_status(*ports))
 }
 
+#[tauri::command]
+fn skillpacks_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let ports = {
+        let state = app
+            .try_state::<proc::PortsState>()
+            .ok_or_else(|| "ports not ready".to_string())?;
+        let ports = *state.0.lock().map_err(|e| e.to_string())?;
+        ports
+    };
+    let ctx = app
+        .try_state::<proc::StackCtx>()
+        .ok_or_else(|| "stack not ready".to_string())?;
+    let token = auth::mint_portal_identity(&ctx.secrets.portal_identity_secret);
+    let mut resp = ureq::get(format!(
+        "http://127.0.0.1:{}/api/desktop/skill-packs/status",
+        ports.web_ui
+    ))
+    .header("x-portal-identity", &token)
+    .call()
+    .map_err(|e| e.to_string())?;
+    let text = resp.body_mut().read_to_string().map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             ports,
             status,
+            skillpacks_status,
             retry,
             diagnostics,
             portal_token,
