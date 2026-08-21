@@ -839,6 +839,18 @@ function resolveSeedUrl(raw: string): string {
   return isAbsLocalPath(raw) || !PAYLOAD_ROOT ? raw : join(PAYLOAD_ROOT, raw);
 }
 
+function seedPackName(p: SeedSkillPack & { url: string }): string {
+  return typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.url.trim();
+}
+
+function matchesSeedPack(
+  x: { url: string; upstreamUrl?: string },
+  url: string,
+  upstreamUrl: string | undefined,
+): boolean {
+  return x.url === url || (upstreamUrl !== undefined && (x.url === upstreamUrl || x.upstreamUrl === upstreamUrl));
+}
+
 function readSnapshotCommit(dir: string): string | null {
   try {
     const meta = JSON.parse(readFileSync(join(dir, ".skillpack-meta.json"), "utf8")) as { commit?: unknown };
@@ -1012,16 +1024,14 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
     const url = resolveSeedUrl(rawUrl);
     const ref = typeof p.ref === "string" && p.ref.trim() ? p.ref.trim() : "main";
     const upstreamUrl = typeof p.upstreamUrl === "string" && p.upstreamUrl.trim() ? p.upstreamUrl.trim() : undefined;
-    const name = typeof p.name === "string" && p.name.trim() ? p.name.trim() : rawUrl;
+    const name = seedPackName(p);
     const isLocal = p.local === true;
     const snapshotCommit = isLocal ? readSnapshotCommit(url) : null;
     skillPackStatus.set(name, { name, phase: "importing" });
     let packId: string | null = null;
     try {
       const existing = await fetchPackList();
-      const found = existing.find(
-        (x) => x.url === url || (upstreamUrl !== undefined && (x.url === upstreamUrl || x.upstreamUrl === upstreamUrl)),
-      );
+      const found = existing.find((x) => matchesSeedPack(x, url, upstreamUrl));
       if (found && upstreamUrl && !found.upstreamUrl && found.url === upstreamUrl) {
         const mig = await coreFetch(
           "PATCH",
@@ -1283,10 +1293,7 @@ const apiRoutes: readonly WebRoute[] = [
       const seeds = (seed?.packs ?? []).filter(
         (p): p is SeedSkillPack & { url: string } => typeof p?.url === "string" && p.url.trim().length > 0,
       );
-      const missing = seeds.filter((p) => {
-        const n = typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.url.trim();
-        return !skillPackStatus.has(n);
-      });
+      const missing = seeds.filter((p) => !skillPackStatus.has(seedPackName(p)));
       let remote: Array<{
         url: string;
         upstreamUrl?: string;
@@ -1304,12 +1311,12 @@ const apiRoutes: readonly WebRoute[] = [
         }
       }
       const out: SkillPackStatusEntry[] = seeds.map((p) => {
-        const name = typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.url.trim();
+        const name = seedPackName(p);
         const mem = skillPackStatus.get(name);
         if (mem) return mem;
         const absUrl = resolveSeedUrl(p.url.trim());
         const upstream = typeof p.upstreamUrl === "string" ? p.upstreamUrl.trim() : "";
-        const pack = remote.find((x) => x.url === absUrl || (upstream && (x.url === upstream || x.upstreamUrl === upstream)));
+        const pack = remote.find((x) => matchesSeedPack(x, absUrl, upstream || undefined));
         if (!pack) return { name, phase: "pending" };
         if (pack.lastImport?.status === "ok") {
           return { name, phase: "ready", ...(pack.updateAvailable ? { updateAvailable: true } : {}) };
