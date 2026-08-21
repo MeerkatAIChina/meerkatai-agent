@@ -1612,6 +1612,7 @@ export function serverDeps(
   const configuredModel = configuredModelForHarness(config, config.harness);
   return {
     production: config.production,
+    ...(config.allowLocalSkillPacks ? { allowLocalSkillPacks: true } : {}),
     allowUnauthenticatedCore: config.allowUnauthenticatedCore,
     ...(config.signingSecret ? { signingSecret: config.signingSecret } : {}),
     ...(config.capabilitySecret ? { capabilitySecret: config.capabilitySecret } : {}),

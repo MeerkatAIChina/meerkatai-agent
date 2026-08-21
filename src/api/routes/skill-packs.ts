@@ -37,6 +37,20 @@ function asConfig(v: unknown): PackConfig | undefined {
   return cfg;
 }
 
+function asUpstreamUrl(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || !v.trim()) return null;
+  const trimmed = v.trim();
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" || u.username || u.password) return null;
+  return trimmed;
+}
+
 async function listPacks(ctx: ApiCtx): Promise<void> {
   const actor = await authorizeAdmin(ctx, orgScope(ctx.deps));
   if (!actor) return;
@@ -74,6 +88,10 @@ async function registerPack(ctx: ApiCtx): Promise<void> {
       message: "allowLocal requires a local directory path chosen by the user",
     });
   }
+  const upstreamUrl = asUpstreamUrl(b.upstreamUrl);
+  if (upstreamUrl === null) {
+    return sendJson(ctx.res, 400, { error: "bad_request", message: "upstreamUrl must be a credential-free https url" });
+  }
   const subset = asSubset(b.subset);
   if (subset === undefined)
     return sendJson(ctx.res, 400, { error: "bad_request", message: "subset must be 'all' or string[]" });
@@ -88,6 +106,7 @@ async function registerPack(ctx: ApiCtx): Promise<void> {
     subset,
     createdBy: actor.id,
     ...(allowLocal ? { local: true } : {}),
+    ...(upstreamUrl ? { upstreamUrl } : {}),
     ...(asConfig(b.config) ? { config: asConfig(b.config) } : {}),
     ...(typeof b.authCredentialSlug === "string" && b.authCredentialSlug
       ? { authCredentialSlug: b.authCredentialSlug }
@@ -168,6 +187,24 @@ async function patchPack(ctx: ApiCtx): Promise<void> {
     patch.subset = subset;
   }
   if (b.config !== undefined) patch.config = asConfig(b.config);
+  if (b.upstreamUrl !== undefined) {
+    const upstreamUrl = asUpstreamUrl(b.upstreamUrl);
+    if (!upstreamUrl) {
+      return sendJson(ctx.res, 400, { error: "bad_request", message: "upstreamUrl must be a credential-free https url" });
+    }
+    patch.upstreamUrl = upstreamUrl;
+  }
+  if (b.local === true) {
+    const current = await ctx.app.getSkillPack(ctx.params.id!);
+    const targetUrl = typeof patch.url === "string" ? patch.url : (current?.url ?? "");
+    if (!ctx.deps.allowLocalSkillPacks || !isLocalRepoPath(targetUrl)) {
+      return sendJson(ctx.res, 400, {
+        error: "bad_request",
+        message: "local:true requires ALLOW_LOCAL_SKILL_PACKS and a local-path url",
+      });
+    }
+    patch.local = true;
+  }
   const pack = await ctx.app.updateSkillPack(ctx.params.id!, patch);
   audit(ctx.deps, {
     principalId: actor.id,

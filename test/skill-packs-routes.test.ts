@@ -99,6 +99,25 @@ function makeRepoWithLayerCollision(): { dir: string; sha: string } {
   return { dir, sha };
 }
 
+function startLocal() {
+  const built = buildApp(
+    testConfig({ dataDir: mkdtempSync(join(tmpdir(), "reg-routes-")), allowLocalSkillPacks: true }),
+  );
+  const server = createInsecureTestServer(built.app, {
+    admin: built.admin,
+    auditLog: built.auditLog,
+    sessions: built.sessions,
+    errors: built.errors,
+    allowLocalSkillPacks: true,
+  });
+  server.listen(0);
+  return {
+    base: `http://localhost:${(server.address() as AddressInfo).port}`,
+    built,
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
+}
+
 function start() {
   const built = buildApp(testConfig({ dataDir: mkdtempSync(join(tmpdir(), "reg-routes-")) }));
   const server = createInsecureTestServer(built.app, {
@@ -1049,5 +1068,101 @@ test("register marks a pack local only on explicit allowLocal, and rejects allow
   } finally {
     rmSync(repo.dir, { recursive: true, force: true });
     await s.close();
+  }
+});
+
+test("register accepts a validated https upstreamUrl and rejects bad ones", async () => {
+  const repo = makeFixtureRepo();
+  const s = start();
+  try {
+    const ok = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ url: repo.dir, ref: repo.sha, upstreamUrl: "https://github.com/org/repo.git" }),
+      }),
+    );
+    assert.equal(ok.pack.upstreamUrl, "https://github.com/org/repo.git");
+    for (const bad of ["http://github.com/org/repo.git", "https://user:pw@github.com/org/repo.git", "not a url"]) {
+      const r = await fetch(`${s.base}/v1/admin/skill-packs`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ url: repo.dir, ref: repo.sha, upstreamUrl: bad }),
+      });
+      assert.equal(r.status, 400, bad);
+    }
+  } finally {
+    rmSync(repo.dir, { recursive: true, force: true });
+    await s.close();
+  }
+});
+
+test("patch migrates a github-url pack to local snapshot + upstreamUrl under the local-packs flag", async () => {
+  const repo = makeFixtureRepo();
+  const s = startLocal();
+  try {
+    const reg = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ url: "https://github.com/org/repo.git", ref: "main" }),
+      }),
+    );
+    const id = reg.pack.id as string;
+    const patched = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs/${id}`, {
+        method: "PATCH",
+        headers: ADMIN,
+        body: JSON.stringify({ url: repo.dir, upstreamUrl: "https://github.com/org/repo.git", local: true }),
+      }),
+    );
+    assert.equal(patched.pack.url, repo.dir);
+    assert.equal(patched.pack.upstreamUrl, "https://github.com/org/repo.git");
+    assert.equal(patched.pack.local, true);
+  } finally {
+    rmSync(repo.dir, { recursive: true, force: true });
+    await s.close();
+  }
+});
+
+test("patch local:true is rejected without the server flag or with a non-local url", async () => {
+  const repo = makeFixtureRepo();
+  const s = startLocal();
+  try {
+    const reg = await json(
+      await fetch(`${s.base}/v1/admin/skill-packs`, {
+        method: "POST",
+        headers: ADMIN,
+        body: JSON.stringify({ url: "https://github.com/org/repo.git", ref: "main" }),
+      }),
+    );
+    const id = reg.pack.id as string;
+    const nonLocal = await fetch(`${s.base}/v1/admin/skill-packs/${id}`, {
+      method: "PATCH",
+      headers: ADMIN,
+      body: JSON.stringify({ local: true }),
+    });
+    assert.equal(nonLocal.status, 400, "url stays remote");
+    await s.close();
+    const s2 = start();
+    try {
+      const reg2 = await json(
+        await fetch(`${s2.base}/v1/admin/skill-packs`, {
+          method: "POST",
+          headers: ADMIN,
+          body: JSON.stringify({ url: repo.dir, ref: repo.sha }),
+        }),
+      );
+      const noFlag = await fetch(`${s2.base}/v1/admin/skill-packs/${reg2.pack.id}`, {
+        method: "PATCH",
+        headers: ADMIN,
+        body: JSON.stringify({ local: true }),
+      });
+      assert.equal(noFlag.status, 400, "server without the flag");
+    } finally {
+      await s2.close();
+    }
+  } finally {
+    rmSync(repo.dir, { recursive: true, force: true });
   }
 });

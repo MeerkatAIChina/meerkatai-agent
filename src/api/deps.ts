@@ -58,6 +58,7 @@ import type { SlackInstallationStore, SlackSocketAppIdReader } from "../surfaces
 export interface ServerDeps {
   production?: boolean;
   allowUnauthenticatedCore?: boolean;
+  allowLocalSkillPacks?: boolean;
   signingSecret?: string;
   capabilitySecret?: string;
   portalIdentitySecret?: string;
