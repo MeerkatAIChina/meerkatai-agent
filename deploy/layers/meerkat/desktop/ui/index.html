@@ -270,7 +270,10 @@
               const bad = packs.filter((p) => p.phase === "degraded");
               if (bad.length) setReason("skillpacks", bad.map((p) => p.detail || p.name).join("；"));
               if (next === "pending") setMeta("skillpacks", "同步中");
-              if (next !== "pending") break;
+              if (next !== "pending") {
+                setMeta("skillpacks", "");
+                break;
+              }
             } catch {
               await new Promise((r) => setTimeout(r, 2000));
               continue;
