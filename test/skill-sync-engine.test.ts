@@ -96,3 +96,30 @@ test("one failing pack never aborts the tick", async () => {
   await engine.tick();
   assert.deepEqual(calls, [good.id], "the healthy pack is still reconciled despite the failing one");
 });
+
+test("pack with upstreamUrl resolves the ref against the upstream source", async () => {
+  const packs = createSkillPackStore();
+  const s = await packs.create({
+    ...base,
+    syncMode: "pinned",
+    ref: "c1",
+    url: "C:\\payload\\skillpacks\\triz",
+    local: true,
+    upstreamUrl: "https://github.com/org/repo.git",
+  });
+  await packs.recordImport(s.id, { at: 0, commit: "c1", status: "ok" });
+  const seen: Array<{ url: string; local: unknown }> = [];
+  const fetcher: SkillPackFetcher = {
+    fetch: () => {
+      throw new Error("the engine must not full-clone directly");
+    },
+    resolveRef: async (p) => {
+      seen.push({ url: p.url, local: p.local });
+      return "c2";
+    },
+  };
+  const engine = createSkillSyncEngine({ packs, fetcher, reconcile: async () => {} });
+  await engine.tick();
+  assert.deepEqual(seen, [{ url: "https://github.com/org/repo.git", local: false }]);
+  assert.equal((await packs.get(s.id))?.updateAvailable, true);
+});

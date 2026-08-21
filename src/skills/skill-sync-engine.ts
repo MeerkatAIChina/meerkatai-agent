@@ -1,4 +1,4 @@
-import type { SkillPackStore } from "./skill-pack-store.ts";
+import { upstreamSource, type SkillPackStore } from "./skill-pack-store.ts";
 import type { SkillPackFetcher } from "./pack-fetcher.ts";
 import { createNoopLeaderLease, type LeaderLease } from "../persistence/leader-lease.ts";
 import { createSweeper } from "../util/sweeper.ts";
@@ -26,12 +26,11 @@ export function createSkillSyncEngine(deps: SkillSyncDeps): SkillSyncEngine {
   async function syncOne(packId: string): Promise<void> {
     const pack = await deps.packs.get(packId);
     if (!pack) return;
+    const head = await deps.fetcher.resolveRef(upstreamSource(pack));
     if (pack.syncMode === "tracked") {
-      const head = await deps.fetcher.resolveRef(pack);
       if (pack.lastImport?.status === "ok" && head === pack.lastImport.commit) return;
       await deps.reconcile(packId);
     } else {
-      const head = await deps.fetcher.resolveRef(pack);
       const available = pack.lastImport ? head !== pack.lastImport.commit : false;
       if (available !== Boolean(pack.updateAvailable)) {
         await deps.packs.update(packId, { updateAvailable: available });
