@@ -141,3 +141,37 @@ test("second boot: import skipped when lastImport matches the snapshot commit, s
   assert.equal(state.imports.length, before, "no re-import of an unchanged snapshot");
   assert.ok(state.syncs.length >= syncsBefore + 1, "retry runs the update channel once more");
 });
+
+test("reinstalled payload path: refreshes the stale pack url via patch, no re-register, import skipped", async () => {
+  const registersBefore = state.registers.length;
+  const importsBefore = state.imports.length;
+  const patchesBefore = state.patches.length;
+  state.packs = [
+    {
+      id: "p0",
+      url: join(payload, "old-install", "skillpacks", "triz"),
+      upstreamUrl: "https://github.com/org/triz.git",
+      local: true,
+      lastImport: { at: 0, commit: META_COMMIT, status: "ok" },
+    },
+  ];
+  const token = mintPortalIdentity({ p: "alice", exp: Date.now() + 60_000 }, SECRET);
+  const r = await fetch(`${base}/api/desktop/skill-packs/retry`, {
+    method: "POST",
+    headers: { [PORTAL_IDENTITY_HEADER]: token },
+  });
+  assert.equal(r.status, 200);
+  const deadline = Date.now() + 15_000;
+  while (state.patches.length === patchesBefore) {
+    if (Date.now() > deadline) throw new Error("timed out waiting for the path refresh patch");
+    await new Promise((r2) => setTimeout(r2, 100));
+  }
+  await waitFor("ready", token);
+  assert.equal(state.registers.length, registersBefore, "no re-register of an already-migrated pack");
+  assert.equal(state.imports.length, importsBefore, "snapshot commit matches, import skipped");
+  assert.equal(state.patches.length, patchesBefore + 1, "one path refresh patch");
+  const patch = state.patches[state.patches.length - 1] as Record<string, unknown>;
+  assert.ok(String(patch.url).endsWith(join("skillpacks", "triz")), `refreshed to the resolved snapshot path, got ${patch.url}`);
+  assert.ok(String(patch.url).startsWith(payload), "refresh targets the current payload root");
+  assert.equal(patch.local, true);
+});

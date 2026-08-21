@@ -836,7 +836,9 @@ function isAbsLocalPath(raw: string): boolean {
 }
 
 function resolveSeedUrl(raw: string): string {
-  return isAbsLocalPath(raw) || !PAYLOAD_ROOT ? raw : join(PAYLOAD_ROOT, raw);
+  return isAbsLocalPath(raw) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(raw) || !PAYLOAD_ROOT
+    ? raw
+    : join(PAYLOAD_ROOT, raw);
 }
 
 function seedPackName(p: SeedSkillPack & { url: string }): string {
@@ -1042,6 +1044,16 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
         );
         if (mig.status !== 200) throw new Error(`migrate failed (${mig.status}): ${mig.text.slice(0, 200)}`);
         console.log(`[web-ui] skill pack migrated to bundled snapshot (${upstreamUrl})`);
+      } else if (found && found.url !== url) {
+        const refresh = await coreFetch(
+          "PATCH",
+          `/v1/admin/skill-packs/${found.id}`,
+          JSON.stringify({ url, ...(isLocal ? { local: true } : {}) }),
+          30_000,
+          authHeaders(),
+        );
+        if (refresh.status !== 200) throw new Error(`path refresh failed (${refresh.status}): ${refresh.text.slice(0, 200)}`);
+        console.log(`[web-ui] skill pack path refreshed (${name})`);
       }
       packId = found?.id ?? null;
       if (!packId) {
@@ -1297,7 +1309,7 @@ const apiRoutes: readonly WebRoute[] = [
       let remote: Array<{
         url: string;
         upstreamUrl?: string;
-        lastImport?: { status?: string; error?: string };
+        lastImport?: { status?: string; error?: string; commit?: string };
         updateAvailable?: boolean;
       }> = [];
       if (missing.length && desktopPortalToken) {
@@ -1321,7 +1333,11 @@ const apiRoutes: readonly WebRoute[] = [
         if (pack.lastImport?.status === "ok") {
           return { name, phase: "ready", ...(pack.updateAvailable ? { updateAvailable: true } : {}) };
         }
-        return { name, phase: "degraded", detail: pack.lastImport?.error ?? "尚未导入" };
+        const snapshotCommit = p.local === true ? readSnapshotCommit(absUrl) : null;
+        if (snapshotCommit !== null && pack.lastImport?.commit === snapshotCommit) {
+          return { name, phase: "ready" };
+        }
+        return { name, phase: "pending" };
       });
       return json(res, 200, { packs: out });
     },
