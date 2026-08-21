@@ -1143,7 +1143,6 @@ test("patch local:true is rejected without the server flag or with a non-local u
       body: JSON.stringify({ local: true }),
     });
     assert.equal(nonLocal.status, 400, "url stays remote");
-    await s.close();
     const s2 = start();
     try {
       const reg2 = await json(
@@ -1164,5 +1163,6 @@ test("patch local:true is rejected without the server flag or with a non-local u
     }
   } finally {
     rmSync(repo.dir, { recursive: true, force: true });
+    await s.close();
   }
 });
