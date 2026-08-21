@@ -820,6 +820,34 @@ async function serveVite(req: IncomingMessage, res: ServerResponse, path: string
 const DESKTOP = process.env.MEERKAT_DESKTOP === "1";
 const SEEDS_DIR = process.env.MEERKAT_SEEDS_DIR?.trim() || null;
 
+const PAYLOAD_ROOT = SEEDS_DIR ? join(SEEDS_DIR, "..", "..") : null;
+
+type SkillPackPhase = "pending" | "importing" | "ready" | "degraded";
+interface SkillPackStatusEntry {
+  name: string;
+  phase: SkillPackPhase;
+  detail?: string;
+  updateAvailable?: boolean;
+}
+const skillPackStatus = new Map<string, SkillPackStatusEntry>();
+
+function isAbsLocalPath(raw: string): boolean {
+  return raw.startsWith("/") || raw.startsWith("\\\\") || /^[A-Za-z]:[\\/]/.test(raw);
+}
+
+function resolveSeedUrl(raw: string): string {
+  return isAbsLocalPath(raw) || !PAYLOAD_ROOT ? raw : join(PAYLOAD_ROOT, raw);
+}
+
+function readSnapshotCommit(dir: string): string | null {
+  try {
+    const meta = JSON.parse(readFileSync(join(dir, ".skillpack-meta.json"), "utf8")) as { commit?: unknown };
+    return typeof meta.commit === "string" && meta.commit.trim() ? meta.commit.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 interface SeedModel {
   id: string;
 }
@@ -908,9 +936,11 @@ function readGitProxy(): string {
 }
 
 interface SeedSkillPack {
+  name?: unknown;
   url?: unknown;
   ref?: unknown;
   local?: unknown;
+  upstreamUrl?: unknown;
 }
 
 let desktopPortalToken: string | null = null;
@@ -920,8 +950,7 @@ function maybeStartSkillPacks(): void {
   if (!DESKTOP || skillPacksRunning) return;
   const seed = readSeed<{ packs?: SeedSkillPack[] }>("skillpacks.json");
   const packs = (seed?.packs ?? []).filter(
-    (p): p is { url: string; ref?: unknown; local?: unknown } =>
-      typeof p?.url === "string" && p.url.trim().length > 0,
+    (p): p is SeedSkillPack & { url: string } => typeof p?.url === "string" && p.url.trim().length > 0,
   );
   if (packs.length === 0) return;
   skillPacksRunning = true;
@@ -934,7 +963,7 @@ function maybeStartSkillPacks(): void {
     });
 }
 
-async function ensureSkillPacks(packs: Array<{ url: string; ref?: unknown; local?: unknown }>): Promise<void> {
+async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): Promise<void> {
   const authHeaders = (): Record<string, string> | undefined =>
     desktopPortalToken ? { [PORTAL_IDENTITY_HEADER]: desktopPortalToken } : undefined;
   const deadline = Date.now() + 300_000;
@@ -967,70 +996,104 @@ async function ensureSkillPacks(packs: Array<{ url: string; ref?: unknown; local
     console.warn("[web-ui] skill packs: core admin not ready after 300s, skipping");
     return;
   }
-  const fetchPackList = async (): Promise<Array<{ id: string; url: string }>> => {
+  const fetchPackList = async (): Promise<
+    Array<{ id: string; url: string; upstreamUrl?: string; lastImport?: { status?: string; commit?: string } }>
+  > => {
     const list = await coreFetch("GET", "/v1/admin/skill-packs", "", 10_000, authHeaders());
     if (list.status !== 200) {
       console.warn(`[web-ui] skill packs list failed (${list.status}): ${list.text.slice(0, 200)}`);
       return [];
     }
-    const parsed = JSON.parse(list.text) as { packs?: Array<{ id: string; url: string }> };
+    const parsed = JSON.parse(list.text) as { packs?: Array<{ id: string; url: string; upstreamUrl?: string; lastImport?: { status?: string; commit?: string } }> };
     return Array.isArray(parsed.packs) ? parsed.packs : [];
   };
   for (const p of packs) {
-    const url = p.url.trim();
+    const rawUrl = p.url.trim();
+    const url = resolveSeedUrl(rawUrl);
     const ref = typeof p.ref === "string" && p.ref.trim() ? p.ref.trim() : "main";
-    let done = false;
-    for (let attempt = 1; attempt <= 4 && !done; attempt++) {
+    const upstreamUrl = typeof p.upstreamUrl === "string" && p.upstreamUrl.trim() ? p.upstreamUrl.trim() : undefined;
+    const name = typeof p.name === "string" && p.name.trim() ? p.name.trim() : rawUrl;
+    const isLocal = p.local === true;
+    const snapshotCommit = isLocal ? readSnapshotCommit(url) : null;
+    skillPackStatus.set(name, { name, phase: "importing" });
+    let packId: string | null = null;
+    try {
+      const existing = await fetchPackList();
+      const found = existing.find(
+        (x) => x.url === url || (upstreamUrl !== undefined && (x.url === upstreamUrl || x.upstreamUrl === upstreamUrl)),
+      );
+      if (found && upstreamUrl && !found.upstreamUrl && found.url === upstreamUrl) {
+        const mig = await coreFetch(
+          "PATCH",
+          `/v1/admin/skill-packs/${found.id}`,
+          JSON.stringify({ url, upstreamUrl, local: true }),
+          30_000,
+          authHeaders(),
+        );
+        if (mig.status !== 200) throw new Error(`migrate failed (${mig.status}): ${mig.text.slice(0, 200)}`);
+        console.log(`[web-ui] skill pack migrated to bundled snapshot (${upstreamUrl})`);
+      }
+      packId = found?.id ?? null;
+      if (!packId) {
+        const reg = await coreFetch(
+          "POST",
+          "/v1/admin/skill-packs",
+          JSON.stringify({
+            url,
+            ref,
+            trustTier: "internal",
+            subset: "all",
+            ...(upstreamUrl ? { upstreamUrl } : {}),
+            ...(isLocal ? { allowLocal: true } : {}),
+          }),
+          60_000,
+          authHeaders(),
+        );
+        if (reg.status !== 200) throw new Error(`register failed (${reg.status}): ${reg.text.slice(0, 200)}`);
+        packId = (JSON.parse(reg.text) as { pack?: { id?: string } }).pack?.id ?? null;
+        if (!packId) throw new Error("no pack id after register");
+      }
+      const already =
+        snapshotCommit !== null && found?.lastImport?.status === "ok" && found.lastImport.commit === snapshotCommit;
+      if (already) {
+        console.log(`[web-ui] skill pack snapshot unchanged, import skipped (${name})`);
+      } else {
+        const imp = await coreFetch(
+          "POST",
+          `/v1/admin/skill-packs/${packId}/import`,
+          JSON.stringify({ selected: "all" }),
+          180_000,
+          authHeaders(),
+        );
+        if (imp.status !== 200) throw new Error(`import failed (${imp.status}): ${imp.text.slice(0, 200)}`);
+        console.log(`[web-ui] skill pack import ok (${name})`);
+      }
+      skillPackStatus.set(name, { name, phase: "ready" });
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      skillPackStatus.set(name, { name, phase: "degraded", detail });
+      console.warn(`[web-ui] skill pack local import failed (${name}): ${detail}`);
+      continue;
+    }
+    if (upstreamUrl) {
       try {
-        const existing = await fetchPackList();
-        let packId = existing.find((x) => x.url === url)?.id;
-        if (!packId) {
-          const reg = await coreFetch(
-            "POST",
-            "/v1/admin/skill-packs",
-            JSON.stringify({
-              url,
-              ref,
-              trustTier: "internal",
-              subset: "all",
-              ...(p.local === true ? { allowLocal: true } : {}),
-            }),
-            60_000,
-            authHeaders(),
-          );
-          if (reg.status !== 200) {
-            console.warn(`[web-ui] skill pack register failed (${reg.status}) ${url}: ${reg.text.slice(0, 200)}`);
-          } else {
-            packId = (JSON.parse(reg.text) as { pack?: { id?: string } }).pack?.id;
-          }
-        }
-        if (!packId) {
-          console.warn(`[web-ui] skill pack has no id after register (${url})`);
+        const sync = await coreFetch(
+          "POST",
+          `/v1/admin/skill-packs/${packId}/sync`,
+          JSON.stringify({ onlyIfUpdate: true }),
+          180_000,
+          authHeaders(),
+        );
+        if (sync.status !== 200) {
+          console.warn(`[web-ui] skill pack upstream sync failed (${sync.status}) ${upstreamUrl}: ${sync.text.slice(0, 200)}`);
         } else {
-          const imp = await coreFetch(
-            "POST",
-            `/v1/admin/skill-packs/${packId}/import`,
-            JSON.stringify({ selected: "all" }),
-            180_000,
-            authHeaders(),
-          );
-          if (imp.status === 200) {
-            console.log(`[web-ui] skill pack import ok (${url})`);
-            done = true;
-          } else {
-            console.warn(`[web-ui] skill pack import failed (${imp.status}) ${url}: ${imp.text.slice(0, 200)}`);
-          }
+          const synced = JSON.parse(sync.text) as { upToDate?: boolean };
+          console.log(`[web-ui] skill pack upstream sync ${synced.upToDate ? "up-to-date" : "updated"} (${name})`);
         }
       } catch (e) {
-        console.warn(`[web-ui] skill pack error (${url}):`, e instanceof Error ? e.message : e);
-      }
-      if (!done && attempt < 4) {
-        const waitMs = [10_000, 30_000, 60_000][attempt - 1] ?? 60_000;
-        console.warn(`[web-ui] skill pack retry ${attempt + 1}/4 in ${waitMs / 1000}s (${url})`);
-        await new Promise((r) => setTimeout(r, waitMs));
+        console.warn(`[web-ui] skill pack upstream sync error (${upstreamUrl}):`, e instanceof Error ? e.message : e);
       }
     }
-    if (!done) console.warn(`[web-ui] skill pack gave up after 4 attempts (${url})`);
   }
 }
 
@@ -1208,6 +1271,52 @@ const apiRoutes: readonly WebRoute[] = [
       if (!DESKTOP) return json(res, 404, { error: "not found" });
       maybeStartSkillPacks();
       return json(res, 200, { ok: true });
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/desktop/skill-packs/status",
+    handle: async (c) => {
+      const { res } = c;
+      if (!DESKTOP) return json(res, 404, { error: "not found" });
+      const seed = readSeed<{ packs?: SeedSkillPack[] }>("skillpacks.json");
+      const seeds = (seed?.packs ?? []).filter(
+        (p): p is SeedSkillPack & { url: string } => typeof p?.url === "string" && p.url.trim().length > 0,
+      );
+      const missing = seeds.filter((p) => {
+        const n = typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.url.trim();
+        return !skillPackStatus.has(n);
+      });
+      let remote: Array<{
+        url: string;
+        upstreamUrl?: string;
+        lastImport?: { status?: string; error?: string };
+        updateAvailable?: boolean;
+      }> = [];
+      if (missing.length && desktopPortalToken) {
+        try {
+          const list = await coreFetch("GET", "/v1/admin/skill-packs", "", 5_000, {
+            [PORTAL_IDENTITY_HEADER]: desktopPortalToken,
+          });
+          if (list.status === 200) remote = (JSON.parse(list.text) as { packs?: typeof remote }).packs ?? [];
+        } catch (e) {
+          swallow("skillpacks:status", e);
+        }
+      }
+      const out: SkillPackStatusEntry[] = seeds.map((p) => {
+        const name = typeof p.name === "string" && p.name.trim() ? p.name.trim() : p.url.trim();
+        const mem = skillPackStatus.get(name);
+        if (mem) return mem;
+        const absUrl = resolveSeedUrl(p.url.trim());
+        const upstream = typeof p.upstreamUrl === "string" ? p.upstreamUrl.trim() : "";
+        const pack = remote.find((x) => x.url === absUrl || (upstream && (x.url === upstream || x.upstreamUrl === upstream)));
+        if (!pack) return { name, phase: "pending" };
+        if (pack.lastImport?.status === "ok") {
+          return { name, phase: "ready", ...(pack.updateAvailable ? { updateAvailable: true } : {}) };
+        }
+        return { name, phase: "degraded", detail: pack.lastImport?.error ?? "尚未导入" };
+      });
+      return json(res, 200, { packs: out });
     },
   },
   {
