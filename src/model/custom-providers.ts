@@ -18,11 +18,21 @@ import { parseProviderBaseUrl, PROVIDER_IDS } from "./provider-endpoints.ts";
 export const CUSTOM_PROVIDER_PROTOCOLS = ["openai", "anthropic"] as const;
 export type CustomProviderProtocol = (typeof CUSTOM_PROVIDER_PROTOCOLS)[number];
 
+export const CUSTOM_MODEL_MODALITIES = ["text", "image"] as const;
+export type CustomModelModality = (typeof CUSTOM_MODEL_MODALITIES)[number];
+
 interface CustomModelSpec {
   id: string;
   name?: string;
   contextWindow?: number;
   maxTokens?: number;
+  /**
+   * Declared input modalities, forwarded verbatim to the runtime model's
+   * `input`. Defaults to text-only — a multimodal model behind a custom
+   * provider must declare "image" here or the harness downgrades image
+   * blocks to placeholders before the request ever leaves.
+   */
+  modalities?: CustomModelModality[];
   /** USD per million input tokens. Defaults to 0 (unknown / not metered). */
   input?: number;
   /** USD per million output tokens. Defaults to 0. */
@@ -63,6 +73,23 @@ export function validateCustomProviderSpec(spec: CustomProviderSpec): void {
       throw new Error(`model "${m.id}": name must be a string of 200 chars or fewer`);
     if (seen.has(m.id)) throw new Error(`duplicate model id "${m.id}"`);
     seen.add(m.id);
+    if (m.modalities !== undefined) {
+      if (!Array.isArray(m.modalities) || m.modalities.length === 0) {
+        throw new Error(`model "${m.id}": modalities must be a non-empty array`);
+      }
+      const seenModality = new Set<string>();
+      for (const modality of m.modalities) {
+        if (!(CUSTOM_MODEL_MODALITIES as readonly string[]).includes(modality)) {
+          throw new Error(
+            `model "${m.id}": modalities entries must be one of ${CUSTOM_MODEL_MODALITIES.join(", ")}`,
+          );
+        }
+        if (seenModality.has(modality)) {
+          throw new Error(`model "${m.id}": duplicate modalities entry "${modality}"`);
+        }
+        seenModality.add(modality);
+      }
+    }
     for (const [field, v] of [
       ["contextWindow", m.contextWindow],
       ["maxTokens", m.maxTokens],
@@ -105,7 +132,7 @@ function toRuntimeModel(provider: CustomProviderSpec, m: CustomModelSpec): Custo
     api: provider.protocol === "anthropic" ? "anthropic-messages" : "openai-completions",
     baseUrl: provider.baseUrl,
     reasoning: false,
-    input: ["text"],
+    input: m.modalities ? [...m.modalities] : ["text"],
     cost: { input: m.input ?? 0, output: m.output ?? 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     maxTokens: m.maxTokens ?? DEFAULT_MAX_TOKENS,
@@ -173,6 +200,7 @@ export function customModelsJson(): { providers: Record<string, unknown> } | und
           models: spec.models.map((m) => ({
             id: m.id,
             name: m.name ?? m.id,
+            input: m.modalities ? [...m.modalities] : ["text"],
             contextWindow: m.contextWindow ?? 128_000,
             maxTokens: m.maxTokens ?? 8_192,
             cost: { input: m.input ?? 0, output: m.output ?? 0, cacheRead: 0, cacheWrite: 0 },

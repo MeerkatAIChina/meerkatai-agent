@@ -56,3 +56,20 @@
   - web-ui 编排「PATCH 换成 GitHub url → sync → PATCH 换回」—— 零内核改动但有真实竞态：sync 中途进程死亡，pack 停在 GitHub url 上，下次启动本地匹配直接失效，且丑陋；
   - v0.1.2 砍掉在线更新通道（技能更新 = 下一个安装包）—— 违背 issue「GitHub 降级为更新通道」的既定语义。
 - **后果**：`skill-pack-store.ts` / `skill-packs.ts`（routes）/ `app-skills.ts` / `skill-sync-engine.ts` 四处小改；upstream 抓取安全语义不变；测试把守（`onlyIfUpdate` 两分支、迁移 patch 守卫、失败保留 commit、upstream 源解析）。
+
+## ADR-005：自定义供应商模型声明输入模态——`modalities` 字段全程透传，图片不再被静默降级
+
+- **状态**：已接受（issue #11）
+- **背景**：meerkat-triz 是多模态模型（支持视觉），但用户上传图片后平台提示 `[image omitted: model does not support images]`，模型实际未收到图片。根因：上游 pi-ai 的 `downgradeUnsupportedImages` 在发送前检查 `model.input.includes("image")`，不含则把 image block 替换为占位符；而自定义供应商通道只考虑文本场景——`CustomModelSpec` 没有声明模态的字段（`input` 字段名已被价格语义占用），`toRuntimeModel` 对所有 custom 模型硬编码 `input: ["text"]`，`customModelsJson()` 物化给 pi-coding-agent 运行时的 models.json 同样不带模态。内置模型不受影响（pi-ai 自带注册表视觉模型有 `input: ["text","image"]`）。
+- **决策**：在已有链路上加模态字段并全程透传，不新增配置文件：
+  1. `CustomModelSpec` 增加 `modalities?: ("text"|"image")[]` 软字段（store 基于 DurableMap 整条 JSON 存取，无迁移；缺省 = 仅文本，存量注册行为不变）；
+  2. `validateCustomProviderSpec` 校验 modalities：非空数组、取值限于 `text|image`、不允许重复项；
+  3. `toRuntimeModel` 用 `modalities` 填运行时 `input`，不再写死；
+  4. `customModelsJson()` 物化每个模型的 `input`（pi-coding-agent 的 ModelDefinitionSchema 原生支持可选 `input: ("text"|"image")[]`）；
+  5. `meerkat-triz.conf` 的 `MODELS_JSON` 为 triz 模型声明 `"modalities":["text","image"]`（conf → `meerkat-local-up.sh` → `PUT /v1/admin/custom-providers` 链路对 models 数组原样透传，无需改脚本与路由）。
+- **理由**：这是通道能力缺失而非拦截逻辑错误——pi-ai 的降级行为本身是对的（把图发给纯文本模型只会报错），缺的是自建模型声明多模态的途径。复用现有注册链路加字段是最小改动；字段取名 `modalities` 而非 `input`，因为 `input` 在 `CustomModelSpec` 里已是价格语义（USD/Mtok），同名会造成「同一字段两种含义」的混乱。
+- **被否决**：
+  - 给所有 custom 模型一律声明 `["text","image"]` —— 纯文本模型会因此绕过降级保护，图片直发上游报错，体验更差；
+  - 走 upstream-pr 等上游 qm 修 —— 已拍板本仓改 core（issue #11 修复方向），上游通道周期不可控；
+  - 在 opencode harness 同步透传模态 —— 桌面版走 pi harness，opencode 通道的模态声明机制不同，超出本 issue 范围，留待实际需要时再评估。
+- **后果**：内核缝改动集中在 `src/model/custom-providers.ts`（字段 + 校验 + 两处物化，净约 +35 行）；存量未声明 modalities 的注册行为逐字节不变（默认 `["text"]`）；回归测试把守（`test/custom-providers.test.ts`：声明 image 的模型经 `resolveCustomModel`/`customModelsJson` 透出 `["text","image"]`、未声明默认 `["text"]`、非法 modalities 被校验拒绝）。**已注册 triz 的存量环境需重跑 `meerkat-local-up.sh`（或重新 PUT）刷新注册后修复才生效**——运行时注册表由注册时的 spec 物化，不会自动感知 conf 变化。

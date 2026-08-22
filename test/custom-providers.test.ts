@@ -5,6 +5,7 @@ import {
   resolveCustomModel,
   isCustomModelId,
   customModelCatalog,
+  customModelsJson,
   validateCustomProviderSpec,
 } from "../src/model/custom-providers.ts";
 import { builtInModelCatalog } from "../src/model/model-catalog.ts";
@@ -123,6 +124,61 @@ test("store validates specs on upsert", async () => {
     keyMaterial: "k",
   });
   await assert.rejects(store.upsert({ ...GATEWAY, id: "anthropic" }, "k", "a@b.c"), /reserved/);
+});
+
+test("a model declaring image modality resolves with image input; undeclared stays text-only", () => {
+  setCustomProviders([
+    {
+      id: "vision-co",
+      name: "Vision Co",
+      protocol: "openai",
+      baseUrl: "https://vision.example.com/v1",
+      models: [
+        { id: "vision-model", modalities: ["text", "image"] },
+        { id: "plain-model" },
+      ],
+    },
+  ]);
+  assert.deepEqual(resolveCustomModel("vision-model")?.input, ["text", "image"]);
+  assert.deepEqual(resolveCustomModel("plain-model")?.input, ["text"]);
+});
+
+test("customModelsJson materializes the declared modalities as input", () => {
+  setCustomProviders([
+    {
+      id: "vision-co",
+      name: "Vision Co",
+      protocol: "openai",
+      baseUrl: "https://vision.example.com/v1",
+      models: [
+        { id: "vision-model", modalities: ["text", "image"] },
+        { id: "plain-model" },
+      ],
+    },
+  ]);
+  const json = customModelsJson() as {
+    providers: Record<string, { models: Array<{ id: string; input?: string[] }> }>;
+  };
+  const models = json.providers["vision-co"]!.models;
+  assert.deepEqual(models.find((m) => m.id === "vision-model")?.input, ["text", "image"]);
+  assert.deepEqual(models.find((m) => m.id === "plain-model")?.input, ["text"]);
+});
+
+test("spec validation rejects malformed modalities", () => {
+  const withModels = (models: unknown[]) => ({ ...GATEWAY, models }) as typeof GATEWAY;
+  assert.throws(() => validateCustomProviderSpec(withModels([{ id: "a", modalities: [] }])), /modalities/);
+  assert.throws(() => validateCustomProviderSpec(withModels([{ id: "a", modalities: ["video"] }])), /modalities/);
+  assert.throws(
+    () => validateCustomProviderSpec(withModels([{ id: "a", modalities: ["text", "text"] }])),
+    /modalities/,
+  );
+  assert.throws(
+    () => validateCustomProviderSpec(withModels([{ id: "a", modalities: "text" }])),
+    /modalities/,
+  );
+  assert.doesNotThrow(() =>
+    validateCustomProviderSpec(withModels([{ id: "a", modalities: ["text", "image"] }])),
+  );
 });
 
 test("registered models surface in the catalog and vanish on unregister", () => {
