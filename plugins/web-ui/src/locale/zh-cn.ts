@@ -156,6 +156,8 @@ export const ZH_CN: Record<string, unknown> = {
   "Could not load runtime settings.": "无法加载运行时设置。",
   "Could not open live editing.": "无法打开在线编辑。",
   "Could not queue the message.": "无法排队该消息。",
+  "Could not deliver the message — the running task ended mid-send. It is back in the composer.":
+    "消息未能送达 — 运行中的任务在发送途中结束了。消息已放回输入框。",
   "Could not reconnect to the running task.": "无法重新连接到正在运行的任务。",
   "Could not remove the queued message.": "无法移除排队的消息。",
   "Could not restore deployment.": "无法恢复部署。",

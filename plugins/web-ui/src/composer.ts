@@ -1348,8 +1348,9 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
     if (agent.state.isStreaming) {
       if (attempt < 20) window.setTimeout(() => resendWhenIdle(agent, text, attempt + 1), 250);
       else {
-        composerState.error =
-          "Could not deliver the message — the running task ended mid-send. It is back in the composer.";
+        composerState.error = String(
+          i18n("Could not deliver the message — the running task ended mid-send. It is back in the composer."),
+        );
         ctx.chat.drawActiveChat(agent);
       }
       return;
