@@ -310,9 +310,16 @@ function editorPane() {
           ? html`<div class="skill-impact" role="alert">
               <strong>${tr("Publish this change to {scope}?")(scopeTitle(e.scopeId ?? null))}</strong>
               <div class="card-meta">
-                ${i18n("Everyone in this context can invoke the updated instructions.")} ${i18n("Description")}
-                ${e.description === e.originalDescription ? i18n("unchanged") : i18n("changed")}; ${i18n("instructions")}
-                ${e.body === e.originalBody ? i18n("unchanged") : i18n("changed")}.
+                ${i18n("Everyone in this context can invoke the updated instructions.")}
+                ${
+                  e.description === e.originalDescription
+                    ? e.body === e.originalBody
+                      ? i18n("Description unchanged; instructions unchanged.")
+                      : i18n("Description unchanged; instructions changed.")
+                    : e.body === e.originalBody
+                      ? i18n("Description changed; instructions unchanged.")
+                      : i18n("Description changed; instructions changed.")
+                }
               </div>
             </div>`
           : nothing

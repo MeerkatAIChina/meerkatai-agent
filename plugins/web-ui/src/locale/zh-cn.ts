@@ -1,5 +1,23 @@
 export const ZH_CN: Record<string, unknown> = {
   "*": "*",
+  'Update my deployed app "{slug}": ': (slug: unknown) => `更新我部署的应用 "${slug}"：`,
+  "{count} members": (count: unknown) => `${count} 名成员`,
+  "{count} conversations": (count: unknown) => `${count} 个会话`,
+  "active {when}": (when: unknown) => `活跃于 ${when}`,
+  "The agent’s files and memory here are separate from your other contexts.":
+    "代理在此处的文件和记忆与你的其他上下文相互独立。",
+  "Start a conversation with New chat. Files, automations, and other work created there will stay scoped to this project.":
+    "通过新会话开始一段对话。在那里创建的文件、自动化和其他工作都将归属于此项目。",
+  "The agent posts this project’s updates to #{channel}, and everyone in the channel is in the project.":
+    (channel: unknown) => `代理会把此项目的动态发布到 #${channel}，频道中的每个人都在项目里。`,
+  "Give this project a home channel on Slack — the agent will post updates there, and everyone in the channel joins the project.":
+    "为此项目关联一个 Slack 主频道 — 代理会在那里发布动态，频道中的每个人都会加入项目。",
+  "That drop included a folder this browser can't read — zip it and drop the archive instead.":
+    "这次拖入包含浏览器无法读取的文件夹 — 请打包成 zip 后再拖入。",
+  "Description unchanged; instructions unchanged.": "描述未修改；指令未修改。",
+  "Description unchanged; instructions changed.": "描述未修改；指令已修改。",
+  "Description changed; instructions unchanged.": "描述已修改；指令未修改。",
+  "Description changed; instructions changed.": "描述已修改；指令已修改。",
   "Yours": "\u4f60\u7684",
   "Shared": "\u5171\u4eab\u7684",
   "running": "\u8fd0\u884c\u4e2d",

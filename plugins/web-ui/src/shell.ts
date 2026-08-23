@@ -814,7 +814,7 @@ function openAppEditChat(slug: string): void {
     void openSession(existing);
     return;
   }
-  if (!storedDraft(threadRef)) saveDraft(threadRef, `Update my deployed app "${slug}": `);
+  if (!storedDraft(threadRef)) saveDraft(threadRef, tr("Update my deployed app \"{slug}\": ")(slug));
   mainConversation().mountContinuable(threadRef, null, null, []);
   renderList();
 }

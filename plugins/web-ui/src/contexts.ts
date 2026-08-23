@@ -204,7 +204,7 @@ function contextMeta(c: CoreContext): { title: string; sub: string; glyph: IconN
     const memberCount = projectPeople(c).length;
     return {
       title: c.project.name,
-      sub: `${memberCount} ${memberCount === 1 ? "member" : "members"}`,
+      sub: tr("{count} members")(memberCount),
       glyph: Folder,
     };
   }
@@ -432,8 +432,8 @@ function gridTpl(): TemplateResult {
 
 function contextRow(c: CoreContext): TemplateResult {
   const { title, sub, glyph } = contextMeta(c);
-  const count = c.sessionCount === 1 ? "1 conversation" : `${c.sessionCount} conversations`;
-  const meta = [c.project ? sub : "", count, c.lastActivityAt ? `active ${relTime(c.lastActivityAt)}` : ""]
+  const count = tr("{count} conversations")(c.sessionCount);
+  const meta = [c.project ? sub : "", count, c.lastActivityAt ? tr("active {when}")(relTime(c.lastActivityAt)) : ""]
     .filter(Boolean)
     .join(" · ");
   return html`
@@ -463,7 +463,7 @@ function detailTpl(c: CoreContext): TemplateResult {
             ${c.isPrivate ? html`<span class="context-lock" title=${i18n("Private channel")}>${icon(Lock, 14)}</span>` : nothing}
           </h1>
           <div class="context-sub">
-            ${c.project ? sub : `${sub} The agent's files and memory here are separate from your other contexts.`}
+            ${c.project ? sub : `${sub} ${i18n("The agent’s files and memory here are separate from your other contexts.")}`}
           </div>
         </div>
         <div class="context-detail-actions">
@@ -488,8 +488,7 @@ function detailTpl(c: CoreContext): TemplateResult {
                     <span class="context-glyph large" aria-hidden="true">${icon(glyph, 22)}</span>
                     <h2>${i18n("This project is ready for work")}</h2>
                     <p>
-                      Start a conversation with New chat. Files, automations, and other work created there will stay
-                      scoped to this project.
+                      ${i18n("Start a conversation with New chat. Files, automations, and other work created there will stay scoped to this project.")}
                     </p>
                   </section>
                 `
@@ -629,7 +628,7 @@ function projectSlackLinked(context: CoreContext): TemplateResult {
       </button>
     </div>
     <p class="context-hint">
-      The agent posts this project's updates to #${linked.channelName}, and everyone in the channel is in the project.
+      ${tr("The agent posts this project’s updates to #{channel}, and everyone in the channel is in the project.")(linked.channelName)}
     </p>
   `;
 }
@@ -697,8 +696,7 @@ function projectSlackIdle(): TemplateResult {
       ${icon(Hash, 15)}<span>${i18n("Link a channel")}</span>
     </button>
     <p class="context-hint">
-      Give this project a home channel on Slack — the agent will post updates there, and everyone in the channel joins
-      the project.
+      ${i18n("Give this project a home channel on Slack — the agent will post updates there, and everyone in the channel joins the project.")}
     </p>
   `;
 }
@@ -863,10 +861,11 @@ function resourceSections(scopeId: string): TemplateResult | typeof nothing {
   }
   const manage = r.manageable;
   return html`
-    ${r.files.length ? resourceGroup(String(i18n("Files")), r.files.map(fileRow)) : nothing}
+    ${r.files.length ? resourceGroup("files", String(i18n("Files")), r.files.map(fileRow)) : nothing}
     ${
       r.skills.length
         ? resourceGroup(
+            "skills",
             String(i18n("Skills")),
             r.skills.map((s) => skillRow(s, manage)),
           )
@@ -875,13 +874,14 @@ function resourceSections(scopeId: string): TemplateResult | typeof nothing {
     ${
       r.crons.length
         ? resourceGroup(
+            "crons",
             String(i18n("Crons")),
             r.crons.map((c) => cronRow(c, manage)),
           )
         : nothing
     }
-    ${r.webhooks.length ? resourceGroup(String(i18n("Webhooks")), r.webhooks.map(webhookRow)) : nothing}
-    ${r.deployments.length ? resourceGroup(String(i18n("Apps")), r.deployments.map(deploymentRow)) : nothing}
+    ${r.webhooks.length ? resourceGroup("webhooks", String(i18n("Webhooks")), r.webhooks.map(webhookRow)) : nothing}
+    ${r.deployments.length ? resourceGroup("deploys", String(i18n("Apps")), r.deployments.map(deploymentRow)) : nothing}
   `;
 }
 
@@ -924,8 +924,7 @@ async function deleteScopeSkill(id: string): Promise<void> {
   }
 }
 
-function resourceGroup(label: string, rows: TemplateResult[]): TemplateResult {
-  const view = label === "Apps" ? "deploys" : label.toLowerCase();
+function resourceGroup(view: string, label: string, rows: TemplateResult[]): TemplateResult {
   const scope = contextsState.resourcesScope;
   const supportsScopeLink = view === "files" || view === "deploys";
   const href = `${UI_BASE}/${encodeURIComponent(view)}${scope && supportsScopeLink ? `?scope=${encodeURIComponent(scope)}` : ""}`;
@@ -964,8 +963,8 @@ function fileRow(f: ScopeFile): TemplateResult {
 }
 
 function webhookRow(w: WebhookView): TemplateResult {
-  let lastRun = "never fired";
-  if (w.lastError) lastRun = "error";
+  let lastRun = String(i18n("never fired"));
+  if (w.lastError) lastRun = String(i18n("error"));
   else if (w.lastFiredAt) lastRun = relTime(w.lastFiredAt);
   return html`
     <div class="context-session-row context-resource-row">

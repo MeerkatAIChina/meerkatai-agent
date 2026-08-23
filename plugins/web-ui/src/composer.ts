@@ -1482,8 +1482,9 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
     } catch (err) {
       if (err instanceof FolderDropError) composerState.error = err.message;
       else if (isFolderReadError(err))
-        composerState.error =
-          "That drop included a folder this browser can't read — zip it and drop the archive instead.";
+        composerState.error = String(
+          i18n("That drop included a folder this browser can't read — zip it and drop the archive instead."),
+        );
       else composerState.error = errMessage(err, String(i18n("Could not attach that file.")));
     } finally {
       composerState.processingFiles = false;
