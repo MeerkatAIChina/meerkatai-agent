@@ -73,3 +73,20 @@
   - 走 upstream-pr 等上游 qm 修 —— 已拍板本仓改 core（issue #11 修复方向），上游通道周期不可控；
   - 在 opencode harness 同步透传模态 —— 桌面版走 pi harness，opencode 通道的模态声明机制不同，超出本 issue 范围，留待实际需要时再评估。
 - **后果**：内核缝改动集中在 `src/model/custom-providers.ts`（字段 + 校验 + 两处物化，净约 +35 行）；存量未声明 modalities 的注册行为逐字节不变（默认 `["text"]`）；回归测试把守（`test/custom-providers.test.ts`：声明 image 的模型经 `resolveCustomModel`/`customModelsJson` 透出 `["text","image"]`、未声明默认 `["text"]`、非法 modalities 被校验拒绝）。**已注册 triz 的存量环境需重跑 `meerkat-local-up.sh`（或重新 PUT）刷新注册后修复才生效**——运行时注册表由注册时的 spec 物化，不会自动感知 conf 变化。
+
+## ADR-006：UI i18n 中文化与品牌替换直改 core——不可插拔的文案改动面，以字典单文件与 merge 惯例收敛维护成本
+
+- **状态**：已接受（需求 2.1 / 2.2，非 issue 驱动；commits `60b33b5` `4389eec` `d72e1cf` `ef50d25` 及本批 portal/auth 提交）
+- **背景**：需求 2.1 要求 web-ui / admin / portal/auth 全部用户可见文案中文化，需求 2.2 要求品牌串 QM → MeerkatAI、Meerkat → MAPID。i18n 本质上不可插拔：文案嵌在各插件的组件模板与服务端渲染页里，收不进 `deploy/layers/meerkat/`，唯一诚实的做法是直改 core（`plugins/web-ui`、`plugins/admin`、`plugins/portal`、`plugins/auth`）。
+- **决策**：
+  1. web-ui 走 mini-lit 同源 i18n 机制——唯一字典 `plugins/web-ui/src/locale/zh-cn.ts`（英文原文即 key，约 950 key），boot 时 `localStorage` 无条件写 `"zh"` 并展开合并 `setTranslations({ ...getTranslations(), zh: ZH_CN })`；组件一律使用 locale 模块的安全包装 `i18n`（try/catch 回退 key 本身）与动态串防崩 helper `tr()`，禁止直接 import mini-lit 的 i18n；
+  2. admin 为无构建静态单文件，文件头部内联 `T` 字典 + `t(key)` 函数（同一「英文原文即 key」约定），约 1071 条；
+  3. portal/auth 量小（约 50-80 条），不建机制，登录/错误页/登录邮件直接替换为中文字符串，品牌位同步换 MeerkatAI；
+  4. 品牌替换全量口径：web-ui 三注入中枢（index.html meta、`ui.ts` fallback、服务端 shell 模板）+ admin + portal/auth，代码标识符/包名/路径/注释不动；
+  5. 语言策略硬默认中文、不做切换入口（机制天然支持，以后要加只是补 UI）。
+- **理由**：机制与 pi-web-ui（mini-lit）同源，零新增依赖；「英文原文即 key」使漏翻天然回退英文而非崩溃，配合扫描脚本可把「翻译完成」定义为机器判据。
+- **被否决**：
+  - 把文案抽到 `deploy/layers/meerkat/` 做插拔式覆盖 —— 文案分散在 27+ 个组件模板里，覆盖层需要改每个组件的取值点，等于照样改 core 且多一层间接；
+  - 等上游 qm 引入 i18n 再跟随 —— 上游无此计划，周期不可控；长期可反向把机制贡献回上游（upstream-pr）以彻底消除冲突面，本期不做；
+  - admin 与 web-ui 共享字典/抽公共模块 —— 跨无构建静态文件与 Vite 工程，过度设计。
+- **后果**：core 改动面大（web-ui 27 文件 + admin 单文件 + portal/auth 四文件），随主仓升级会产生冲突。量化评估（2026-08-23 实证）：近 90 天 origin/main 对 web-ui/src 共 43 个提交、触及 27 个目标文件 89 次、admin/index.html 12 次；抽样 diff 显示上游改动绝大多数是逻辑/结构行而非文案行，冲突只在「上游改的行 ∩ 我们包过的文案行」时发生，预估每次升级几处到几十处小冲突，叠加新增英文串补翻，**常态维护成本约 0.5~1 人日/次**。三层缓冲：① 字典集中单文件，永远零冲突；② 包裹改动机械同构，冲突有固定解法（保留 i18n() 包裹 + 吸收上游语义改动）；③ **merge 惯例：每次 update-qm 后跑一次 `plugins/web-ui/scripts/check-untranslated.mjs` 扫描脚本，裸露英文清单即补翻 todo**（脚本兼作 merge 检查门）。存量环境注意：web-ui 文案为构建期产物、portal/auth 为运行期渲染，升级后需重建并重启进程才生效。
