@@ -129,10 +129,10 @@ test("verifyIdToken requires a valid signature, issuer, audience, subject, nonce
       .setExpirationTime("5m")
       .sign(privateKey);
   await verifyIdToken(provider, await multiAudience("client-1"), "N", fetchJwks);
-  await assert.rejects(verifyIdToken(provider, await multiAudience(), "N", fetchJwks), /authorized party/);
+  await assert.rejects(verifyIdToken(provider, await multiAudience(), "N", fetchJwks), /授权方/);
   await assert.rejects(
     verifyIdToken(provider, await multiAudience("other-client"), "N", fetchJwks),
-    /authorized party/,
+    /授权方/,
   );
   const wrongSingleParty = await new SignJWT({ nonce: "N", azp: "other-client" })
     .setProtectedHeader({ alg: "EdDSA", kid: "key-1" })
@@ -142,7 +142,7 @@ test("verifyIdToken requires a valid signature, issuer, audience, subject, nonce
     .setIssuedAt()
     .setExpirationTime("5m")
     .sign(privateKey);
-  await assert.rejects(verifyIdToken(provider, wrongSingleParty, "N", fetchJwks), /authorized party/);
+  await assert.rejects(verifyIdToken(provider, wrongSingleParty, "N", fetchJwks), /授权方/);
   const [header, payload, signature] = signed.split(".");
   const tamperedSignature = `${signature?.startsWith("A") ? "B" : "A"}${signature?.slice(1)}`;
   await assert.rejects(verifyIdToken(provider, `${header}.${payload}.${tamperedSignature}`, "N", fetchJwks));
@@ -168,15 +168,15 @@ test("resolvePrincipal claim=email requires the verified userinfo response", () 
         { claim: "email" },
         { sub: "g-123", claims: { email: "a@acme.com", email_verified: "true" }, userinfo: {} },
       ),
-    /no email/,
+    /未返回邮箱/,
   );
 });
 
 test("resolvePrincipal claim=email rejects missing or unverified emails", () => {
-  assert.throws(() => resolvePrincipal({ claim: "email" }, { sub: "g", claims: {}, userinfo: {} }), /no email/);
+  assert.throws(() => resolvePrincipal({ claim: "email" }, { sub: "g", claims: {}, userinfo: {} }), /未返回邮箱/);
   assert.throws(
     () => resolvePrincipal({ claim: "email" }, { sub: "g", claims: {}, userinfo: { email: "a@b.com" } }),
-    /not verified/,
+    /未经身份供应商验证/,
   );
   assert.throws(
     () =>
@@ -184,7 +184,7 @@ test("resolvePrincipal claim=email rejects missing or unverified emails", () => 
         { claim: "email" },
         { sub: "g", claims: {}, userinfo: { email: "a@b.com", email_verified: false } },
       ),
-    /not verified/,
+    /未经身份供应商验证/,
   );
 });
 
@@ -198,7 +198,7 @@ test("resolvePrincipal allowedEmailDomain gates the email suffix and the hd clai
   assert.equal(ok, "a@example.com");
   assert.throws(
     () => resolvePrincipal(rule, { sub: "g", claims: {}, userinfo: { email: "a@gmail.com", email_verified: true } }),
-    /permitted domain/,
+    /允许的域名/,
   );
   assert.throws(
     () =>
@@ -207,7 +207,7 @@ test("resolvePrincipal allowedEmailDomain gates the email suffix and the hd clai
         claims: {},
         userinfo: { email: "a@example.com", email_verified: true, hd: "evil.com" },
       }),
-    /permitted domain/,
+    /允许的域名/,
   );
   assert.throws(
     () =>
@@ -216,7 +216,7 @@ test("resolvePrincipal allowedEmailDomain gates the email suffix and the hd clai
         claims: {},
         userinfo: { email: "a@notexample.com", email_verified: true },
       }),
-    /permitted domain/,
+    /允许的域名/,
   );
 });
 
@@ -229,6 +229,6 @@ test("resolvePrincipal allowedEmails permits only the seeded verified addresses"
   assert.throws(
     () =>
       resolvePrincipal(rule, { sub: "g", claims: {}, userinfo: { email: "other@example.com", email_verified: true } }),
-    /permitted email list/,
+    /允许的邮箱列表/,
   );
 });

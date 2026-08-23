@@ -1168,12 +1168,12 @@ async function authCallback(req: IncomingMessage, res: ServerResponse, url: URL)
     const claims = await verifyIdToken(OIDC, idToken, tmp.nonce);
     if (OIDC.expectedTeamId) {
       const team = claims["https://slack.com/team_id"];
-      if (team !== OIDC.expectedTeamId) throw new Error("workspace not permitted");
+      if (team !== OIDC.expectedTeamId) throw new Error("工作区不在允许范围内");
     }
     const info = await fetchUserinfo(OIDC, accessToken);
     const infoSub = typeof info.sub === "string" ? info.sub : "";
-    if (!infoSub) throw new Error("userinfo missing sub");
-    if (typeof claims.sub === "string" && claims.sub !== infoSub) throw new Error("subject mismatch");
+    if (!infoSub) throw new Error("用户信息缺少 sub 字段");
+    if (typeof claims.sub === "string" && claims.sub !== infoSub) throw new Error("用户标识不一致");
     sub = resolvePrincipal(PRINCIPAL_RULE, { sub: infoSub, claims, userinfo: info });
     const rawName = info.name ?? claims.name;
     if (typeof rawName === "string") name = rawName.trim().slice(0, 200);

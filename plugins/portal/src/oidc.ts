@@ -61,11 +61,11 @@ export async function exchangeCode(
     },
     body: body.toString(),
   });
-  const json = await readJson(r, "token endpoint");
-  if (!r.ok) throw new Error(`token exchange failed: HTTP ${r.status}`);
-  if (json.ok === false) throw new Error(`token exchange failed: ${String(json.error ?? "ok:false")}`);
+  const json = await readJson(r, "令牌端点");
+  if (!r.ok) throw new Error(`令牌交换失败：HTTP ${r.status}`);
+  if (json.ok === false) throw new Error(`令牌交换失败：${String(json.error ?? "ok:false")}`);
   const accessToken = json.access_token;
-  if (typeof accessToken !== "string" || !accessToken) throw new Error("token response missing access_token");
+  if (typeof accessToken !== "string" || !accessToken) throw new Error("令牌响应缺少 access_token");
   return { accessToken, idToken: typeof json.id_token === "string" ? json.id_token : null };
 }
 
@@ -77,9 +77,9 @@ export async function fetchUserinfo(
   const r = await fetchImpl(cfg.userinfoEndpoint, {
     headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
   });
-  const json = await readJson(r, "userinfo");
-  if (!r.ok) throw new Error(`userinfo failed: HTTP ${r.status}`);
-  if (json.ok === false) throw new Error(`userinfo failed: ${String(json.error ?? "ok:false")}`);
+  const json = await readJson(r, "用户信息接口");
+  if (!r.ok) throw new Error(`获取用户信息失败：HTTP ${r.status}`);
+  if (json.ok === false) throw new Error(`获取用户信息失败：${String(json.error ?? "ok:false")}`);
   return json;
 }
 
@@ -91,7 +91,7 @@ export async function verifyIdToken(
   nonce: string,
   fetchImpl: FetchLike = fetch,
 ): Promise<Record<string, unknown>> {
-  if (!idToken) throw new Error("token response missing id_token");
+  if (!idToken) throw new Error("令牌响应缺少 id_token");
   const keySet =
     fetchImpl === fetch
       ? (remoteKeySets.get(cfg.jwksUri) ??
@@ -108,13 +108,13 @@ export async function verifyIdToken(
     requiredClaims: ["sub", "iat", "exp", "nonce"],
     clockTolerance: 5,
   });
-  if (payload.nonce !== nonce) throw new Error("nonce mismatch");
+  if (payload.nonce !== nonce) throw new Error("nonce 校验不一致");
   const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (
     (audiences.length > 1 && typeof payload.azp !== "string") ||
     (payload.azp !== undefined && payload.azp !== cfg.clientId)
   ) {
-    throw new Error("authorized party mismatch");
+    throw new Error("令牌授权方校验不一致");
   }
   return payload as JWTPayload & Record<string, unknown>;
 }
@@ -131,22 +131,22 @@ export function resolvePrincipal(
 ): string {
   if (rule.claim === "sub") return args.sub;
   const rawEmail = args.userinfo.email;
-  if (typeof rawEmail !== "string" || !rawEmail.includes("@")) throw new Error("identity provider returned no email");
+  if (typeof rawEmail !== "string" || !rawEmail.includes("@")) throw new Error("身份供应商未返回邮箱");
   const verified = args.userinfo.email_verified;
-  if (verified !== true && verified !== "true") throw new Error("email is not verified by the identity provider");
+  if (verified !== true && verified !== "true") throw new Error("邮箱未经身份供应商验证");
   const email = rawEmail.trim().toLowerCase();
   if (
     rule.allowedEmails?.length &&
     !rule.allowedEmails.map((allowed) => allowed.trim().toLowerCase()).includes(email)
   ) {
-    throw new Error("account is not on the permitted email list");
+    throw new Error("账号不在允许的邮箱列表中");
   }
   if (rule.allowedEmailDomain) {
     const domain = rule.allowedEmailDomain.toLowerCase();
-    if (!email.endsWith(`@${domain}`)) throw new Error("account is outside the permitted domain");
+    if (!email.endsWith(`@${domain}`)) throw new Error("账号不在允许的域名范围内");
     const hd = args.userinfo.hd ?? args.claims.hd;
     if (typeof hd === "string" && hd.toLowerCase() !== domain)
-      throw new Error("account is outside the permitted domain");
+      throw new Error("账号不在允许的域名范围内");
   }
   return email;
 }
@@ -157,6 +157,6 @@ async function readJson(r: Response, what: string): Promise<Record<string, unkno
     const parsed = text ? (JSON.parse(text) as unknown) : {};
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
   } catch {
-    throw new Error(`${what} returned non-JSON (HTTP ${r.status})`);
+    throw new Error(`${what}返回非 JSON 响应（HTTP ${r.status}）`);
   }
 }
