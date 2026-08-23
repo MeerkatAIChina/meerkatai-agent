@@ -1,5 +1,6 @@
 import "dockview-core/dist/styles/dockview.css";
 import "./shell.css";
+import { setupLocale } from "./locale/index.ts";
 import { bootSafely } from "./shell";
 import { registerChatSearchHotkey } from "./search";
 import { closeFormMenus } from "./ui";
@@ -17,6 +18,8 @@ function closeComposerMenus(keepOpenWithin: Element | null): boolean {
   }
   return changed;
 }
+
+setupLocale();
 
 document.addEventListener("click", (e) => {
   const target = e.target as Element | null;
