@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ALLOWLIST = ["MeerkatAI", "MAPID", "API", "Webhook", "Harness", "token", "GitHub", "Markdown", "PDF", "DOCX", "PPTX", "Excel"];
+const ALLOWLIST = ["MeerkatAI", "MAPID", "API", "Webhook", "Harness", "token", "GitHub", "Markdown", "PDF", "DOCX", "PPTX", "Excel", "Gmail unread digest", "GitLab CI watch"];
 
 const ENGLISH_RUN = /[A-Za-z][A-Za-z'&.-]*(?:\s+[A-Za-z][A-Za-z'&.-]*)+/;
 const ENGLISH_WORD = /[A-Za-z]{2,}/;
@@ -31,7 +31,7 @@ function stripWrapped(line, wrappers) {
 }
 
 function stripNoise(s) {
-  let out = s.replace(/\$\{[^}]*\}/g, " ");
+  let out = s.replace(/\$\{[^}]*/g, " ");
   for (const term of ALLOWLIST) out = out.split(term).join(" ");
   return out;
 }

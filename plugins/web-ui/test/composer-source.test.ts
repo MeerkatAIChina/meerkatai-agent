@@ -8,7 +8,7 @@ test("scope-default buttons render when any runtime setting differs from the sco
   assert.match(composer, /const runtimeToggled =\s*!runtimePending/);
   assert.match(composer, /composerState\.effortLevel !== effectiveEffort/);
   assert.match(composer, /fastOn !== effectiveFast/);
-  assert.match(composer, /\$\{\s*runtimeToggled\s*\? html`[\s\S]{0,800}?>\s*Make default\s*<\/button>/);
+  assert.match(composer, /\$\{\s*runtimeToggled\s*\? html`[\s\S]{0,800}?>\s*\$\{i18n\("Make default"\)\}\s*<\/button>/);
   assert.match(composer, /\$\{\s*runtimeToggled && activeRuntimeConfig\?\.scopeOverride/);
 });
 
@@ -57,7 +57,7 @@ test("attaching files is allowed while a turn is streaming", () => {
 test("a mid-turn submit queues — attachments cannot ride a queued message and stay for the next", () => {
   // Mid-turn Enter queues through core (queueDraft), so the steer-button attachment note is gone;
   // the queue button gates only on draft text, never on the run slot.
-  assert.match(composer, /title="Queue for after this turn"/);
+  assert.match(composer, /title=\$\{i18n\("Queue for after this turn"\)\}/);
   assert.doesNotMatch(composer, /attachments stay for your next message/);
 });
 

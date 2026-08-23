@@ -1,6 +1,7 @@
 import { html, nothing, render, type TemplateResult } from "lit";
 import { Box } from "lucide";
 import { api, type CoreContext } from "./core-bridge";
+import { i18n, tr } from "./locale/index.ts";
 import type { SkillItem } from "./composer";
 import { errMessage } from "../../chassis/src/errors";
 import { fieldSelect, icon } from "./ui";
@@ -71,12 +72,12 @@ let flowFocusTarget: HTMLElement | null = null;
 let archiveFocusTarget: HTMLElement | null = null;
 
 function scopeLabel(scope: string): string {
-  return scope ? scope.charAt(0).toUpperCase() + scope.slice(1) : "";
+  return scope ? String(i18n(scope.charAt(0).toUpperCase() + scope.slice(1))) : "";
 }
 
 function editAudience(scopeId: string | undefined): string {
-  if (scopeId?.startsWith("personal:")) return "only you";
-  return scopeId ? scopeTitle(scopeId) : "this context";
+  if (scopeId?.startsWith("personal:")) return String(i18n("only you"));
+  return scopeId ? scopeTitle(scopeId) : String(i18n("this context"));
 }
 
 async function startEdit(s: SkillItem): Promise<void> {
@@ -88,7 +89,7 @@ async function startEdit(s: SkillItem): Promise<void> {
   editing = null;
   editingTarget = s;
   editError = "";
-  skillsNotice = "Loading skill instructions…";
+  skillsNotice = String(i18n("Loading skill instructions…"));
   drawSkills();
   queueMicrotask(() => skillsPageHost?.querySelector<HTMLElement>(".context-back")?.focus());
   try {
@@ -108,7 +109,7 @@ async function startEdit(s: SkillItem): Promise<void> {
     skillsNotice = "";
   } catch (e) {
     if (request !== editRequestSeq) return;
-    editError = errMessage(e, "Failed to load skill details.");
+    editError = errMessage(e, String(i18n("Failed to load skill details.")));
     skillsNotice = "";
   }
   drawSkills();
@@ -168,45 +169,46 @@ function startCreate(): void {
 }
 
 function skillMeta(s: SkillItem): string {
-  const source = s.source === "pack" ? `Pack ${s.pack?.upstreamName ?? "source"}` : "Created here";
+  const source =
+    s.source === "pack" ? tr("Pack {name}")(s.pack?.upstreamName ?? String(i18n("source"))) : String(i18n("Created here"));
   return `${scopeLabel(s.scope)} · v${s.version ?? 1} · ${source}`;
 }
 
 function skillVariant(s: SkillItem, hasScopeVariants: boolean): TemplateResult {
   const actions = skillActions(s);
   const archived = isArchivedSkill(s);
-  let state = "Active";
-  if (archived) state = "Archived";
-  else if (hasScopeVariants) state = "Scope variant";
-  let archiveLabel = "Archive";
-  if (deleting === s.id) archiveLabel = "Working…";
-  else if (archived) archiveLabel = "Restore";
+  let state = String(i18n("Active"));
+  if (archived) state = String(i18n("Archived"));
+  else if (hasScopeVariants) state = String(i18n("Scope variant"));
+  let archiveLabel = String(i18n("Archive"));
+  if (deleting === s.id) archiveLabel = String(i18n("Working…"));
+  else if (archived) archiveLabel = String(i18n("Restore"));
   return html`
     <div class="skill-variant ${archived ? "archived" : ""}">
       <span class="skill-variant-icon">${icon(Box, 16)}</span>
       <div class="skill-variant-copy">
         <div class="skill-variant-description" title=${s.description}>${s.description}</div>
         <div class="skill-variant-meta">
-          ${skillMeta(s)}${s.assetCount ? ` · ${s.assetCount} asset${s.assetCount === 1 ? "" : "s"}` : ""}
+          ${skillMeta(s)}${s.assetCount ? ` · ${tr("{count} assets")(s.assetCount)}` : ""}
         </div>
         <details class="skill-variant-details">
-          <summary>Details</summary>
+          <summary>${i18n("Details")}</summary>
           <p>${s.description}</p>
           <dl>
             <div>
-              <dt>Scope</dt>
+              <dt>${i18n("Scope")}</dt>
               <dd>${s.scopeId ? scopeTitle(s.scopeId) : scopeLabel(s.scope)}</dd>
             </div>
             <div>
-              <dt>Capabilities</dt>
-              <dd>${s.requiredCapabilities?.length ? s.requiredCapabilities.join(", ") : "None required"}</dd>
+              <dt>${i18n("Capabilities")}</dt>
+              <dd>${s.requiredCapabilities?.length ? s.requiredCapabilities.join(", ") : i18n("None required")}</dd>
             </div>
           </dl>
         </details>
       </div>
       <div class="skill-variant-state">
         <span class="badge ${archived ? "" : "skill-active"}">${state}</span>
-        ${actions.edit && !archived ? html`<button class="btn skill-edit-trigger" data-skill-id=${s.id ?? ""} type="button" ?disabled=${deleting === s.id} @click=${() => void startEdit(s)}>Edit</button>` : nothing}
+        ${actions.edit && !archived ? html`<button class="btn skill-edit-trigger" data-skill-id=${s.id ?? ""} type="button" ?disabled=${deleting === s.id} @click=${() => void startEdit(s)}>${i18n("Edit")}</button>` : nothing}
         ${
           actions.delete
             ? html`<button
@@ -231,9 +233,9 @@ function skillGroup(name: string, skills: SkillItem[]): TemplateResult {
   return html`<section class="skill-group">
     <div class="skill-group-head">
       <h2 class="skill-group-name">
-        <code>/${name}</code>${skills.length > 1 ? html`<span>${skills.length} variants</span>` : nothing}
+        <code>/${name}</code>${skills.length > 1 ? html`<span>${tr("{count} variants")(skills.length)}</span>` : nothing}
       </h2>
-      ${hasScopeVariants ? html`<span class="skill-precedence">Narrower scope takes precedence where both apply</span>` : nothing}
+      ${hasScopeVariants ? html`<span class="skill-precedence">${i18n("Narrower scope takes precedence where both apply")}</span>` : nothing}
     </div>
     ${skills.map((skill) => skillVariant(skill, hasScopeVariants))}
   </section>`;
@@ -243,20 +245,20 @@ function editorPane() {
   const e = editing;
   if (!e) {
     return html`<section class="skill-form-page">
-      ${listBackLink("Back to skills", closeFocusedFlow)}
+      ${listBackLink(String(i18n("Back to skills")), closeFocusedFlow)}
       <div class="skill-form-heading">
         <div>
-          <h1 class="pane-title">Edit /${editingTarget?.name ?? "skill"}</h1>
-          <p>${editError ? "Instructions unavailable." : "Loading instructions…"}</p>
+          <h1 class="pane-title">${tr("Edit /{name}")(editingTarget?.name ?? String(i18n("skill")))}</h1>
+          <p>${editError ? i18n("Instructions unavailable.") : i18n("Loading instructions…")}</p>
         </div>
       </div>
       ${editError ? html`<div class="form-error" role="alert">${editError}</div>` : nothing}
     </section>`;
   }
   const reviewed = reviewMatches(e.review, e.description, e.body);
-  let saveLabel = "Save";
-  if (saving) saveLabel = "Saving…";
-  else if (reviewed) saveLabel = "Publish change";
+  let saveLabel = String(i18n("Save"));
+  if (saving) saveLabel = String(i18n("Saving…"));
+  else if (reviewed) saveLabel = String(i18n("Publish change"));
   return html`
     <form
       class="skill-form-page"
@@ -265,16 +267,16 @@ function editorPane() {
         void saveEdit();
       }}
     >
-      ${listBackLink("Back to skills", closeFocusedFlow)}
+      ${listBackLink(String(i18n("Back to skills")), closeFocusedFlow)}
       <div class="skill-form-heading">
         <div>
-          <h1 class="pane-title">Edit /${e.name}</h1>
-          <p>Available to ${editAudience(e.scopeId)}</p>
+          <h1 class="pane-title">${tr("Edit /{name}")(e.name)}</h1>
+          <p>${tr("Available to {audience}")(editAudience(e.scopeId))}</p>
         </div>
-        <span class="badge">Editing</span>
+        <span class="badge">${i18n("Editing")}</span>
       </div>
       <label class="skill-field">
-        <span>Description</span>
+        <span>${i18n("Description")}</span>
         <input
           id="skill-edit-description"
           class="skill-desc-input"
@@ -289,7 +291,7 @@ function editorPane() {
         />
       </label>
       <label class="skill-field">
-        <span>Instructions</span>
+        <span>${i18n("Instructions")}</span>
         <textarea
           class="skill-body-input"
           spellcheck="false"
@@ -306,11 +308,11 @@ function editorPane() {
       ${
         reviewed
           ? html`<div class="skill-impact" role="alert">
-              <strong>Publish this change to ${scopeTitle(e.scopeId ?? null)}?</strong>
+              <strong>${tr("Publish this change to {scope}?")(scopeTitle(e.scopeId ?? null))}</strong>
               <div class="card-meta">
-                Everyone in this context can invoke the updated instructions. Description
-                ${e.description === e.originalDescription ? "unchanged" : "changed"}; instructions
-                ${e.body === e.originalBody ? "unchanged" : "changed"}.
+                ${i18n("Everyone in this context can invoke the updated instructions.")} ${i18n("Description")}
+                ${e.description === e.originalDescription ? i18n("unchanged") : i18n("changed")}; ${i18n("instructions")}
+                ${e.body === e.originalBody ? i18n("unchanged") : i18n("changed")}.
               </div>
             </div>`
           : nothing
@@ -337,11 +339,11 @@ function editorPane() {
                   drawSkills();
                 }}
               >
-                Review again
+                ${i18n("Review again")}
               </button>`
             : nothing
         }
-        <button class="btn" type="button" ?disabled=${saving} @click=${closeFocusedFlow}>Cancel</button>
+        <button class="btn" type="button" ?disabled=${saving} @click=${closeFocusedFlow}>${i18n("Cancel")}</button>
       </div>
     </form>
   `;
@@ -351,9 +353,9 @@ function creatorPane() {
   const c = creating!;
   const ready = c.name.trim() !== "" && c.description.trim() !== "" && c.body.trim() !== "";
   const reviewed = createReviewMatches(c.review, c.name.trim(), c.description.trim(), c.body.trim(), c.scopeId);
-  let createLabel = "Create skill";
-  if (creatingSaving) createLabel = "Saving…";
-  else if (reviewed) createLabel = "Publish skill";
+  let createLabel = String(i18n("Create skill"));
+  if (creatingSaving) createLabel = String(i18n("Saving…"));
+  else if (reviewed) createLabel = String(i18n("Publish skill"));
   return html`
     <form
       class="skill-form-page"
@@ -362,21 +364,21 @@ function creatorPane() {
         void saveCreate();
       }}
     >
-      ${listBackLink("Back to skills", closeFocusedFlow)}
+      ${listBackLink(String(i18n("Back to skills")), closeFocusedFlow)}
       <div class="skill-form-heading">
         <div>
-          <h1 class="pane-title">New skill</h1>
-          <p>Create a reusable procedure for yourself or a shared context.</p>
+          <h1 class="pane-title">${i18n("New skill")}</h1>
+          <p>${i18n("Create a reusable procedure for yourself or a shared context.")}</p>
         </div>
-        <span class="badge">New</span>
+        <span class="badge">${i18n("New")}</span>
       </div>
       <label class="skill-field">
-        <span>Name</span>
+        <span>${i18n("Name")}</span>
         <input
           id="skill-create-name"
           class="skill-desc-input"
           type="text"
-          placeholder="watch-pipeline"
+          placeholder=${i18n("watch-pipeline")}
           data-focus-key="skill-create-name"
           .value=${c.name}
           ?disabled=${creatingSaving}
@@ -387,7 +389,7 @@ function creatorPane() {
         />
       </label>
       <label class="skill-field">
-        <span>Available to</span>
+        <span>${i18n("Available to")}</span>
         ${fieldSelect({
           className: "skill-scope-select",
           value: c.scopeId,
@@ -399,14 +401,14 @@ function creatorPane() {
           },
           options: createScopes.map((scope) => html`<option value=${scope.scopeId}>${scope.name}</option>`),
         })}
-        <small class="card-meta">Everyone in a shared context can invoke and edit this skill.</small>
+        <small class="card-meta">${i18n("Everyone in a shared context can invoke and edit this skill.")}</small>
       </label>
       <label class="skill-field">
-        <span>Description</span>
+        <span>${i18n("Description")}</span>
         <input
           class="skill-desc-input"
           type="text"
-          placeholder="One line: what it does / when to use it"
+          placeholder=${i18n("One line: what it does / when to use it")}
           data-focus-key="skill-create-description"
           .value=${c.description}
           ?disabled=${creatingSaving}
@@ -417,11 +419,11 @@ function creatorPane() {
         />
       </label>
       <label class="skill-field">
-        <span>Instructions</span>
+        <span>${i18n("Instructions")}</span>
         <textarea
           class="skill-body-input"
           spellcheck="false"
-          placeholder="The SKILL.md contents — the steps to follow when this skill is used."
+          placeholder=${i18n("The SKILL.md contents — the steps to follow when this skill is used.")}
           data-focus-key="skill-create-body"
           ?disabled=${creatingSaving}
           @input=${(ev: Event) => {
@@ -435,8 +437,8 @@ function creatorPane() {
       ${
         reviewed
           ? html`<div class="skill-impact" role="alert">
-              <strong>Publish /${c.name.trim()} to ${scopeTitle(c.scopeId)}?</strong>
-              <div class="card-meta">Everyone in this context can invoke and edit these instructions.</div>
+              <strong>${tr("Publish /{name} to {scope}?")(c.name.trim(), scopeTitle(c.scopeId))}</strong>
+              <div class="card-meta">${i18n("Everyone in this context can invoke and edit these instructions.")}</div>
             </div>`
           : nothing
       }
@@ -462,11 +464,11 @@ function creatorPane() {
                   drawSkills();
                 }}
               >
-                Review again
+                ${i18n("Review again")}
               </button>`
             : nothing
         }
-        <button class="btn" type="button" ?disabled=${creatingSaving} @click=${closeFocusedFlow}>Cancel</button>
+        <button class="btn" type="button" ?disabled=${creatingSaving} @click=${closeFocusedFlow}>${i18n("Cancel")}</button>
       </div>
     </form>
   `;
@@ -505,35 +507,35 @@ function drawSkills(loading = false): void {
     drawSkills();
   };
   const emptyState = skillEmptyState(skillRows.length, filtered.length, loading);
-  let empty: string | TemplateResult = scopedScope ? "No skills in this context." : "No skills available yet.";
+  let empty: string | TemplateResult = scopedScope ? String(i18n("No skills in this context.")) : String(i18n("No skills available yet."));
   if (emptyState === "filtered") {
     empty = html`<div class="skill-empty">
-      <span>No skills match these filters.</span
-      ><button class="btn" type="button" @click=${clearFilters}>Clear filters</button>
+      <span>${i18n("No skills match these filters.")}</span
+      ><button class="btn" type="button" @click=${clearFilters}>${i18n("Clear filters")}</button>
     </div>`;
   } else if (emptyState === "loading") {
-    empty = "Loading skills…";
+    empty = String(i18n("Loading skills…"));
   }
   render(
     html`${scopedViewTopbar("skills", () => drawSkills())}${listPageTpl({
-      title: "Skills",
+      title: String(i18n("Skills")),
       onRefresh: () => void renderSkills(),
-      action: { label: "New skill", onClick: startCreate },
+      action: { label: String(i18n("New skill")), onClick: startCreate },
       search: {
         value: skillSearch,
-        placeholder: "Search skills…",
+        placeholder: String(i18n("Search skills…")),
         onInput: (value) => {
           skillSearch = value;
           drawSkills();
         },
       },
       filters: html`<div class="skill-registry-controls">
-          <div class="resource-tabs" role="group" aria-label="Filter by skill status">
+          <div class="resource-tabs" role="group" aria-label=${i18n("Filter by skill status")}>
             ${(
               [
-                ["active", "Active", counts.active],
-                ["archived", "Archived", counts.archived],
-                ["all", "All", counts.all],
+                ["active", String(i18n("Active")), counts.active],
+                ["archived", String(i18n("Archived")), counts.archived],
+                ["all", String(i18n("All")), counts.all],
               ] as const
             ).map(
               ([value, label, count]) =>
@@ -552,45 +554,45 @@ function drawSkills(loading = false): void {
           </div>
           <div class="skill-filter-fields">
             <label class="list-select"
-              ><span>Scope</span>${fieldSelect({
+              ><span>${i18n("Scope")}</span>${fieldSelect({
                 compact: true,
-                ariaLabel: "Filter skills by scope",
+                ariaLabel: String(i18n("Filter skills by scope")),
                 value: scopeFilter,
                 onChange: (value) => {
                   scopeFilter = value;
                   drawSkills();
                 },
                 options: [
-                  html`<option value="all">All scopes</option>`,
-                  html`<option value="personal">Personal</option>`,
-                  html`<option value="channel">Channel</option>`,
-                  html`<option value="group">Project / group</option>`,
-                  html`<option value="team">Team</option>`,
-                  html`<option value="org">Organization</option>`,
+                  html`<option value="all">${i18n("All scopes")}</option>`,
+                  html`<option value="personal">${i18n("Personal")}</option>`,
+                  html`<option value="channel">${i18n("Channel")}</option>`,
+                  html`<option value="group">${i18n("Project / group")}</option>`,
+                  html`<option value="team">${i18n("Team")}</option>`,
+                  html`<option value="org">${i18n("Organization")}</option>`,
                 ],
               })}</label
             >
             <label class="list-select"
-              ><span>Source</span>${fieldSelect({
+              ><span>${i18n("Source")}</span>${fieldSelect({
                 compact: true,
-                ariaLabel: "Filter skills by source",
+                ariaLabel: String(i18n("Filter skills by source")),
                 value: sourceFilter,
                 onChange: (value) => {
                   sourceFilter = value;
                   drawSkills();
                 },
                 options: [
-                  html`<option value="all">All sources</option>`,
-                  html`<option value="native">Created here</option>`,
-                  html`<option value="pack">Skill packs</option>`,
-                  html`<option value="overrides">Overrides</option>`,
+                  html`<option value="all">${i18n("All sources")}</option>`,
+                  html`<option value="native">${i18n("Created here")}</option>`,
+                  html`<option value="pack">${i18n("Skill packs")}</option>`,
+                  html`<option value="overrides">${i18n("Overrides")}</option>`,
                 ],
               })}</label
             >
           </div>
         </div>
         <div class="skill-result-count" aria-live="polite">
-          ${loading ? "Loading…" : `${filtered.length} skill${filtered.length === 1 ? "" : "s"} in ${groups.length} ${groups.length === 1 ? "group" : "groups"}`}
+          ${loading ? i18n("Loading…") : tr("{skills} skills in {groups} groups")(filtered.length, groups.length)}
         </div>
         ${skillsNotice ? html`<div class="status">${skillsNotice}</div>` : nothing}`,
       rows,
@@ -627,8 +629,8 @@ function closeArchiveDialog(): void {
 function archiveDialog(skill: SkillItem): TemplateResult {
   const audience =
     skill.scope === "personal"
-      ? "you"
-      : `everyone in ${skill.scopeId ? scopeTitle(skill.scopeId) : `this ${skill.scope}`}`;
+      ? String(i18n("you"))
+      : tr("everyone in {scope}")(skill.scopeId ? scopeTitle(skill.scopeId) : tr("this {scope}")(skill.scope));
   return html`<div
     class="project-dialog-backdrop"
     @click=${(event: MouseEvent) => event.target === event.currentTarget && closeArchiveDialog()}
@@ -642,11 +644,10 @@ function archiveDialog(skill: SkillItem): TemplateResult {
       @keydown=${(event: KeyboardEvent) => trapDialogFocus(event, closeArchiveDialog)}
     >
       <div class="project-dialog-head">
-        <div><h2 id="skill-archive-title">Archive /${skill.name}?</h2></div>
+        <div><h2 id="skill-archive-title">${tr("Archive /{name}?")(skill.name)}</h2></div>
       </div>
       <p id="skill-archive-impact">
-        This version will stop being available to ${audience}. If it overrides a broader /${skill.name}, that version
-        becomes effective. Its history and assets are kept, and you can restore it later.
+        ${tr("This version will stop being available to {audience}. If it overrides a broader /{name}, that version becomes effective. Its history and assets are kept, and you can restore it later.")(audience, skill.name)}
       </p>
       <div class="project-dialog-actions actions">
         <button
@@ -656,14 +657,14 @@ function archiveDialog(skill: SkillItem): TemplateResult {
           ?disabled=${deleting === skill.id}
           @click=${closeArchiveDialog}
         >
-          Cancel</button
+          ${i18n("Cancel")}</button
         ><button
           class="btn danger skill-archive-confirm"
           type="button"
           ?disabled=${deleting === skill.id}
           @click=${() => void performArchive(skill)}
         >
-          ${deleting === skill.id ? "Archiving…" : "Archive skill"}
+          ${deleting === skill.id ? i18n("Archiving…") : i18n("Archive skill")}
         </button>
       </div>
     </div>
@@ -699,7 +700,7 @@ async function saveEdit(): Promise<void> {
     restoreFocusedFlow(returnTarget);
   } catch (e) {
     if (!skillMutations.isCurrent(operation)) return;
-    editError = errMessage(e, "Failed to save skill.");
+    editError = errMessage(e, String(i18n("Failed to save skill.")));
     saving = false;
     drawSkills();
   }
@@ -711,7 +712,7 @@ async function saveCreate(): Promise<void> {
   const description = creating.description.trim();
   const body = creating.body.trim();
   if (!name || !description || !body) {
-    createError = "Name, description, and instructions are all required.";
+    createError = String(i18n("Name, description, and instructions are all required."));
     drawSkills();
     return;
   }
@@ -744,7 +745,7 @@ async function saveCreate(): Promise<void> {
     restoreFocusedFlow(returnTarget);
   } catch (e) {
     if (!skillMutations.isCurrent(operation)) return;
-    createError = errMessage(e, "Failed to create skill.");
+    createError = errMessage(e, String(i18n("Failed to create skill.")));
     creatingSaving = false;
     drawSkills();
   }
@@ -760,7 +761,7 @@ async function deleteSkill(s: SkillItem, trigger?: HTMLElement): Promise<void> {
       return void renderSkills();
     } catch (e) {
       deleting = null;
-      skillsNotice = errMessage(e, "Failed to restore skill.");
+      skillsNotice = errMessage(e, String(i18n("Failed to restore skill.")));
       return drawSkills();
     }
   }
@@ -795,7 +796,7 @@ async function performArchive(s: SkillItem): Promise<void> {
     await renderSkills();
   } catch (e) {
     deleting = null;
-    skillsNotice = errMessage(e, "Failed to archive skill.");
+    skillsNotice = errMessage(e, String(i18n("Failed to archive skill.")));
     drawSkills();
     requestAnimationFrame(() => {
       const fallback = focusTarget?.dataset.skillId
@@ -832,7 +833,7 @@ export async function renderSkills(): Promise<void> {
     skillRows = (r.skills ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
     const personal = appState.me ? `personal:${appState.me.user}` : "";
     createScopes = [
-      { scopeId: personal, name: "Personal — only you" },
+      { scopeId: personal, name: String(i18n("Personal — only you")) },
       ...(contexts.contexts ?? [])
         .filter(
           (context) =>
@@ -844,7 +845,7 @@ export async function renderSkills(): Promise<void> {
   } catch (e) {
     if (!skillsRefreshes.isCurrent(request) || seq !== appState.viewRenderSeq || appState.currentView !== "skills")
       return;
-    skillsNotice = errMessage(e, "Failed to load skills.");
+    skillsNotice = errMessage(e, String(i18n("Failed to load skills.")));
   }
   if (skillsRefreshes.isCurrent(request)) drawSkills(false);
 }

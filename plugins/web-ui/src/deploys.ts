@@ -2,6 +2,7 @@ import { html, nothing, render, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import { Archive, Check, Copy, ExternalLink, MoreHorizontal, Pencil, RotateCcw, X } from "lucide";
 import { api, withBase } from "./core-bridge";
+import { i18n, tr } from "./locale/index.ts";
 import { errMessage } from "../../chassis/src/errors";
 import { copyText, fieldSelect, icon, relTime } from "./ui";
 import { listBackLink, listPageTpl } from "./list-page";
@@ -68,9 +69,8 @@ function statusLabel(d: DeploymentView): string {
     d.currentVersion !== undefined &&
     d.appliedVersion !== d.currentVersion
   )
-    return "Deploying";
-  const status = d.status || "unknown";
-  return status.charAt(0).toLocaleUpperCase() + status.slice(1);
+    return String(i18n("Deploying"));
+  return String(i18n(d.status || "unknown"));
 }
 
 function statusClass(d: DeploymentView): string {
@@ -89,32 +89,32 @@ function statusClass(d: DeploymentView): string {
 function permissionBadge(d: DeploymentView): TemplateResult {
   const manage = canManage(d);
   const title = manage
-    ? "You own this app or have permission to manage it."
-    : "This app is shared with a context you can access. You can open and clone it, but not change it.";
+    ? i18n("You own this app or have permission to manage it.")
+    : i18n("This app is shared with a context you can access. You can open and clone it, but not change it.");
   return html`<span class="deploy-permission ${manage ? "manage" : "view"}" title=${title}
-    >${manage ? "Can manage" : "Can view"}</span
+    >${manage ? i18n("Can manage") : i18n("Can view")}</span
   >`;
 }
 
 function versionLabel(d: DeploymentView): string {
-  if (d.currentVersion === undefined) return "Version unknown";
+  if (d.currentVersion === undefined) return String(i18n("Version unknown"));
   if (d.appliedVersion !== undefined && d.appliedVersion !== d.currentVersion)
-    return `v${d.appliedVersion} live · v${d.currentVersion} pending`;
+    return tr("v{live} live · v{pending} pending")(d.appliedVersion, d.currentVersion);
   return `v${d.currentVersion}`;
 }
 
 function deployedLabel(d: DeploymentView): string {
   const at = deploymentLatestAt(d);
-  return at ? `Deployed ${relTime(at)}` : "Deployment time unavailable";
+  return at ? tr("Deployed {when}")(relTime(at)) : String(i18n("Deployment time unavailable"));
 }
 
 function ownerLabel(d: DeploymentView): string {
   const me = appState.me?.user;
-  if (d.ownerScopeId === `personal:${me}`) return "Your personal context";
+  if (d.ownerScopeId === `personal:${me}`) return String(i18n("Your personal context"));
   if (d.ownerScopeId?.startsWith("personal:"))
-    return `${friendlyPrincipal(d.ownerScopeId.slice("personal:".length))} · Personal`;
-  if (d.ownerScopeId?.startsWith("org:")) return "Organization";
-  return d.createdBy ? `Shared context · created by ${friendlyPrincipal(d.createdBy)}` : "Shared context";
+    return tr("{name} · Personal")(friendlyPrincipal(d.ownerScopeId.slice("personal:".length)));
+  if (d.ownerScopeId?.startsWith("org:")) return String(i18n("Organization"));
+  return d.createdBy ? tr("Shared context · created by {name}")(friendlyPrincipal(d.createdBy)) : String(i18n("Shared context"));
 }
 
 function deployTabs(): TemplateResult {
@@ -125,7 +125,7 @@ function deployTabs(): TemplateResult {
   ) as Record<DeploymentTab, number>;
   const tabs = DEPLOY_TABS.filter((tab) => tab.value === "yours" || counts[tab.value] > 0 || deployTab === tab.value);
   return html`
-    <div class="cron-list-controls" role="tablist" aria-label="App view">
+    <div class="cron-list-controls" role="tablist" aria-label=${i18n("App view")}>
       ${tabs.map(
         (tab) => html`
           <button
@@ -139,7 +139,7 @@ function deployTabs(): TemplateResult {
               drawDeploysPage();
             }}
           >
-            <span>${tab.label}</span><span class="cron-filter-count">${counts[tab.value]}</span>
+            <span>${i18n(tab.label)}</span><span class="cron-filter-count">${counts[tab.value]}</span>
           </button>
         `,
       )}
@@ -166,11 +166,11 @@ function deploymentRow(d: DeploymentView): TemplateResult {
           <span>${deployedLabel(d)}</span>
         </span>
       </button>
-      <div class="deploy-row-actions" aria-label="App actions">
+      <div class="deploy-row-actions" aria-label=${i18n("App actions")}>
         ${
           running && d.webUrl
             ? html`<a class="btn deploy-open" href=${withBase(d.webUrl)} target="_blank" rel="noreferrer"
-                >Open ${icon(ExternalLink, 14)}</a
+                >${i18n("Open")} ${icon(ExternalLink, 14)}</a
               >`
             : nothing
         }
@@ -179,8 +179,8 @@ function deploymentRow(d: DeploymentView): TemplateResult {
             ? html`<button
                 class="icon-btn subtle"
                 type="button"
-                title="Copy app URL"
-                aria-label="Copy app URL"
+                title=${i18n("Copy app URL")}
+                aria-label=${i18n("Copy app URL")}
                 @click=${(event: Event) => void copyText(new URL(withBase(d.webUrl!), window.location.href).href, event.currentTarget as HTMLButtonElement)}
               >
                 ${icon(Copy, 14)}
@@ -201,7 +201,7 @@ function deployMenu(d: DeploymentView): TemplateResult {
         class="session-menu-btn deploy-menu-trigger"
         data-deployment-id=${d.id}
         type="button"
-        aria-label=${`More actions for ${deploymentTitle(d)}`}
+        aria-label=${tr("More actions for {title}")(deploymentTitle(d))}
         aria-haspopup="menu"
         aria-expanded=${open ? "true" : "false"}
         @click=${(event: Event) => {
@@ -223,7 +223,7 @@ function deployMenu(d: DeploymentView): TemplateResult {
                       role="menuitem"
                       @click=${() => void restoreDeploy(d)}
                     >
-                      ${icon(RotateCcw, 15)}<span>Restore</span>
+                      ${icon(RotateCcw, 15)}<span>${i18n("Restore")}</span>
                     </button>`
                   : html`
                       <button
@@ -232,7 +232,7 @@ function deployMenu(d: DeploymentView): TemplateResult {
                         role="menuitem"
                         @click=${() => void editFromList(d, "displayName")}
                       >
-                        ${icon(Pencil, 15)}<span>Edit display name</span>
+                        ${icon(Pencil, 15)}<span>${i18n("Edit display name")}</span>
                       </button>
                       <button
                         class="session-menu-option"
@@ -240,7 +240,7 @@ function deployMenu(d: DeploymentView): TemplateResult {
                         role="menuitem"
                         @click=${() => void editFromList(d, "name")}
                       >
-                        ${icon(Pencil, 15)}<span>Change URL slug</span>
+                        ${icon(Pencil, 15)}<span>${i18n("Change URL slug")}</span>
                       </button>
                       <button
                         class="session-menu-option danger"
@@ -248,7 +248,7 @@ function deployMenu(d: DeploymentView): TemplateResult {
                         role="menuitem"
                         @click=${() => requestArchive(d)}
                       >
-                        ${icon(Archive, 15)}<span>Archive</span>
+                        ${icon(Archive, 15)}<span>${i18n("Archive")}</span>
                       </button>
                     `
               }
@@ -280,9 +280,9 @@ function drawDeploysPage(): void {
   );
   let empty = deploymentTabEmptyMessage(deployTab);
   if (!deployList.length && deployNotices.list) empty = deployNotices.list;
-  else if (deployLoading && deployList.length === 0) empty = "Loading apps…";
-  else if (deployQuery && allForTab.length) empty = "No apps match your search.";
-  else if (deployScope) empty = "No apps in this context.";
+  else if (deployLoading && deployList.length === 0) empty = String(i18n("Loading apps…"));
+  else if (deployQuery && allForTab.length) empty = String(i18n("No apps match your search."));
+  else if (deployScope) empty = String(i18n("No apps in this context."));
   const content = deployList.length
     ? [
         deployTabs(),
@@ -300,7 +300,7 @@ function drawDeploysPage(): void {
     html`
       ${scopedViewTopbar("apps", drawDeploysPage)}
       ${listPageTpl({
-        title: "Apps",
+        title: String(i18n("Apps")),
         scope: deployScope,
         onScope: scoped
           ? undefined
@@ -309,26 +309,26 @@ function drawDeploysPage(): void {
               drawDeploysPage();
             },
         onRefresh: () => void renderDeploys(),
-        action: { label: "Deploy with Agent", onClick: deployWithAgent },
+        action: { label: String(i18n("Deploy with Agent")), onClick: deployWithAgent },
         controls: html`<label class="deploy-sort"
-          ><span>Sort</span>${fieldSelect({
+          ><span>${i18n("Sort")}</span>${fieldSelect({
             compact: true,
-            ariaLabel: "Sort apps",
+            ariaLabel: String(i18n("Sort apps")),
             value: deploySort,
             onChange: (value) => {
               deploySort = value as DeploymentSort;
               drawDeploysPage();
             },
             options: [
-              html`<option value="newest">Newest</option>`,
-              html`<option value="name">Name</option>`,
-              html`<option value="status">Status</option>`,
+              html`<option value="newest">${i18n("Newest")}</option>`,
+              html`<option value="name">${i18n("Name")}</option>`,
+              html`<option value="status">${i18n("Status")}</option>`,
             ],
           })}</label
         >`,
         search: {
           value: deployQuery,
-          placeholder: "Search apps",
+          placeholder: String(i18n("Search apps")),
           onInput: (value) => {
             deployQuery = value;
             drawDeploysPage();
@@ -357,7 +357,7 @@ async function openDeploy(d: DeploymentView): Promise<void> {
     drawDeployDetail(activeDeploy);
   } catch (error) {
     if (activeDeploy?.id !== d.id) return;
-    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, errMessage(error, "Could not load app details."));
+    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, errMessage(error, String(i18n("Could not load app details."))));
     drawDeployDetail(d);
   }
 }
@@ -374,7 +374,7 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
   render(
     html`
       <div class="resource-detail deploy-detail">
-        ${listBackLink("Apps", returnToDeploysList)}
+        ${listBackLink(String(i18n("Apps")), returnToDeploysList)}
         <div class="resource-heading deploy-detail-heading">
           <div>
             <div class="deploy-heading-title">
@@ -384,46 +384,46 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
             <div class="deploy-detail-url">/d/${deploymentSlug(d)}/</div>
           </div>
           <div class="actions">
-            ${running && d.webUrl ? html`<a class="btn primary" href=${withBase(d.webUrl)} target="_blank" rel="noreferrer">Open app ${icon(ExternalLink, 14)}</a>` : nothing}
-            ${running && canManage(d) ? html`<button class="btn" type="button" @click=${(event: Event) => void openLiveEdit(d, event.currentTarget as HTMLButtonElement)}>${icon(Pencil, 14)}<span>Edit live</span></button>` : nothing}
-            ${d.webUrl ? html`<button class="btn" type="button" @click=${(event: Event) => void copyText(new URL(withBase(d.webUrl!), window.location.href).href, event.currentTarget as HTMLButtonElement)}>${icon(Copy, 14)}<span>Copy URL</span></button>` : nothing}
+            ${running && d.webUrl ? html`<a class="btn primary" href=${withBase(d.webUrl)} target="_blank" rel="noreferrer">${i18n("Open app")} ${icon(ExternalLink, 14)}</a>` : nothing}
+            ${running && canManage(d) ? html`<button class="btn" type="button" @click=${(event: Event) => void openLiveEdit(d, event.currentTarget as HTMLButtonElement)}>${icon(Pencil, 14)}<span>${i18n("Edit live")}</span></button>` : nothing}
+            ${d.webUrl ? html`<button class="btn" type="button" @click=${(event: Event) => void copyText(new URL(withBase(d.webUrl!), window.location.href).href, event.currentTarget as HTMLButtonElement)}>${icon(Copy, 14)}<span>${i18n("Copy URL")}</span></button>` : nothing}
           </div>
         </div>
-        ${loading ? html`<div class="hint">Loading authoritative app details…</div>` : nothing}
+        ${loading ? html`<div class="hint">${i18n("Loading authoritative app details…")}</div>` : nothing}
         ${deployNotices.detail?.id === d.id ? html`<div class="status">${deployNotices.detail.text}</div>` : nothing}
 
         <section class="deploy-detail-section">
-          <h3>Overview</h3>
+          <h3>${i18n("Overview")}</h3>
           <div class="deploy-facts">
-            <div><span>Status</span><strong>${statusLabel(d)}</strong></div>
-            <div><span>Live version</span><strong>${d.appliedVersion ?? d.currentVersion ?? "—"}</strong></div>
-            <div><span>Latest version</span><strong>${d.currentVersion ?? "—"}</strong></div>
+            <div><span>${i18n("Status")}</span><strong>${statusLabel(d)}</strong></div>
+            <div><span>${i18n("Live version")}</span><strong>${d.appliedVersion ?? d.currentVersion ?? "—"}</strong></div>
+            <div><span>${i18n("Latest version")}</span><strong>${d.currentVersion ?? "—"}</strong></div>
             <div>
-              <span>Last deployed</span
+              <span>${i18n("Last deployed")}</span
               ><strong>${deploymentLatestAt(d) ? new Date(deploymentLatestAt(d)).toLocaleString() : "—"}</strong>
             </div>
             <div>
-              <span>Last opened</span
-              ><strong>${d.lastAccessAt ? relTime(d.lastAccessAt) : "No recorded access"}</strong>
+              <span>${i18n("Last opened")}</span
+              ><strong>${d.lastAccessAt ? relTime(d.lastAccessAt) : i18n("No recorded access")}</strong>
             </div>
-            <div><span>Access</span><strong>${permissionBadge(d)}</strong></div>
+            <div><span>${i18n("Access")}</span><strong>${permissionBadge(d)}</strong></div>
           </div>
         </section>
 
         <section class="deploy-detail-section">
-          <h3>Ownership and access</h3>
+          <h3>${i18n("Ownership and access")}</h3>
           <div class="field">
-            <label>Created in</label>
-            <div class="value">${contextScope ? scopeChip(contextScope) : "Unknown"}</div>
+            <label>${i18n("Created in")}</label>
+            <div class="value">${contextScope ? scopeChip(contextScope) : i18n("Unknown")}</div>
           </div>
           <div class="field">
-            <label>Owner</label>
+            <label>${i18n("Owner")}</label>
             <div class="value">${ownerLabel(d)}</div>
           </div>
           ${
             d.createdBy
               ? html`<div class="field">
-                  <label>Created by</label>
+                  <label>${i18n("Created by")}</label>
                   <div class="value">${friendlyPrincipal(d.createdBy)}</div>
                 </div>`
               : nothing
@@ -431,21 +431,21 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
           ${
             d.gitUrl
               ? html`<div class="field deploy-git-field">
-                  <label>Git remote</label>
+                  <label>${i18n("Git remote")}</label>
                   <div class="value">
                     <code>${d.gitUrl}</code
                     ><button
                       class="icon-btn subtle"
                       type="button"
-                      title="Copy Git remote"
-                      aria-label="Copy Git remote"
+                      title=${i18n("Copy Git remote")}
+                      aria-label=${i18n("Copy Git remote")}
                       @click=${(event: Event) => void copyText(d.gitUrl!, event.currentTarget as HTMLButtonElement)}
                     >
                       ${icon(Copy, 14)}
                     </button>
                   </div>
                   <p class="hint">
-                    ${d.permission === "write" ? "Clone or push a new version with this short-lived authenticated URL." : "Clone source with this short-lived read-only authenticated URL."}
+                    ${d.permission === "write" ? i18n("Clone or push a new version with this short-lived authenticated URL.") : i18n("Clone source with this short-lived read-only authenticated URL.")}
                   </p>
                 </div>`
               : nothing
@@ -455,23 +455,23 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
         ${
           canManage(d)
             ? html`<section class="deploy-detail-section">
-                <h3>Settings</h3>
+                <h3>${i18n("Settings")}</h3>
                 <div class="deploy-setting-row">
                   <div>
-                    <strong>Display name</strong
-                    ><span>The human-friendly name shown here. This does not change the app URL.</span>
+                    <strong>${i18n("Display name")}</strong
+                    ><span>${i18n("The human-friendly name shown here. This does not change the app URL.")}</span>
                   </div>
-                  ${editingName ? deployEditForm(d, "displayName") : html`<div class="deploy-setting-value"><span>${d.displayName || "Using URL slug"}</span><button class="btn" type="button" @click=${() => startEditDeploy(d, "displayName")}>Edit</button></div>`}
+                  ${editingName ? deployEditForm(d, "displayName") : html`<div class="deploy-setting-value"><span>${d.displayName || i18n("Using URL slug")}</span><button class="btn" type="button" @click=${() => startEditDeploy(d, "displayName")}>${i18n("Edit")}</button></div>`}
                 </div>
                 <div class="deploy-setting-row">
-                  <div><strong>URL slug</strong><span>Changes the app URL. Existing links do not redirect.</span></div>
-                  ${editingSlug ? deployEditForm(d, "name") : html`<div class="deploy-setting-value"><code>/d/${deploymentSlug(d)}/</code><button class="btn" type="button" @click=${() => startEditDeploy(d, "name")}>Change</button></div>`}
+                  <div><strong>${i18n("URL slug")}</strong><span>${i18n("Changes the app URL. Existing links do not redirect.")}</span></div>
+                  ${editingSlug ? deployEditForm(d, "name") : html`<div class="deploy-setting-value"><code>/d/${deploymentSlug(d)}/</code><button class="btn" type="button" @click=${() => startEditDeploy(d, "name")}>${i18n("Change")}</button></div>`}
                 </div>
                 <div class="actions deploy-danger-actions">
                   ${
                     d.status === "archived"
                       ? html`<button class="btn" type="button" @click=${() => void restoreDeploy(d)}>
-                          ${icon(RotateCcw, 14)}<span>Restore deployment</span>
+                          ${icon(RotateCcw, 14)}<span>${i18n("Restore deployment")}</span>
                         </button>`
                       : html`<button
                           class="btn danger deploy-archive-trigger"
@@ -479,7 +479,7 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
                           type="button"
                           @click=${() => requestArchive(d)}
                         >
-                          ${icon(Archive, 14)}<span>Archive deployment</span>
+                          ${icon(Archive, 14)}<span>${i18n("Archive deployment")}</span>
                         </button>`
                   }
                 </div>
@@ -488,7 +488,7 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
         }
 
         <section class="deploy-detail-section">
-          <h3>Version history</h3>
+          <h3>${i18n("Version history")}</h3>
           ${
             versions.length
               ? html`<div class="deploy-version-list">
@@ -497,7 +497,7 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
                       <div class="deploy-version-row">
                         <div>
                           <strong>v${version.version}</strong
-                          >${version.version === d.appliedVersion ? html`<span class="badge ok">Live</span>` : nothing}${version.version === d.currentVersion && version.version !== d.appliedVersion ? html`<span class="badge">Latest</span>` : nothing}
+                          >${version.version === d.appliedVersion ? html`<span class="badge ok">${i18n("Live")}</span>` : nothing}${version.version === d.currentVersion && version.version !== d.appliedVersion ? html`<span class="badge">${i18n("Latest")}</span>` : nothing}
                         </div>
                         <div>
                           <span>${new Date(version.createdAt).toLocaleString()}</span
@@ -507,7 +507,7 @@ function drawDeployDetail(d: DeploymentView, loading = false): void {
                     `,
                   )}
                 </div>`
-              : html`<div class="empty compact">No version history available.</div>`
+              : html`<div class="empty compact">${i18n("No version history available.")}</div>`
           }
         </section>
       </div>
@@ -540,7 +540,7 @@ function deployEditForm(d: DeploymentView, field: "displayName" | "name"): Templ
         <span class="deploy-slug-input ${slug ? "" : "name"}"
           >${slug ? html`<span>/d/</span>` : nothing}<input
             class="deploy-edit-input"
-            aria-label=${slug ? "URL slug" : "Display name"}
+            aria-label=${slug ? i18n("URL slug") : i18n("Display name")}
             ?disabled=${deploySaving}
             .value=${live(deployDraft)}
             @input=${(event: InputEvent) => {
@@ -550,14 +550,14 @@ function deployEditForm(d: DeploymentView, field: "displayName" | "name"): Templ
           />${slug ? html`<span>/</span>` : nothing}</span
         >
       </label>
-      <button class="icon-btn" type="submit" title="Save" aria-label="Save" ?disabled=${deploySaving}>
+      <button class="icon-btn" type="submit" title=${i18n("Save")} aria-label=${i18n("Save")} ?disabled=${deploySaving}>
         ${icon(Check, 14)}
       </button>
       <button
         class="icon-btn"
         type="button"
-        title="Cancel"
-        aria-label="Cancel"
+        title=${i18n("Cancel")}
+        aria-label=${i18n("Cancel")}
         ?disabled=${deploySaving}
         @click=${cancelEditDeploy}
       >
@@ -598,7 +598,7 @@ async function commitEditDeploy(d: DeploymentView): Promise<void> {
   const current = field === "displayName" ? (d.displayName ?? "") : (d.name ?? "");
   if (value === current) return cancelEditDeploy();
   if (field === "name" && !value) {
-    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, "A URL slug is required.");
+    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, String(i18n("A URL slug is required.")));
     return drawDeployDetail(d);
   }
   deploySaving = true;
@@ -618,12 +618,12 @@ async function commitEditDeploy(d: DeploymentView): Promise<void> {
     if (currentDeployActionView(d.id) === "target") {
       await openDeploy(updated);
     } else {
-      deployToast = { deployment: updated, text: `${deploymentTitle(updated)} settings saved.` };
+      deployToast = { deployment: updated, text: tr("{title} settings saved.")(deploymentTitle(updated)) };
       drawCurrentDeployView();
     }
   } catch (error) {
     deploySaving = false;
-    const message = errMessage(error, "Could not save app settings.");
+    const message = errMessage(error, String(i18n("Could not save app settings.")));
     if (currentDeployActionView(d.id) === "target") {
       deployNotices = withDeploymentDetailNotice(deployNotices, d.id, message);
       drawDeployDetail(activeDeploy!);
@@ -707,21 +707,20 @@ function archiveDialog(d: DeploymentView): TemplateResult {
         @keydown=${(event: KeyboardEvent) => trapDialogFocus(event, closeArchiveDialog)}
       >
         <div class="project-dialog-head">
-          <div><h2 id="deploy-archive-title">Archive ${deploymentTitle(d)}?</h2></div>
+          <div><h2 id="deploy-archive-title">${tr("Archive {title}?")(deploymentTitle(d))}</h2></div>
         </div>
         <p>
-          This takes the app offline immediately, so its current URL will stop working. Its source and version history
-          are kept, and you can restore it later.
+          ${i18n("This takes the app offline immediately, so its current URL will stop working. Its source and version history are kept, and you can restore it later.")}
         </p>
         <div class="project-dialog-actions actions">
-          <button class="btn" type="button" data-dialog-cancel @click=${closeArchiveDialog}>Cancel</button>
+          <button class="btn" type="button" data-dialog-cancel @click=${closeArchiveDialog}>${i18n("Cancel")}</button>
           <button
             class="btn danger deploy-archive-confirm"
             type="button"
             ?disabled=${deploySaving}
             @click=${() => void archiveDeploy(d)}
           >
-            Archive and take offline
+            ${i18n("Archive and take offline")}
           </button>
         </div>
       </div>
@@ -733,8 +732,8 @@ async function archiveDeploy(d: DeploymentView): Promise<void> {
   if (deploySaving) return;
   deploySaving = true;
   if (activeDeploy?.id === d.id)
-    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, "Archiving deployment…");
-  else deployNotices = withDeploymentListNotice(deployNotices, "Archiving deployment…");
+    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, String(i18n("Archiving deployment…")));
+  else deployNotices = withDeploymentListNotice(deployNotices, String(i18n("Archiving deployment…")));
   setDeployBackgroundInert(false);
   archiveCandidate = null;
   drawCurrentDeployView();
@@ -743,7 +742,7 @@ async function archiveDeploy(d: DeploymentView): Promise<void> {
     deploySaving = false;
     deployToast = {
       deployment: { ...d, status: "archived" },
-      text: `${deploymentTitle(d)} is offline and archived.`,
+      text: tr("{title} is offline and archived.")(deploymentTitle(d)),
       undo: true,
     };
     await refreshDeployments();
@@ -757,7 +756,7 @@ async function archiveDeploy(d: DeploymentView): Promise<void> {
     }
   } catch (error) {
     deploySaving = false;
-    const message = errMessage(error, "Could not archive deployment.");
+    const message = errMessage(error, String(i18n("Could not archive deployment.")));
     if (currentDeployActionView(d.id) === "target") {
       deployNotices = withDeploymentDetailNotice(deployNotices, d.id, message);
       drawDeployDetail(activeDeploy!);
@@ -774,8 +773,8 @@ async function restoreDeploy(d: DeploymentView): Promise<void> {
   const restoringActive = activeDeploy?.id === d.id;
   deploySaving = true;
   deployMenuId = null;
-  if (restoringActive) deployNotices = withDeploymentDetailNotice(deployNotices, d.id, "Restoring deployment…");
-  else if (!activeDeploy) deployNotices = withDeploymentListNotice(deployNotices, "Restoring deployment…");
+  if (restoringActive) deployNotices = withDeploymentDetailNotice(deployNotices, d.id, String(i18n("Restoring deployment…")));
+  else if (!activeDeploy) deployNotices = withDeploymentListNotice(deployNotices, String(i18n("Restoring deployment…")));
   if (restoringActive || !activeDeploy) drawCurrentDeployView();
   try {
     const response = await api<{ deployment?: DeploymentView }>(
@@ -784,7 +783,7 @@ async function restoreDeploy(d: DeploymentView): Promise<void> {
     );
     deploySaving = false;
     const restoredResponse = deploymentAfterRestore(d, response.deployment);
-    deployToast = { deployment: restoredResponse, text: `${deploymentTitle(d)} is restored and running.` };
+    deployToast = { deployment: restoredResponse, text: tr("{title} is restored and running.")(deploymentTitle(d)) };
     const refreshResult = await refreshDeployments();
     const authoritative = refreshResult === "failed" ? undefined : deployList.find((item) => item.id === d.id);
     const restored = deploymentAfterRestore(d, response.deployment, authoritative);
@@ -803,7 +802,7 @@ async function restoreDeploy(d: DeploymentView): Promise<void> {
     }
   } catch (error) {
     deploySaving = false;
-    const message = errMessage(error, "Could not restore deployment.");
+    const message = errMessage(error, String(i18n("Could not restore deployment.")));
     if (currentDeployActionView(d.id) === "target") {
       deployNotices = withDeploymentDetailNotice(deployNotices, d.id, message);
       drawDeployDetail(activeDeploy!);
@@ -819,11 +818,11 @@ function undoToast(toast: { deployment: DeploymentView; text: string; undo?: boo
   const archived = toast.undo && deploymentArchiveUndoAvailable(toast.deployment);
   return html`<div class="deploy-toast" role="status">
     <span>${toast.text}</span
-    >${archived ? html`<button type="button" ?disabled=${deploySaving} @click=${() => void restoreDeploy(toast.deployment)}>Undo</button>` : nothing}<button
+    >${archived ? html`<button type="button" ?disabled=${deploySaving} @click=${() => void restoreDeploy(toast.deployment)}>${i18n("Undo")}</button>` : nothing}<button
       class="icon-btn"
       type="button"
-      title="Dismiss"
-      aria-label="Dismiss notification"
+      title=${i18n("Dismiss")}
+      aria-label=${i18n("Dismiss notification")}
       @click=${() => {
         deployToast = null;
         drawCurrentDeployView();
@@ -838,12 +837,12 @@ async function openLiveEdit(d: DeploymentView, button: HTMLButtonElement): Promi
   const tab = window.open("about:blank", "_blank");
   try {
     const r = await api<{ url?: string }>(`/api/deployments/${encodeURIComponent(d.id)}/owner-url`);
-    if (!r.url) throw new Error("no live URL for this app");
+    if (!r.url) throw new Error(String(i18n("no live URL for this app")));
     if (tab) tab.location.href = r.url;
     else window.open(r.url, "_blank");
   } catch (error) {
     tab?.close();
-    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, errMessage(error, "Could not open live editing."));
+    deployNotices = withDeploymentDetailNotice(deployNotices, d.id, errMessage(error, String(i18n("Could not open live editing."))));
     drawDeployDetail(activeDeploy ?? d);
     button.blur();
   }
@@ -852,7 +851,7 @@ async function openLiveEdit(d: DeploymentView, button: HTMLButtonElement): Promi
 function deployWithAgent(): void {
   const conv = mainConversation();
   conv.newChat();
-  conv.composer.state.draft = "Deploy an app for me. ";
+  conv.composer.state.draft = String(i18n("Deploy an app for me. "));
   conv.drawActiveChat(conv.state.agent);
   conv.composer.focusComposerEnd();
 }
@@ -867,7 +866,7 @@ async function refreshDeployments(): Promise<"updated" | "failed" | "superseded"
     return "updated";
   } catch (error) {
     if (seq !== deployRefreshSeq) return "superseded";
-    deployNotices = withDeploymentListNotice(deployNotices, errMessage(error, "Failed to load apps."));
+    deployNotices = withDeploymentListNotice(deployNotices, errMessage(error, String(i18n("Failed to load apps."))));
     return "failed";
   } finally {
     if (seq === deployRefreshSeq) deployLoading = false;

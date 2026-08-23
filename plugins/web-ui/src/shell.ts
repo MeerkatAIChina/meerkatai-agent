@@ -31,6 +31,7 @@ import {
 import { applyRuntimeOptions } from "./model-options";
 import { errMessage, swallow } from "../../chassis/src/errors";
 import { brandMark, brandName, icon, initials } from "./ui";
+import { i18n, tr } from "./locale/index.ts";
 import { markConnectorConnected } from "./chat";
 import { clearSkillsCache, resyncModelSelection, seedRuntimeConfig } from "./composer";
 import { ensureDeliveryStream, mainConversation, onExitCanvas } from "./conversations";
@@ -100,7 +101,7 @@ export function syncUrlFromState(sessionOverride?: string | null): void {
 }
 
 const appEl = document.getElementById("app");
-if (!appEl) throw new Error("missing #app");
+if (!appEl) throw new Error(String(i18n("missing #app")));
 
 const narrowViewport = window.matchMedia("(max-width: 860px)");
 let sidebarOpen = !narrowViewport.matches;
@@ -237,8 +238,8 @@ export async function exitImpersonation(): Promise<void> {
 function impersonationBanner(by: string) {
   return html`
     <div class="top-banner" role="status">
-      <span>Viewing the assistant as <b>${appState.me?.user ?? ""}</b> — you are <b>${by}</b></span>
-      <button class="top-banner-action" type="button" @click=${exitImpersonation}>Exit impersonation</button>
+      <span>${tr("Viewing the assistant as {user} — you are {by}")(appState.me?.user ?? "", by)}</span>
+      <button class="top-banner-action" type="button" @click=${exitImpersonation}>${i18n("Exit impersonation")}</button>
     </div>
   `;
 }
@@ -246,8 +247,8 @@ function impersonationBanner(by: string) {
 function devBanner(user: string) {
   return html`
     <div class="top-banner dev" role="status">
-      <span><b>Dev mode</b> — no identity provider, signed in as ${user}</span>
-      <button class="top-banner-action" type="button" @click=${signOut}>Sign out</button>
+      <span>${tr("Dev mode — no identity provider, signed in as {user}")(user)}</span>
+      <button class="top-banner-action" type="button" @click=${signOut}>${i18n("Sign out")}</button>
     </div>
   `;
 }
@@ -299,32 +300,31 @@ function clearPortalAttempt(): void {
 function portalGate() {
   if (portalAttemptedRecently())
     return gateShell(html`
-      <h1>Sign in through the portal</h1>
+      <h1>${i18n("Sign in through the portal")}</h1>
       <p class="signin-body">
-        This surface is reached through the portal, and signing in there didn't produce a session for it. Open the
-        portal address directly rather than this one.
+        ${i18n("This surface is reached through the portal, and signing in there didn't produce a session for it. Open the portal address directly rather than this one.")}
       </p>
       <div class="hint">
-        If you opened this surface's own address, that's the cause — it can't authenticate anyone on its own.
+        ${i18n("If you opened this surface's own address, that's the cause — it can't authenticate anyone on its own.")}
       </div>
     `);
   return gateShell(html`
-    <h1>Your session ended</h1>
-    <p class="signin-body">You've been signed out. Sign in again and you'll come back to this page.</p>
-    <button class="btn primary" type="button" @click=${signInWithPortal}>Sign in</button>
+    <h1>${i18n("Your session ended")}</h1>
+    <p class="signin-body">${i18n("You've been signed out. Sign in again and you'll come back to this page.")}</p>
+    <button class="btn primary" type="button" @click=${signInWithPortal}>${i18n("Sign in")}</button>
   `);
 }
 
 function deniedGate() {
   return gateShell(html`
-    <h1>You don't have access</h1>
+    <h1>${i18n("You don't have access")}</h1>
     <p class="signin-body">
-      Your account is signed in and verified — it just isn't allowed on this instance. Ask an administrator to add you.
+      ${i18n("Your account is signed in and verified — it just isn't allowed on this instance. Ask an administrator to add you.")}
     </p>
-    <button class="btn" type="button" @click=${signOut}>Sign out</button>
+    <button class="btn" type="button" @click=${signOut}>${i18n("Sign out")}</button>
     ${
       authMode === "dev"
-        ? html`<div class="hint">This instance lists its principals in <b>WEB_UI_PRINCIPALS</b>.</div>`
+        ? html`<div class="hint">${tr("This instance lists its principals in {var}.")("WEB_UI_PRINCIPALS")}</div>`
         : nothing
     }
   `);
@@ -336,10 +336,10 @@ function retryBoot(): void {
 
 function unreachableGate() {
   return gateShell(html`
-    <h1>We couldn't reach the assistant</h1>
-    <p class="signin-body">The service didn't respond. This is usually temporary.</p>
-    <button class="btn primary" type="button" @click=${retryBoot}>Try again</button>
-    <div class="hint">If this keeps happening, the core service may be down.</div>
+    <h1>${i18n("We couldn't reach the assistant")}</h1>
+    <p class="signin-body">${i18n("The service didn't respond. This is usually temporary.")}</p>
+    <button class="btn primary" type="button" @click=${retryBoot}>${i18n("Try again")}</button>
+    <div class="hint">${i18n("If this keeps happening, the core service may be down.")}</div>
   `);
 }
 
@@ -348,7 +348,7 @@ async function submitDevSignin(user: string): Promise<void> {
   try {
     await api("/signin", { method: "POST", body: JSON.stringify({ user }) });
   } catch (err) {
-    renderAuthGate({ kind: "dev", value: user, error: errMessage(err, "Sign-in failed.") });
+    renderAuthGate({ kind: "dev", value: user, error: errMessage(err, String(i18n("Sign-in failed."))) });
     return;
   }
   await bootSafely();
@@ -365,12 +365,11 @@ function devGate(gate: { value?: string; error?: string; pending?: boolean }) {
         if (user) void submitDevSignin(user);
       }}
     >
-      <h1>Dev sign-in</h1>
+      <h1>${i18n("Dev sign-in")}</h1>
       <p class="signin-body">
-        No identity provider is configured, so this instance trusts a local cookie. Set
-        <b>CORE_SIGNING_SECRET</b> and run the portal to use real sign-in.
+        ${tr("No identity provider is configured, so this instance trusts a local cookie. Set {var} and run the portal to use real sign-in.")("CORE_SIGNING_SECRET")}
       </p>
-      <label for="dev-principal">Principal</label>
+      <label for="dev-principal">${i18n("Principal")}</label>
       <input
         id="dev-principal"
         name="principal"
@@ -380,12 +379,12 @@ function devGate(gate: { value?: string; error?: string; pending?: boolean }) {
         spellcheck="false"
         required
         autofocus
-        placeholder="you@org.com"
+        placeholder=${i18n("you@org.com")}
         .value=${gate.value ?? ""}
         ?disabled=${gate.pending === true}
       />
       <button class="btn primary" type="submit" ?disabled=${gate.pending === true}>
-        ${gate.pending ? "Signing in…" : "Continue"}
+        ${gate.pending ? i18n("Signing in…") : i18n("Continue")}
       </button>
       ${gate.error ? html`<div class="hint error" role="alert">${gate.error}</div>` : nothing}
     </form>
@@ -430,14 +429,14 @@ export function mountShell(): void {
     html`
       ${banner ?? nothing}
       <div class="layout ${sidebarOpen ? "" : "sidebar-closed"} ${banner ? "bannered" : ""}">
-        <aside class="sidebar" aria-label="Navigation" @keydown=${onSidebarKeydown}>
+        <aside class="sidebar" aria-label=${i18n("Navigation")} @keydown=${onSidebarKeydown}>
           <div class="brand">
             <div class="brand-lockup">${brandMark()}<span class="brand-name">${brandName()}</span></div>
             <button
               class="icon-btn subtle sidebar-toggle sidebar-collapse-toggle"
               type="button"
-              title="Hide sidebar"
-              aria-label="Hide sidebar"
+              title=${i18n("Hide sidebar")}
+              aria-label=${i18n("Hide sidebar")}
               @click=${toggleSidebar}
             >
               ${icon(PanelLeft, 17)}
@@ -450,27 +449,27 @@ export function mountShell(): void {
               <span class="avatar">${initials(appState.me?.user ?? "?")}</span>
               <span class="user-name">${appState.me?.user ?? ""}</span>
             </div>
-            <a class="icon-btn subtle" href=${ADMIN_HOME_URL} title="Back to admin" aria-label="Back to admin"
+            <a class="icon-btn subtle" href=${ADMIN_HOME_URL} title=${i18n("Back to admin")} aria-label=${i18n("Back to admin")}
               >${icon(ShieldCheck, 17)}</a
             >
-            <theme-toggle .includeSystem=${true} title="Color scheme: light / dark / system"></theme-toggle>
-            <button class="icon-btn subtle" title="Sign out" aria-label="Sign out" @click=${signOut}>
+            <theme-toggle .includeSystem=${true} title=${i18n("Color scheme: light / dark / system")}></theme-toggle>
+            <button class="icon-btn subtle" title=${i18n("Sign out")} aria-label=${i18n("Sign out")} @click=${signOut}>
               ${icon(LogOut, 17)}
             </button>
           </div>
         </aside>
-        <button class="sidebar-scrim" type="button" aria-label="Close sidebar" @click=${toggleSidebar}></button>
+        <button class="sidebar-scrim" type="button" aria-label=${i18n("Close sidebar")} @click=${toggleSidebar}></button>
         <div
           class="sidebar-resize-handle"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize sidebar"
-          title="Drag to resize · double-click to reset"
+          aria-label=${i18n("Resize sidebar")}
+          title=${i18n("Drag to resize · double-click to reset")}
           @pointerdown=${startSidebarResize}
           @dblclick=${resetSidebarWidth}
         ></div>
         <section class="main" id="main" tabindex="-1">
-          <div class="empty">Pick a conversation, or start a new chat.</div>
+          <div class="empty">${i18n("Pick a conversation, or start a new chat.")}</div>
         </section>
       </div>
     `,
@@ -502,7 +501,7 @@ export function renderSidebarTop(): void {
       type="button"
       aria-expanded=${open ? "true" : "false"}
       aria-controls=${id}
-      title=${open ? `Hide ${title}` : `Show ${title}`}
+      title=${open ? tr("Hide {title}")(title) : tr("Show {title}")(title)}
       @click=${toggle}
     >
       <span>${title}</span>
@@ -516,30 +515,30 @@ export function renderSidebarTop(): void {
     html`
       <button
         class="new-chat"
-        title=${splitState.active ? "New session" : "New chat"}
+        title=${splitState.active ? i18n("New session") : i18n("New chat")}
         @click=${() => {
           closeSidebarOnNarrowView();
           if (!addBlankPane()) mainConversation().newChat();
         }}
       >
-        ${icon(ICON.newChat, 17)}<span>${splitState.active ? "New session" : "New chat"}</span>
+        ${icon(ICON.newChat, 17)}<span>${splitState.active ? i18n("New session") : i18n("New chat")}</span>
       </button>
       <nav class="nav" @click=${onNavClick}>
         ${navGroup(
           "nav-workspace",
-          "Browse",
+          String(i18n("Browse")),
           navWorkspaceOpen,
           toggleNavWorkspace,
           html`
-            ${navRow("contexts", ICON.contexts, "Projects")} ${navRow("chats", ICON.chats, "Chats")}
-            ${navRow("files", ICON.files, "Files")} ${navRow("crons", ICON.crons, "Crons")}
-            ${navRow("webhooks", ICON.webhooks, "Webhooks")} ${navRow("keychain", ICON.keychain, "Keychain")}
-            ${navRow("deploys", ICON.deploys, "Apps")} ${navRow("memory", ICON.memory, "Memory")}
-            ${navRow("skills", ICON.skills, "Skills")}
+            ${navRow("contexts", ICON.contexts, String(i18n("Projects")))} ${navRow("chats", ICON.chats, String(i18n("Chats")))}
+            ${navRow("files", ICON.files, String(i18n("Files")))} ${navRow("crons", ICON.crons, String(i18n("Crons")))}
+            ${navRow("webhooks", ICON.webhooks, String(i18n("Webhooks")))} ${navRow("keychain", ICON.keychain, String(i18n("Keychain")))}
+            ${navRow("deploys", ICON.deploys, String(i18n("Apps")))} ${navRow("memory", ICON.memory, String(i18n("Memory")))}
+            ${navRow("skills", ICON.skills, String(i18n("Skills")))}
             ${
               can("admin")
-                ? html`<a class="navrow" href=${ADMIN_HOME_URL} title="Admin">
-                    ${icon(ShieldCheck, 17)}<span>Admin</span>
+                ? html`<a class="navrow" href=${ADMIN_HOME_URL} title=${i18n("Admin")}>
+                    ${icon(ShieldCheck, 17)}<span>${i18n("Admin")}</span>
                   </a>`
                 : nothing
             }
@@ -548,18 +547,18 @@ export function renderSidebarTop(): void {
       </nav>
       ${html`
         <div class="section-label recents-label">
-          <span>Sessions</span>
+          <span>${i18n("Sessions")}</span>
           <button
             class="chat-search-open"
             type="button"
-            aria-label="Search your chats"
+            aria-label=${i18n("Search your chats")}
             @click=${() => {
               hideTooltip();
               openChatSearch();
             }}
-            @mouseenter=${(e: Event) => showTooltip(e.currentTarget as Element, `Search your chats · ${SEARCH_HOTKEY_LABEL}`)}
+            @mouseenter=${(e: Event) => showTooltip(e.currentTarget as Element, tr("Search your chats · {hotkey}")(SEARCH_HOTKEY_LABEL))}
             @mouseleave=${(e: Event) => hideTooltip(e.currentTarget as Element)}
-            @focus=${(e: Event) => showTooltip(e.currentTarget as Element, `Search your chats · ${SEARCH_HOTKEY_LABEL}`)}
+            @focus=${(e: Event) => showTooltip(e.currentTarget as Element, tr("Search your chats · {hotkey}")(SEARCH_HOTKEY_LABEL))}
             @blur=${(e: Event) => hideTooltip(e.currentTarget as Element)}
           >
             ${icon(Search, 13)}
@@ -569,10 +568,10 @@ export function renderSidebarTop(): void {
             type="button"
             role="switch"
             aria-checked=${sessionsState.webOnly ? "true" : "false"}
-            title=${sessionsState.webOnly ? "Showing web chats only" : "Hide non-web conversations"}
+            title=${sessionsState.webOnly ? i18n("Showing web chats only") : i18n("Hide non-web conversations")}
             @click=${toggleWebOnly}
           >
-            <span>Web only</span><span class="mini-switch"><span class="mini-knob"></span></span>
+            <span>${i18n("Web only")}</span><span class="mini-switch"><span class="mini-knob"></span></span>
           </button>
         </div>
       `}
@@ -737,7 +736,7 @@ function onSidebarKeydown(event: KeyboardEvent): void {
 }
 
 function updateSidebarToggleLabels(): void {
-  const collapseLabel = sidebarOpen ? "Hide sidebar" : "Show sidebar";
+  const collapseLabel = sidebarOpen ? String(i18n("Hide sidebar")) : String(i18n("Show sidebar"));
   (appEl as HTMLElement).querySelectorAll<HTMLButtonElement>(".sidebar-toggle").forEach((btn) => {
     btn.setAttribute("aria-expanded", sidebarOpen ? "true" : "false");
     btn.setAttribute("title", collapseLabel);
@@ -753,7 +752,7 @@ export function renderPane(
   controls: unknown = "",
 ): void {
   if (!appState.mainEl) return;
-  const refreshLabel = `Refresh ${title.toLowerCase()}`;
+  const refreshLabel = tr("Refresh {title}")(title.toLowerCase());
   const host = document.createElement("div");
   host.className = "pane";
   render(

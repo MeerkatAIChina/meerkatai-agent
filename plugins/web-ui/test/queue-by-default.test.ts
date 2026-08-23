@@ -11,8 +11,8 @@ const server = readFileSync(new URL("../server/index.ts", import.meta.url), "utf
 test("a mid-turn Enter queues the message — it no longer steers the running turn", () => {
   assert.match(composer, /if \(agent\.state\.isStreaming\) return queueDraft\(agent\);/);
   assert.doesNotMatch(composer, /isStreaming\) return sendSteer\(/);
-  assert.match(composer, /placeholder = "Queue a message for after this turn…"/);
-  assert.match(composer, /title="Queue for after this turn"/);
+  assert.match(composer, /placeholder = String\(i18n\("Queue a message for after this turn…"\)\)/);
+  assert.match(composer, /title=\$\{i18n\("Queue for after this turn"\)\}/);
 });
 
 // The whole point of the rewrite: the queue is core's, not the browser's. A queued message is a

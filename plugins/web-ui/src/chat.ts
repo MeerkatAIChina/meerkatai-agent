@@ -3,6 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { UserMessageWithAttachments } from "@earendil-works/pi-web-ui";
 import "./marked-dedupe";
+import { i18n, tr } from "./locale/index.ts";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import "@mariozechner/mini-lit/dist/CodeBlock.js";
 import { html, nothing, render, type TemplateResult } from "lit";
@@ -179,7 +180,7 @@ export function createChatSurface(
       const listed = sessionsState.list.find((session) => session.id === sourceId);
       const page = await transcriptFetcher(sourceId, { tailTurns: TAIL_TURNS });
       const source = listed ?? page.session;
-      if (!source) throw new Error("missing source session");
+      if (!source) throw new Error(String(i18n("missing source session")));
       await sessionOpener(source, Promise.resolve(page));
     },
     current: () => Boolean(chatState.forkSession && chatState.sessionId === chatState.forkSession.id),
@@ -419,7 +420,7 @@ export function createChatSurface(
       try {
         await agent.continue();
       } catch (err) {
-        if (agent === chatState.agent) ctx.composer.state.error = errMessage(err, "Could not start the conversation.");
+        if (agent === chatState.agent) ctx.composer.state.error = errMessage(err, String(i18n("Could not start the conversation.")));
       } finally {
         if (agent === chatState.agent) {
           agent.streamFn = normalStreamFn;
@@ -533,7 +534,7 @@ export function createChatSurface(
       );
     } catch (err) {
       if (agent === chatState.agent) {
-        ctx.composer.state.error = err instanceof Error ? err.message : "Could not send the approval.";
+        ctx.composer.state.error = err instanceof Error ? err.message : String(i18n("Could not send the approval."));
         drawActiveChat(agent);
       }
     } finally {
@@ -655,7 +656,7 @@ export function createChatSurface(
     try {
       await (recorded ? agent.continue() : agent.prompt(next!.text));
     } catch (err) {
-      if (agent === chatState.agent) ctx.composer.state.error = errMessage(err, "Could not follow the queued message.");
+      if (agent === chatState.agent) ctx.composer.state.error = errMessage(err, String(i18n("Could not follow the queued message.")));
     } finally {
       if (agent === chatState.agent) {
         agent.streamFn = normalStreamFn;
@@ -709,7 +710,7 @@ export function createChatSurface(
       await agent.continue();
     } catch (err) {
       if (agent === chatState.agent)
-        ctx.composer.state.error = err instanceof Error ? err.message : "Could not reconnect to the running task.";
+        ctx.composer.state.error = err instanceof Error ? err.message : String(i18n("Could not reconnect to the running task."));
     } finally {
       if (agent === chatState.agent) {
         agent.streamFn = normalStreamFn;
@@ -820,19 +821,18 @@ export function createChatSurface(
             <div class="readonly-banner">
               ${
                 surfaceOf(s) === "slack"
-                  ? html`This conversation lives in Slack. Replies happen
-                    there.${
+                  ? html`${i18n("This conversation lives in Slack. Replies happen there.")}${
                       sessionSlackUrl(s)
                         ? html` <a
                             class="readonly-banner-link"
                             href=${sessionSlackUrl(s)!}
                             target="_blank"
                             rel="noreferrer"
-                            >Open in Slack</a
+                            >${i18n("Open in Slack")}</a
                           >`
                         : nothing
                     }`
-                  : "This conversation is read-only here."
+                  : i18n("This conversation is read-only here.")
               }
             </div>
             ${backgroundActivityStrip()}
@@ -847,7 +847,7 @@ export function createChatSurface(
                           @click=${async (e: Event) => {
                             const btn = e.currentTarget as HTMLButtonElement;
                             btn.disabled = true;
-                            btn.textContent = "Loading earlier messages\u2026";
+                            btn.textContent = String(i18n("Loading earlier messages…"));
                             try {
                               const page = await fetchTranscript(
                                 s.id,
@@ -877,11 +877,11 @@ export function createChatSurface(
                               });
                             } catch {
                               btn.disabled = false;
-                              btn.textContent = "Show earlier messages";
+                              btn.textContent = String(i18n("Show earlier messages"));
                             }
                           }}
                         >
-                          Show earlier messages
+                          ${i18n("Show earlier messages")}
                         </button>
                       </div>`
                     : nothing
@@ -891,7 +891,7 @@ export function createChatSurface(
                     ? (chatState.inheritedExpanded ? [...chatState.inheritedMessages, ...messages] : messages).map(
                         (m, i) => chatMessage(m, i),
                       )
-                    : html`<div class="empty compact">No readable messages in this conversation.</div>`
+                    : html`<div class="empty compact">${i18n("No readable messages in this conversation.")}</div>`
                 }
                 ${ctx.composer.state.error ? html`<div class="composer-error inline">${ctx.composer.state.error}</div>` : nothing}
               </div>
@@ -914,9 +914,13 @@ export function createChatSurface(
         <div class="assistant-body">
           <div class="streaming-text">
             ${markdown(
-              "Hi — I'm your AI teammate 👋\n\n" +
-                "I run tasks on a computer of my own and work across your connected tools — Slack, Google Workspace, GitHub, Linear, and the open web — and I remember what we work on together.\n\n" +
-                "Want to get set up? Tell me your name and what you're working on, and I'll take it from there — or just ask me anything to dive straight in.",
+              String(
+                i18n(
+                  "Hi — I'm your AI teammate 👋\n\n" +
+                    "I run tasks on a computer of my own and work across your connected tools — Slack, Google Workspace, GitHub, Linear, and the open web — and I remember what we work on together.\n\n" +
+                    "Want to get set up? Tell me your name and what you're working on, and I'll take it from there — or just ask me anything to dive straight in.",
+                ),
+              ),
             )}
           </div>
         </div>
@@ -1006,7 +1010,7 @@ export function createChatSurface(
     const snippet = last ? messageText(last).trim() : "";
     if (tier === "strip") {
       return html`
-        <button type="button" class="pane-strip" title="Expand this pane" @click=${() => ctx.onExpand?.()}>
+        <button type="button" class="pane-strip" title=${i18n("Expand this pane")} @click=${() => ctx.onExpand?.()}>
           <span class="pane-strip-text">${now ?? snippet}</span>
           ${icon(Maximize2, 13)}
         </button>
@@ -1014,18 +1018,18 @@ export function createChatSurface(
     }
     return html`
       <section class="pane-card" aria-live="polite">
-        ${now ? html`<div class="pane-card-now"><span class="pane-card-now-label">Now</span><span class="pane-card-now-text">${now}</span></div>` : nothing}
+        ${now ? html`<div class="pane-card-now"><span class="pane-card-now-label">${i18n("Now")}</span><span class="pane-card-now-text">${now}</span></div>` : nothing}
         ${snippet ? html`<div class="pane-card-last">${snippet}</div>` : nothing}
       </section>
     `;
   }
 
   function paneNowLine(agent: Agent): string | null {
-    if (activePendingApprovals().length) return "Needs your approval";
+    if (activePendingApprovals().length) return String(i18n("Needs your approval"));
     if (agent.state.isStreaming || chatState.resolvingApprovals.size > 0) {
       const work = chatState.liveWork ?? { status: "thinking", activity: [] };
       const summary = liveWorkSummary(work);
-      if (!summary) return "Thinking…";
+      if (!summary) return String(i18n("Thinking…"));
       return summary.detail ? `${summary.label} — ${summary.detail}` : summary.label;
     }
     return null;
@@ -1063,7 +1067,7 @@ export function createChatSurface(
           ${
             ctx.composer.state.dragging
               ? html`<div class="drop-overlay">
-                  <div class="drop-overlay-card">${icon(Files, 30)}<span>Drop files or folders to attach</span></div>
+                  <div class="drop-overlay-card">${icon(Files, 30)}<span>${i18n("Drop files or folders to attach")}</span></div>
                 </div>`
               : nothing
           }
@@ -1136,7 +1140,7 @@ export function createChatSurface(
         ? s.id === chatState.sessionId
         : Boolean(chatState.threadRef) && s.threadRef === chatState.threadRef,
     );
-    const title = session?.title?.trim() || "New chat";
+    const title = session?.title?.trim() || String(i18n("New chat"));
     const crumb = scope && !scope.startsWith("personal:") ? scopeTitle(scope, chatState.contextName) : null;
     const forkedFrom =
       chatState.forkSession && chatState.sessionId === chatState.forkSession.id
@@ -1172,7 +1176,7 @@ export function createChatSurface(
       <header class="chat-topbar">
         <div class="chat-heading">
           <div class="chat-title">${title}</div>
-          <div class="chat-subtitle">${readOnly ? "Read-only" : detail}</div>
+          <div class="chat-subtitle">${readOnly ? i18n("Read-only") : detail}</div>
         </div>
         <div class="topbar-actions">
           ${
@@ -1184,7 +1188,7 @@ export function createChatSurface(
           }
           <button
             class="icon-btn subtle"
-            title="Refresh conversations"
+            title=${i18n("Refresh conversations")}
             @click=${() => void refreshSessions({ refreshContexts: true })}
           >
             ${icon(RefreshCw, 17)}
@@ -1251,7 +1255,7 @@ export function createChatSurface(
       const steered = Boolean((message as { steered?: boolean }).steered);
       return html`
         <article class="message-row user-row ${steered ? "steered-row" : ""}" data-index=${index}>
-          ${steered ? html`<div class="steer-label">↪ steered the running task</div>` : nothing}
+          ${steered ? html`<div class="steer-label">↪ ${i18n("steered the running task")}</div>` : nothing}
           <div class="message-bubble user-bubble">
             ${markdown(messageText(message))}
             ${attachments.length ? html`<div class="message-files">${attachments.map(userAttachmentBadge)}</div>` : nothing}
@@ -1279,7 +1283,7 @@ export function createChatSurface(
             ${showWork ? workBlock(work, isStreaming) : nothing} ${assistantContent(msg, isStreaming, showWork)}
             ${assistantFileList(deliveredFiles)}
             ${msg.stopReason === "error" && msg.errorMessage ? html`<div class="composer-error inline">${msg.errorMessage}</div>` : nothing}
-            ${msg.stopReason === "aborted" ? html`<div class="stopped-note">${icon(Ban, 13)}<span>Stopped</span></div>` : nothing}
+            ${msg.stopReason === "aborted" ? html`<div class="stopped-note">${icon(Ban, 13)}<span>${i18n("Stopped")}</span></div>` : nothing}
             ${isStreaming ? nothing : messageMeta(msg, index)}
           </div>
         </article>
@@ -1301,8 +1305,8 @@ export function createChatSurface(
             ? html`<button
                 class="msg-copy"
                 type="button"
-                title="Copy"
-                aria-label="Copy message"
+                title=${i18n("Copy")}
+                aria-label=${i18n("Copy message")}
                 @click=${(e: Event) => void copyMessage(text, e.currentTarget as HTMLButtonElement)}
               >
                 ${icon(Copy, 13)}
@@ -1314,8 +1318,8 @@ export function createChatSurface(
             ? html`<button
                 class="msg-copy msg-fork"
                 type="button"
-                title="Fork conversation from here"
-                aria-label="Fork conversation from here"
+                title=${i18n("Fork conversation from here")}
+                aria-label=${i18n("Fork conversation from here")}
                 @click=${() => void forkFromMessage(index)}
               >
                 ${icon(GitFork, 13)}
@@ -1360,7 +1364,7 @@ export function createChatSurface(
       await refreshSessions({ silent: true });
       renderList();
     } catch (err) {
-      ctx.composer.state.error = errMessage(err, "Could not fork the conversation.");
+      ctx.composer.state.error = errMessage(err, String(i18n("Could not fork the conversation.")));
       drawActiveChat();
     }
   }
@@ -1397,19 +1401,19 @@ export function createChatSurface(
   function connectorWidget(link: ConnectorLink): TemplateResult {
     const name =
       CONNECTOR_NAMES[link.provider] ??
-      (link.provider ? link.provider[0]!.toUpperCase() + link.provider.slice(1) : "your account");
+      (link.provider ? link.provider[0]!.toUpperCase() + link.provider.slice(1) : String(i18n("your account")));
     if (link.provider && connectedConnectors.has(link.provider)) {
       return html`<div class="connector-widget connected" role="status">
         <span class="connector-widget-icon">${icon(Check, 18)}</span>
         <span class="connector-widget-text"
-          ><strong>Connected ${name}</strong><small>Authorized — its tools work here now</small></span
+          ><strong>${tr("Connected {name}")(name)}</strong><small>${i18n("Authorized — its tools work here now")}</small></span
         >
       </div>`;
     }
     return html`<a class="connector-widget" href=${withReturnTo(link.url)} target="_blank" rel="noreferrer">
       <span class="connector-widget-icon">${icon(Plug, 18)}</span>
       <span class="connector-widget-text"
-        ><strong>Connect ${name}</strong><small>Authorize access in a new tab</small></span
+        ><strong>${tr("Connect {name}")(name)}</strong><small>${i18n("Authorize access in a new tab")}</small></span
       >
       ${icon(ChevronRight, 16)}
     </a>`;
@@ -1432,7 +1436,7 @@ export function createChatSurface(
       if (chunk.type === "thinking" && chunk.thinking.trim()) {
         parts.push(
           html`<details class="thinking">
-            <summary>${sheenLabel("Thinking", isStreaming)}</summary>
+            <summary>${sheenLabel(String(i18n("Thinking")), isStreaming)}</summary>
             ${markdown(chunk.thinking)}
           </details>`,
         );
@@ -1496,7 +1500,7 @@ export function createChatSurface(
   }
 
   function typingRow(): TemplateResult {
-    return html`<div class="thinking-placeholder">${sheenLabel("Thinking", true)}</div>`;
+    return html`<div class="thinking-placeholder">${sheenLabel(String(i18n("Thinking")), true)}</div>`;
   }
 
   function syncWorkTicker(): void {
@@ -1620,7 +1624,7 @@ export function createChatSurface(
       bgPanel.error = "";
     } catch (e) {
       if (seq !== bgPanel.fetchSeq) return;
-      bgPanel.error = errMessage(e, "Failed to load background activity.");
+      bgPanel.error = errMessage(e, String(i18n("Failed to load background activity.")));
     } finally {
       if (seq === bgPanel.fetchSeq) {
         bgPanel.loading = false;
@@ -1686,9 +1690,9 @@ export function createChatSurface(
 
   function timeLeft(expiresAt: number): string {
     const mins = Math.round((expiresAt - Date.now()) / 60_000);
-    if (mins <= 0) return "expiring";
-    if (mins < 60) return `${mins}m left`;
-    return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m left`;
+    if (mins <= 0) return String(i18n("expiring"));
+    if (mins < 60) return tr("{mins}m left")(mins);
+    return tr("{h}h {m}m left")(Math.floor(mins / 60), String(mins % 60).padStart(2, "0"));
   }
 
   function backgroundActivityStrip(): TemplateResult | typeof nothing {
@@ -1705,10 +1709,10 @@ export function createChatSurface(
           type="button"
           class="bg-activity-strip"
           aria-expanded=${String(bgPanel.open)}
-          title=${bgPanel.open ? "Hide background activity" : "Work continuing on the agent's computer — click to inspect"}
+          title=${bgPanel.open ? i18n("Hide background activity") : i18n("Work continuing on the agent's computer — click to inspect")}
           @click=${toggleBackgroundPanel}
         >
-          ${icon(Activity, 13)}<span class="bg-activity-label">${label ?? "Background activity"}</span>
+          ${icon(Activity, 13)}<span class="bg-activity-label">${label ?? i18n("Background activity")}</span>
           <span class="bg-activity-toggle">${icon(ChevronRight, 14)}</span>
         </button>
         ${bgPanel.open ? backgroundPanelBody() : nothing}
@@ -1719,10 +1723,10 @@ export function createChatSurface(
   function backgroundPanelBody(): TemplateResult {
     const d = bgPanel.detail;
     const empty = d && d.jobs.length === 0 && d.watches.length === 0 && d.crons.length === 0;
-    return html`<div class="bg-panel" role="region" aria-label="Background activity">
+    return html`<div class="bg-panel" role="region" aria-label=${i18n("Background activity")}>
       ${bgPanel.error ? html`<div class="bg-panel-note">${bgPanel.error}</div>` : nothing}
-      ${!d && bgPanel.loading ? html`<div class="bg-panel-note">Loading…</div>` : nothing}
-      ${empty && !bgPanel.error ? html`<div class="bg-panel-note">Nothing running here anymore.</div>` : nothing}
+      ${!d && bgPanel.loading ? html`<div class="bg-panel-note">${i18n("Loading…")}</div>` : nothing}
+      ${empty && !bgPanel.error ? html`<div class="bg-panel-note">${i18n("Nothing running here anymore.")}</div>` : nothing}
       ${d ? d.jobs.map((j) => backgroundJobRow(j)) : nothing}
       ${d ? d.watches.map((w) => backgroundWatchRow(w)) : nothing}
       ${d ? d.crons.map((c) => backgroundCronRow(c)) : nothing}
@@ -1734,7 +1738,9 @@ export function createChatSurface(
     const out = bgPanel.output.get(j.processId);
     const status =
       out?.state === "exited"
-        ? `exited${out.exitCode !== undefined ? ` (${out.exitCode})` : ""}`
+        ? out.exitCode !== undefined
+          ? tr("exited ({code})")(out.exitCode)
+          : String(i18n("exited"))
         : timeLeft(j.expiresAt);
     return html`
       <div class="bg-row ${open ? "open" : ""}">
@@ -1742,15 +1748,15 @@ export function createChatSurface(
           type="button"
           class="bg-row-head"
           aria-expanded=${String(open)}
-          title=${open ? "Hide output" : "Show live output"}
+          title=${open ? i18n("Hide output") : i18n("Show live output")}
           @click=${() => toggleJobOutput(j.processId)}
         >
           ${icon(Terminal, 13)}
           <code class="bg-row-cmd">${j.command}</code>
-          <span class="bg-row-meta">started ${relTime(j.startedAt)} · ${status}</span>
+          <span class="bg-row-meta">${tr("started {time}")(relTime(j.startedAt))} · ${status}</span>
           <span class="bg-row-toggle">${icon(ChevronRight, 13)}</span>
         </button>
-        ${open ? html`<pre class="bg-row-output">${out ? out.text || "(no output yet)" : "Loading output…"}</pre>` : nothing}
+        ${open ? html`<pre class="bg-row-output">${out ? out.text || i18n("(no output yet)") : i18n("Loading output…")}</pre>` : nothing}
       </div>
     `;
   }
@@ -1760,8 +1766,8 @@ export function createChatSurface(
       <div class="bg-row watch">
         <div class="bg-row-head static">
           ${icon(Clock3, 13)}
-          <span class="bg-row-cmd">Cron — ${c.title ?? "scheduled task"}</span>
-          <span class="bg-row-meta">${c.nextFireAt ? `next fire ${nextFireIn(c.nextFireAt)}` : "paused"}</span>
+          <span class="bg-row-cmd">${tr("Cron — {title}")(c.title ?? String(i18n("scheduled task")))}</span>
+          <span class="bg-row-meta">${c.nextFireAt ? tr("next fire {when}")(nextFireIn(c.nextFireAt)) : i18n("paused")}</span>
         </div>
       </div>
     `;
@@ -1769,22 +1775,22 @@ export function createChatSurface(
 
   function nextFireIn(at: number): string {
     const mins = Math.round((at - Date.now()) / 60_000);
-    if (mins <= 0) return "due now";
-    if (mins < 60) return `in ${mins}m`;
-    if (mins < 1440) return `in ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
-    return `in ${Math.floor(mins / 1440)}d`;
+    if (mins <= 0) return String(i18n("due now"));
+    if (mins < 60) return tr("in {mins}m")(mins);
+    if (mins < 1440) return tr("in {h}h {m}m")(Math.floor(mins / 60), String(mins % 60).padStart(2, "0"));
+    return tr("in {d}d")(Math.floor(mins / 1440));
   }
 
   function backgroundWatchRow(w: SessionBackgroundView["watches"][number]): TemplateResult {
-    const what = w.pattern ? `output matching /${w.pattern}/` : "any new output";
+    const what = w.pattern ? tr("output matching /{pattern}/")(w.pattern) : String(i18n("any new output"));
     const note = w.instructions?.trim();
     return html`
       <div class="bg-row watch">
         <div class="bg-row-head static">
           ${icon(Radar, 13)}
-          <span class="bg-row-cmd">Watch — wakes on ${what}${note ? ` · “${note}”` : ""}</span>
+          <span class="bg-row-cmd">${tr("Watch — wakes on {what}")(what)}${note ? ` · “${note}”` : ""}</span>
           <span class="bg-row-meta"
-            >armed ${relTime(w.createdAt)}${w.lastFiredAt ? ` · last fired ${relTime(w.lastFiredAt)}` : ""} ·
+            >${tr("armed {time}")(relTime(w.createdAt))}${w.lastFiredAt ? ` · ${tr("last fired {time}")(relTime(w.lastFiredAt))}` : ""} ·
             ${timeLeft(w.expiresAt)}</span
           >
         </div>
@@ -1800,7 +1806,7 @@ export function createChatSurface(
     const expandable = Boolean(summary?.detail);
     const expanded = expandable && liveWorkExpanded;
     let title = "";
-    if (expandable) title = liveWorkExpanded ? "Show less" : "Show more";
+    if (expandable) title = liveWorkExpanded ? String(i18n("Show less")) : String(i18n("Show more"));
     return html`
       <section class="live-work-dock ${expanded ? "expanded" : ""}" aria-live="polite">
         <button
@@ -1813,7 +1819,7 @@ export function createChatSurface(
         >
           ${summary ? html`<span class="tool-icon">${icon(summary.icon, 15)}</span>` : nothing}
           <span class="live-work-label"
-            >${summary ? summary.label : sheenLabel(`Thinking${usedToolsSuffix(work)}`, true)}</span
+            >${summary ? summary.label : sheenLabel(`${String(i18n("Thinking"))}${usedToolsSuffix(work)}`, true)}</span
           >
           ${summary?.detail ? html`<span class="live-work-detail">${summary.detail}</span>` : nothing}
           ${expandable ? html`<span class="live-work-toggle">${icon(ChevronRight, 14)}</span>` : nothing}
@@ -1835,7 +1841,7 @@ export function createChatSurface(
       const verb = active ? (TOOL_META[tool] ?? UNKNOWN_TOOL).active : null;
       return {
         icon: RefreshCw,
-        label: verb ? `${verb} interrupted — resuming…` : "Interrupted — resuming…",
+        label: verb ? tr("{verb} interrupted — resuming…")(verb) : String(i18n("Interrupted — resuming…")),
         detail: active ? toolDetail(tool, call, (active.result?.payload ?? {}) as ToolPayload) : "",
       };
     }
@@ -1860,7 +1866,7 @@ export function createChatSurface(
     const secs = elapsedSeconds(row.call?.createdAt) || workSeconds(work);
     return {
       icon: meta.icon,
-      label: secs > 0 ? `${meta.active} for ${secs}s` : meta.active,
+      label: secs > 0 ? tr("{label} for {secs}s")(meta.active, secs) : meta.active,
       detail: toolDetail(tool, call, result),
     };
   }
@@ -1884,19 +1890,19 @@ export function createChatSurface(
   }
 
   function workedLabel(prefix: string, secs: number): string {
-    return secs > 0 ? `${prefix} for ${secs}s` : prefix;
+    return secs > 0 ? tr("{prefix} for {secs}s")(prefix, secs) : prefix;
   }
 
   function usedToolsSuffix(work: WorkBlock): string {
     const n = work.activity.filter((a) => a.type === "tool_call").length;
-    return n > 0 ? ` (used ${n} tool${n === 1 ? "" : "s"})` : "";
+    return n > 0 ? tr(" (used {n} tools)")(n) : "";
   }
 
   function workLabel(work: WorkBlock): string {
-    if (work.stale && (work.status === "thinking" || work.status === "working")) return "Interrupted — resuming…";
-    if (work.status === "thinking") return "Thinking";
+    if (work.stale && (work.status === "thinking" || work.status === "working")) return String(i18n("Interrupted — resuming…"));
+    if (work.status === "thinking") return String(i18n("Thinking"));
     const secs = workSeconds(work);
-    return work.status === "working" ? `Working for ${secs}s` : workedLabel("Worked", secs);
+    return work.status === "working" ? tr("Working for {secs}s")(secs) : workedLabel(String(i18n("Worked")), secs);
   }
 
   function workBlock(work: WorkBlock, isStreaming: boolean): TemplateResult {
@@ -1952,10 +1958,10 @@ export function createChatSurface(
 
   function segmentSummaryLabel(items: TimelineItem[], work: WorkBlock): string {
     const tools = items.filter((it) => it.kind === "tool").length;
-    if (tools > 0) return `${tools} tool call${tools === 1 ? "" : "s"}`;
+    if (tools > 0) return tr("{tools} tool calls")(tools);
     const secs = workSeconds(work);
-    if (work.status === "failed") return secs > 0 ? `Failed after ${secs}s` : "Failed";
-    return workedLabel("Worked", secs);
+    if (work.status === "failed") return secs > 0 ? tr("Failed after {secs}s")(secs) : String(i18n("Failed"));
+    return workedLabel(String(i18n("Worked")), secs);
   }
 
   function approvalSummaryView(a: PendingApproval, expanded = false): TemplateResult {
@@ -1963,11 +1969,11 @@ export function createChatSurface(
     const truncated = a.command.includes("\n") || a.command.length > 80;
     return html`
       <div class="approval-head">
-        <span class="approval-title">Approval needed</span>
+        <span class="approval-title">${i18n("Approval needed")}</span>
         ${a.reason ? html`<span class="approval-reason-badge">${a.reason}</span>` : nothing}
       </div>
       ${a.summary ? html`<div class="approval-summary-line">${a.summary}</div>` : nothing}
-      ${a.purpose ? html`<div class="approval-why"><span class="approval-why-label">Why</span>${a.purpose}</div>` : nothing}
+      ${a.purpose ? html`<div class="approval-why"><span class="approval-why-label">${i18n("Why")}</span>${a.purpose}</div>` : nothing}
       ${
         expanded
           ? html`<code class="approval-cmd approval-cmd-full">${a.command}</code>`
@@ -1976,7 +1982,7 @@ export function createChatSurface(
       ${
         a.matched
           ? html`<div class="approval-match">
-              <span class="approval-match-label">Triggered by</span
+              <span class="approval-match-label">${i18n("Triggered by")}</span
               ><code class="approval-match-snippet">${a.matched}</code>
             </div>`
           : nothing
@@ -1984,7 +1990,7 @@ export function createChatSurface(
       ${
         !expanded && truncated
           ? html`<details class="approval-full">
-              <summary>Show full command</summary>
+              <summary>${i18n("Show full command")}</summary>
               <code class="approval-cmd">${a.command}</code>
             </details>`
           : nothing
@@ -2024,26 +2030,26 @@ export function createChatSurface(
   }
 
   const TOOL_META: Record<string, { icon: IconNode; active: string; done: string; attempted: string }> = {
-    execute: { icon: Terminal, active: "Running command", done: "Ran command", attempted: "Tried command" },
-    read: { icon: FileText, active: "Reading file", done: "Read file", attempted: "Tried reading file" },
-    write: { icon: Pencil, active: "Writing file", done: "Wrote file", attempted: "Tried writing file" },
-    publish: { icon: Rocket, active: "Publishing", done: "Published", attempted: "Tried publishing" },
-    recall: { icon: Brain, active: "Searching memory", done: "Searched memory", attempted: "Tried searching memory" },
-    memory: { icon: Brain, active: "Using memory", done: "Used memory", attempted: "Tried using memory" },
+    execute: { icon: Terminal, active: String(i18n("Running command")), done: String(i18n("Ran command")), attempted: String(i18n("Tried command")) },
+    read: { icon: FileText, active: String(i18n("Reading file")), done: String(i18n("Read file")), attempted: String(i18n("Tried reading file")) },
+    write: { icon: Pencil, active: String(i18n("Writing file")), done: String(i18n("Wrote file")), attempted: String(i18n("Tried writing file")) },
+    publish: { icon: Rocket, active: String(i18n("Publishing")), done: String(i18n("Published")), attempted: String(i18n("Tried publishing")) },
+    recall: { icon: Brain, active: String(i18n("Searching memory")), done: String(i18n("Searched memory")), attempted: String(i18n("Tried searching memory")) },
+    memory: { icon: Brain, active: String(i18n("Using memory")), done: String(i18n("Used memory")), attempted: String(i18n("Tried using memory")) },
     history: {
       icon: ScrollText,
-      active: "Searching history",
-      done: "Searched history",
-      attempted: "Tried searching history",
+      active: String(i18n("Searching history")),
+      done: String(i18n("Searched history")),
+      attempted: String(i18n("Tried searching history")),
     },
     background: {
       icon: Terminal,
-      active: "Managing process",
-      done: "Managed process",
-      attempted: "Tried managing process",
+      active: String(i18n("Managing process")),
+      done: String(i18n("Managed process")),
+      attempted: String(i18n("Tried managing process")),
     },
   };
-  const UNKNOWN_TOOL = { icon: Wrench, active: "Working", done: "Finished step", attempted: "Tried step" };
+  const UNKNOWN_TOOL = { icon: Wrench, active: String(i18n("Working")), done: String(i18n("Finished step")), attempted: String(i18n("Tried step")) };
 
   function firstLine(s: string, max = 72): string {
     const line = s.split("\n")[0] ?? "";
@@ -2066,16 +2072,16 @@ export function createChatSurface(
       case "recall":
       case "history": {
         const q = call.query ?? result.query ?? "";
-        return result.count !== undefined ? `${q} · ${result.count} result${result.count === 1 ? "" : "s"}` : q;
+        return result.count !== undefined ? tr("{q} · {count} results")(q, result.count) : q;
       }
       case "memory": {
         const action = call.action ?? result.action ?? "";
         const q = call.query ?? result.query ?? "";
         let detail = q;
         if (result.count !== undefined) {
-          detail = `${q} · ${result.count} result${result.count === 1 ? "" : "s"}`;
+          detail = tr("{q} · {count} results")(q, result.count);
         } else if (result.added !== undefined) {
-          detail = `${result.added} saved`;
+          detail = tr("{added} saved")(result.added);
         }
         return [action, detail].filter(Boolean).join(" ");
       }
@@ -2095,8 +2101,7 @@ export function createChatSurface(
       return html`<div class="tool-row tool-approval">
         <span class="tool-icon">${icon(Wrench, 15)}</span>
         <span class="tool-label"
-          >Approval
-          needed${p.reason ? html` <span class="tool-detail">${firstLine(p.reason, 90)}</span>` : nothing}</span
+          >${i18n("Approval needed")}${p.reason ? html` <span class="tool-detail">${firstLine(p.reason, 90)}</span>` : nothing}</span
         >
       </div>`;
     }
@@ -2106,14 +2111,14 @@ export function createChatSurface(
     const meta = TOOL_META[tool] ?? UNKNOWN_TOOL;
     const kind = toolRowKind(row, status);
     let label = meta.attempted;
-    if (kind === "approval") label = "Approval needed";
-    else if (kind === "running") label = stale ? `${meta.active} — interrupted` : meta.active;
+    if (kind === "approval") label = String(i18n("Approval needed"));
+    else if (kind === "running") label = stale ? tr("{label} — interrupted")(meta.active) : meta.active;
     else if (kind === "ok") label = meta.done;
     let why = "";
     if (kind === "approval") why = firstLine(result.reason ?? "", 90);
     else if (kind === "failed") why = firstLine(result.error ?? result.reason ?? "", 90);
     const base = kind === "approval" ? "" : toolDetail(tool, call, result);
-    const attempts = row.attempts && row.attempts > 1 ? `${row.attempts} attempts` : "";
+    const attempts = row.attempts && row.attempts > 1 ? tr("{attempts} attempts")(row.attempts) : "";
     const detail = [base, why, attempts].filter(Boolean).join(" · ");
     const classes = ["tool-row", `tool-${kind}`].join(" ");
     const head = html`<span class="tool-icon">${icon(meta.icon, 15)}</span>
@@ -2133,11 +2138,11 @@ export function createChatSurface(
       <div class="code-card-head"><span class="code-card-lang">bash</span></div>
       <pre class="code-card-body">${out}</pre>
       <div class="code-card-foot">
-        exit ${result.code ?? 0}${result.timedOut ? " · timed out" : ""}
+        ${tr("exit {code}")(result.code ?? 0)}${result.timedOut ? ` · ${String(i18n("timed out"))}` : ""}
         ${
           activity?.truncated
             ? html`<button class="show-full-btn" type="button" @click=${() => void loadFullEntry(work, activity)}>
-                Show full output
+                ${i18n("Show full output")}
               </button>`
             : nothing
         }
@@ -2159,7 +2164,7 @@ export function createChatSurface(
         a === activity ? { ...a, payload: full.payload, truncated: false } : a,
       );
     } catch (err) {
-      ctx.composer.state.error = errMessage(err, "Couldn't load the full output.");
+      ctx.composer.state.error = errMessage(err, String(i18n("Couldn't load the full output.")));
     }
     redrawTranscript();
   }
