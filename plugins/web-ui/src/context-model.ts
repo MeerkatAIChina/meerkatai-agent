@@ -10,6 +10,7 @@ import {
 } from "./model-options";
 import { fieldSelect } from "./ui";
 import { errMessage } from "../../chassis/src/errors";
+import { i18n, tr } from "./locale/index.ts";
 
 const INHERIT = "";
 
@@ -51,7 +52,7 @@ export async function loadContextModel(scopeId: string, onChange: () => void): P
   contextModelState.config = config;
   contextModelState.loading = false;
   if (!config) {
-    contextModelState.notice = "Couldn't load this project's model.";
+    contextModelState.notice = String(i18n("Couldn't load this project's model."));
     contextModelState.noticeKind = "error";
   }
   redraw();
@@ -113,13 +114,16 @@ async function choose(scope: string, value: string, effort?: string): Promise<vo
     if (seq !== loadSeq) return;
     contextModelState.config = config;
     const effortNote = config.scopeOverride?.effortLevel
-      ? ` · ${effortLabel(config.scopeOverride.effortLevel as EffortLevel)} effort`
+      ? tr(" · {effort} effort")(effortLabel(config.scopeOverride.effortLevel as EffortLevel))
       : "";
-    contextModelState.notice = `Saved — new conversations here run on ${labelForRuntime(config, config.effective)}${effortNote}.`;
+    contextModelState.notice = tr("Saved — new conversations here run on {label}{effort}.")(
+      labelForRuntime(config, config.effective),
+      effortNote,
+    );
     contextModelState.noticeKind = "saved";
   } catch (e) {
     if (seq !== loadSeq) return;
-    contextModelState.notice = errMessage(e, "Couldn't change the model — try again.");
+    contextModelState.notice = errMessage(e, String(i18n("Couldn't change the model — try again.")));
     contextModelState.noticeKind = "error";
   } finally {
     if (seq === loadSeq) {
@@ -135,13 +139,13 @@ export function contextModelSection(scopeId: string): TemplateResult | typeof no
   if (contextModelState.scope !== scopeId) return nothing;
   if (contextModelState.loading)
     return html`<section class="context-panel context-model" aria-labelledby="context-model-title">
-      <h2 class="context-panel-title" id="context-model-title">Model</h2>
-      <div class="context-panel-loading">Loading…</div>
+      <h2 class="context-panel-title" id="context-model-title">${i18n("Model")}</h2>
+      <div class="context-panel-loading">${i18n("Loading…")}</div>
     </section>`;
   const config = contextModelState.config;
   if (!config)
     return html`<section class="context-panel context-model" aria-labelledby="context-model-title">
-      <h2 class="context-panel-title" id="context-model-title">Model</h2>
+      <h2 class="context-panel-title" id="context-model-title">${i18n("Model")}</h2>
       <span class="context-model-status error" aria-live="polite">${contextModelState.notice}</span>
     </section>`;
   const options = optionsFor(config);
@@ -157,15 +161,15 @@ export function contextModelSection(scopeId: string): TemplateResult | typeof no
     <section class="context-panel context-model" aria-labelledby="context-model-title">
       <div class="context-panel-heading">
         <div>
-          <h2 class="context-panel-title" id="context-model-title">Model</h2>
-          <p class="context-panel-copy">The model every conversation here starts on.</p>
+          <h2 class="context-panel-title" id="context-model-title">${i18n("Model")}</h2>
+          <p class="context-panel-copy">${i18n("The model every conversation here starts on.")}</p>
         </div>
       </div>
       ${fieldSelect({
         id: "context-model-select",
         className: "context-model-select",
         focusKey: "context-model",
-        ariaLabel: "Default model for this project",
+        ariaLabel: String(i18n("Default model for this project")),
         disabled: contextModelState.saving,
         value: selected,
         onChange: (value) => {
@@ -176,7 +180,7 @@ export function contextModelSection(scopeId: string): TemplateResult | typeof no
         },
         options: [
           html`<option value=${INHERIT} ?selected=${selected === INHERIT}>
-            Org default (${labelForRuntime(config, config.orgDefault)})
+            ${tr("Org default ({label})")(labelForRuntime(config, config.orgDefault))}
           </option>`,
           ...options.map(
             (o) =>
@@ -185,7 +189,7 @@ export function contextModelSection(scopeId: string): TemplateResult | typeof no
           ...(stalePin
             ? [
                 html`<option value=${selected} selected>
-                  ${labelForRuntime(config, config.scopeOverride!)} — no longer offered
+                  ${tr("{label} — no longer offered")(labelForRuntime(config, config.scopeOverride!))}
                 </option>`,
               ]
             : []),
@@ -194,18 +198,18 @@ export function contextModelSection(scopeId: string): TemplateResult | typeof no
       ${
         showEffort
           ? html`<label class="context-model-effort">
-              <span class="context-model-effort-label">Default effort</span>
+              <span class="context-model-effort-label">${i18n("Default effort")}</span>
               ${fieldSelect({
                 id: "context-effort-select",
                 className: "context-effort-select",
                 focusKey: "context-effort",
-                ariaLabel: "Default effort level for this project",
+                ariaLabel: String(i18n("Default effort level for this project")),
                 disabled: contextModelState.saving,
                 value: effort,
                 compact: true,
                 onChange: (value) => void choose(scopeId, selected, value),
                 options: effortOptions.map(
-                  (o) => html`<option value=${o.value} ?selected=${o.value === effort}>${o.label}</option>`,
+                  (o) => html`<option value=${o.value} ?selected=${o.value === effort}>${i18n(o.label)}</option>`,
                 ),
               })}
             </label>`
@@ -214,10 +218,10 @@ export function contextModelSection(scopeId: string): TemplateResult | typeof no
       <p class="context-model-hint">
         ${
           selected === INHERIT
-            ? "Following the org default — it changes when the org's does."
-            : "Pinned for this project. Anyone in a chat can still pick a different model for that conversation."
+            ? i18n("Following the org default — it changes when the org's does.")
+            : i18n("Pinned for this project. Anyone in a chat can still pick a different model for that conversation.")
         }
-        ${isSlack ? " The pinned Slack header (when enabled below) names this model." : ""}
+        ${isSlack ? i18n(" The pinned Slack header (when enabled below) names this model.") : ""}
       </p>
       ${
         contextModelState.notice

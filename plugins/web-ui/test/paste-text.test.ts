@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { activateZh } from "./zh-locale.ts";
 import {
   base64ToBytes,
   base64ToText,
@@ -8,6 +9,8 @@ import {
   pasteChipLabel,
   textToBase64,
 } from "../src/paste-text.ts";
+
+await activateZh();
 
 test("text round-trips through base64, including multi-byte characters", () => {
   for (const text of ["plain ascii", "emoji 🎉 and accents éàü", "日本語のテキスト", "x".repeat(200_000)]) {
@@ -32,10 +35,10 @@ test("base64ToBytes strips a data-URL prefix", () => {
 });
 
 test("pasteChipLabel formats character counts", () => {
-  assert.equal(pasteChipLabel(950), "Pasted text · 950 chars");
-  assert.equal(pasteChipLabel(4200), "Pasted text · 4.2k chars");
-  assert.equal(pasteChipLabel(9980), "Pasted text · 10k chars");
-  assert.equal(pasteChipLabel(123_456), "Pasted text · 123k chars");
+  assert.equal(pasteChipLabel(950), "粘贴的文本 · 950 字符");
+  assert.equal(pasteChipLabel(4200), "粘贴的文本 · 4.2k 字符");
+  assert.equal(pasteChipLabel(9980), "粘贴的文本 · 10k 字符");
+  assert.equal(pasteChipLabel(123_456), "粘贴的文本 · 123k 字符");
 });
 
 test("insertIntoDraft appends to an empty draft without padding", () => {

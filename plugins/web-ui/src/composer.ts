@@ -539,7 +539,7 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
                             label: effortLabel(composerState.effortLevel),
                             title: String(i18n("Effort")),
                             selected: composerState.effortLevel,
-                            options: EFFORT_LEVELS,
+                            options: EFFORT_LEVELS.map((option) => ({ ...option, label: effortLabel(option.value) })),
                             disabled: inputBlocked,
                             onSelect: (value: string) => selectEffort(value as EffortLevel, agent),
                           })
@@ -918,7 +918,7 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
                                   aria-pressed=${option.value === composerState.effortLevel ? "true" : "false"}
                                   @click=${() => selectEffort(option.value, agent)}
                                 >
-                                  ${option.label}
+                                  ${i18n(option.label)}
                                 </button>
                               `,
                             )}
@@ -1443,11 +1443,27 @@ export function createComposerSurface(ctx: ConvCtx): ComposerSurface {
     return bytesToBase64(new Uint8Array(await file.arrayBuffer()));
   }
 
+  function attachmentFallbackNotice(err: unknown, file: File): string {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith("Unsupported file type:")) return "";
+    if (message.startsWith("Failed to process PDF:"))
+      return tr("{name}: could not extract the PDF text — attached as a raw file instead.")(file.name);
+    if (message.startsWith("Failed to process DOCX:"))
+      return tr("{name}: could not extract the DOCX text — attached as a raw file instead.")(file.name);
+    if (message.startsWith("Failed to process PPTX:"))
+      return tr("{name}: could not extract the PPTX text — attached as a raw file instead.")(file.name);
+    if (message.startsWith("Failed to process Excel:"))
+      return tr("{name}: could not extract the Excel text — attached as a raw file instead.")(file.name);
+    return tr("{name}: could not process this file — attached as a raw file instead.")(file.name);
+  }
+
   async function loadAnyAttachment(file: File): Promise<Attachment> {
     try {
       const { loadAttachment } = await import("@earendil-works/pi-web-ui");
       return await loadAttachment(file);
-    } catch {
+    } catch (err) {
+      const notice = attachmentFallbackNotice(err, file);
+      if (notice) composerState.error = notice;
       return {
         id: `${file.name}_${Date.now()}_${Math.random()}`,
         type: "document",

@@ -1,5 +1,6 @@
 import { getModel } from "@earendil-works/pi-ai";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { tr } from "./locale/index.ts";
 
 const KNOWN_PROVIDERS = ["anthropic", "openai", "openrouter"] as const;
 
@@ -48,7 +49,7 @@ export function getBaseModel(id: string, fallback?: { name: string; provider: st
       maxTokens: 8_192,
     } as PiModel;
   }
-  throw new Error(`Unsupported model: ${id}`);
+  throw new Error(tr("Unsupported model: {id}")(id));
 }
 
 function cloneModel(model: PiModel, id: string, name: string): PiModel {

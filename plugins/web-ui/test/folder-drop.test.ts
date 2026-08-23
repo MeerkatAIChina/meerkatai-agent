@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
+import { activateZh } from "./zh-locale.ts";
 import {
   FolderDropError,
   folderToZipFile,
@@ -9,6 +10,8 @@ import {
   type DropEntryLike,
   type DropItemLike,
 } from "../src/folder-drop.ts";
+
+await activateZh();
 
 function fileEntry(name: string, contents = `contents of ${name}`): DropEntryLike {
   return {
@@ -98,7 +101,7 @@ test("file-count cap throws a composer-ready FolderDropError", async () => {
   const root = dirEntry("proj", [fileEntry("a.txt"), fileEntry("b.txt"), fileEntry("c.txt")]);
   await assert.rejects(folderToZipFile(root, { maxFiles: 2, maxBytes: Infinity }), (err: unknown) => {
     assert.ok(err instanceof FolderDropError);
-    assert.match(err.message, /proj.*too many files/);
+    assert.match(err.message, /proj.*文件太多/);
     return true;
   });
 });
@@ -107,7 +110,7 @@ test("byte cap throws a composer-ready FolderDropError", async () => {
   const root = dirEntry("proj", [fileEntry("a.txt", "x".repeat(100))]);
   await assert.rejects(folderToZipFile(root, { maxFiles: Infinity, maxBytes: 50 }), (err: unknown) => {
     assert.ok(err instanceof FolderDropError);
-    assert.match(err.message, /proj.*too big/);
+    assert.match(err.message, /proj.*太大/);
     return true;
   });
 });

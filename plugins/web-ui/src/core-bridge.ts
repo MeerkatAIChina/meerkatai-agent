@@ -5,6 +5,7 @@ import { swallow } from "../../chassis/src/errors.ts";
 import { groupDmText } from "./group-dm-label.ts";
 import { base64ToBytes } from "./paste-text.ts";
 import { defaultEffortForModel, harnessSupportsEffort } from "./model-options.ts";
+import { i18n, tr } from "./locale/index.ts";
 
 const BASE_URL = ((import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? "/").replace(/\/$/, "");
 
@@ -100,7 +101,7 @@ export function forkOriginDetails(
   if (!session.forkedFrom || session.forkBoundarySeq === undefined) return null;
   return {
     sessionId: session.forkedFrom.sessionId,
-    title: session.forkedFrom.title?.trim() || "another conversation",
+    title: session.forkedFrom.title?.trim() || String(i18n("another conversation")),
     ...(inheritedCount > 0 ? { messageCount: inheritedCount } : {}),
   };
 }
@@ -186,8 +187,8 @@ export function slackThreadUrl(workspaceUrl: string | null, threadRef: string): 
 
 export function sharedContextLabel(scopeId: string | null, name: string | null): string | null {
   if (!scopeId) return null;
-  if (scopeId.startsWith("channel:")) return name ? `#${name.replace(/^#/, "")}` : "Shared channel";
-  if (scopeId.startsWith("group:")) return groupDmText(name) ?? name ?? "Group";
+  if (scopeId.startsWith("channel:")) return name ? `#${name.replace(/^#/, "")}` : String(i18n("Shared channel"));
+  if (scopeId.startsWith("group:")) return groupDmText(name) ?? name ?? String(i18n("Group"));
   return null;
 }
 
@@ -433,7 +434,7 @@ async function toCoreAttachment(a: PiAttachment): Promise<CoreAttachment> {
   });
   if (!r.ok) {
     if (r.status === 401) reportSigninRequired(await r.json().catch(() => ({})));
-    throw new ApiError(`attachment upload failed: HTTP ${r.status}`, r.status);
+    throw new ApiError(tr("attachment upload failed: HTTP {status}")(r.status), r.status);
   }
   const { blobId, sizeBytes } = (await r.json()) as { blobId: string; sizeBytes: number };
   return { name: a.fileName, mimetype: a.mimeType, sizeBytes: sizeBytes ?? a.size, blobId };
@@ -581,7 +582,7 @@ export type SignalOutcome = { ok: true } | { ok: false; reason: string; replayed
 
 export async function signalLiveRun(slot: RunSlot, kind: "abort" | "steer", text?: string): Promise<SignalOutcome> {
   const run = slot.runId !== null ? { runId: slot.runId } : null;
-  if (!run) throw new Error("No active run to signal.");
+  if (!run) throw new Error(String(i18n("No active run to signal.")));
   try {
     await api(runPath(run.runId, "/signal"), {
       method: "POST",
@@ -642,7 +643,7 @@ export async function queueTurn(
     method: "POST",
     body: JSON.stringify(turnRequestBody(threadRef, text, agent.state.model, agent, getTurnOptions)),
   });
-  if (!submit.runId) throw new Error("Could not queue the message.");
+  if (!submit.runId) throw new Error(String(i18n("Could not queue the message.")));
   return { runId: submit.runId, text };
 }
 

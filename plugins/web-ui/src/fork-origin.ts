@@ -1,4 +1,5 @@
 import { html, nothing, type TemplateResult } from "lit";
+import { i18n, tr } from "./locale/index.ts";
 
 export interface ForkOriginView {
   title: string;
@@ -50,7 +51,7 @@ export function createForkOriginController<T>(options: {
       try {
         await options.navigate();
       } catch {
-        options.setError("You no longer have access to the original conversation.");
+        options.setError(String(i18n("You no longer have access to the original conversation.")));
         options.redraw();
       }
     },
@@ -67,7 +68,7 @@ export function createForkOriginController<T>(options: {
           options.state.inheritedLoaded = true;
         } catch {
           if (generation === toggleGeneration && options.current()) {
-            options.setError("Couldn't load the original conversation's history.");
+            options.setError(String(i18n("Couldn't load the original conversation's history.")));
             options.redraw();
           }
           return;
@@ -85,10 +86,10 @@ export function forkOriginView(view: ForkOriginView | null): TemplateResult | ty
   if (!view) return nothing;
   return html`<div class="fork-origin-row">
     <button class="fork-origin-badge" type="button" @click=${view.navigate}>
-      ${view.icon ?? nothing}<span>Forked from ${view.title}</span>${
-        view.messageCount ? html`<span>· ${view.messageCount} messages</span>` : nothing
+      ${view.icon ?? nothing}<span>${tr("Forked from {title}")(view.title)}</span>${
+        view.messageCount ? html`<span>· ${tr("{count} messages")(view.messageCount)}</span>` : nothing
       }
     </button>
-    <button class="fork-origin-toggle" type="button" @click=${view.toggle}>${view.expanded ? "hide" : "show"}</button>
+    <button class="fork-origin-toggle" type="button" @click=${view.toggle}>${view.expanded ? i18n("hide") : i18n("show")}</button>
   </div>`;
 }

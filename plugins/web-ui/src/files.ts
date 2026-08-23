@@ -2,6 +2,7 @@ import { html, nothing, render } from "lit";
 import { File, Image, Upload } from "lucide";
 import { api, reportSigninRequired, type SigninRequired, withBase } from "./core-bridge";
 import { errMessage } from "../../chassis/src/errors";
+import { i18n, tr } from "./locale/index.ts";
 import { browserRenderableImage, fieldSelect, formatBytes, icon, relTime } from "./ui";
 import { contextsState, ensureContexts, personalScopeId, scopeChip, scopeFilterControl } from "./contexts";
 import { appState } from "./shell";
@@ -89,10 +90,10 @@ function drawFiles(loading = false): void {
   }
   const visible = visibleFiles();
   const filtered = Boolean(filesScope || filesQuery.trim() || filesType !== "all" || filesOwnership !== "all");
-  let dropLabel = "Drop files here or choose files";
-  if (filesDragActive) dropLabel = "Drop files";
-  else if (filesUploading) dropLabel = "Uploading…";
-  const status = filesNotice || (loading && !fileRows.length ? "Loading files…" : "");
+  let dropLabel = String(i18n("Drop files here or choose files"));
+  if (filesDragActive) dropLabel = String(i18n("Drop files"));
+  else if (filesUploading) dropLabel = String(i18n("Uploading…"));
+  const status = filesNotice || (loading && !fileRows.length ? String(i18n("Loading files…")) : "");
   const uploadTarget = filesScope ?? personalScopeId();
   const scoped = Boolean(scopedSession.active);
   filesHost.classList.toggle("scoped-view", scoped);
@@ -101,8 +102,8 @@ function drawFiles(loading = false): void {
       ${scopedViewTopbar("files", drawFiles)}
       <div class="list-page-head">
         <div>
-          <h1 class="pane-title">Files</h1>
-          <div class="pane-subtitle">Files created, uploaded, or shared with you</div>
+          <h1 class="pane-title">${i18n("Files")}</h1>
+          <div class="pane-subtitle">${i18n("Files created, uploaded, or shared with you")}</div>
         </div>
         <div class="list-page-actions">
           ${
@@ -115,7 +116,7 @@ function drawFiles(loading = false): void {
                   void loadFiles(appState.viewRenderSeq);
                 })
           }<button class="btn primary" type="button" ?disabled=${filesUploading} @click=${pickFiles}>
-            ${icon(Upload, 15)}<span>Upload</span>
+            ${icon(Upload, 15)}<span>${i18n("Upload")}</span>
           </button>
         </div>
       </div>
@@ -134,11 +135,11 @@ function drawFiles(loading = false): void {
       </button>
       <div class="list-toolbar">
         <label class="list-search"
-          ><span class="sr-only">Search files</span
+          ><span class="sr-only">${i18n("Search files")}</span
           ><input
             type="search"
-            aria-label="Search files"
-            placeholder="Search file names and types…"
+            aria-label=${i18n("Search files")}
+            placeholder=${i18n("Search file names and types…")}
             .value=${filesQuery}
             @input=${(e: Event) => {
               filesQuery = (e.currentTarget as HTMLInputElement).value;
@@ -147,12 +148,12 @@ function drawFiles(loading = false): void {
             }}
         /></label>
         ${selectControl(
-          "Ownership",
+          String(i18n("Ownership")),
           filesOwnership,
           [
-            ["all", "All files"],
-            ["owned", "Yours"],
-            ["shared", "Shared"],
+            ["all", String(i18n("All files"))],
+            ["owned", String(i18n("Yours"))],
+            ["shared", String(i18n("Shared"))],
           ],
           (v) => {
             filesOwnership = v as typeof filesOwnership;
@@ -161,13 +162,13 @@ function drawFiles(loading = false): void {
           },
         )}
         ${selectControl(
-          "Type",
+          String(i18n("Type")),
           filesType,
           [
-            ["all", "All types"],
-            ["image", "Images"],
-            ["document", "Documents"],
-            ["other", "Other"],
+            ["all", String(i18n("All types"))],
+            ["image", String(i18n("Images"))],
+            ["document", String(i18n("Documents"))],
+            ["other", String(i18n("Other"))],
           ],
           (v) => {
             filesType = v as typeof filesType;
@@ -176,12 +177,12 @@ function drawFiles(loading = false): void {
           },
         )}
         ${selectControl(
-          "Sort",
+          String(i18n("Sort")),
           filesSort,
           [
-            ["newest", "Newest"],
-            ["oldest", "Oldest"],
-            ["name", "Name"],
+            ["newest", String(i18n("Newest"))],
+            ["oldest", String(i18n("Oldest"))],
+            ["name", String(i18n("Name"))],
           ],
           (v) => {
             filesSort = v as typeof filesSort;
@@ -190,8 +191,8 @@ function drawFiles(loading = false): void {
           },
         )}
       </div>
-      ${visible.length ? html`<div class="list-rows file-list">${visible.map(fileRow)}</div>` : html`<div class="empty compact">${filtered ? "No files match these filters." : "No files yet. Upload one here or ask the agent to create one."}</div>`}
-      ${filesNextCursor ? html`<div class="list-footer"><button class="btn" type="button" ?disabled=${filesLoadingMore} @click=${() => void loadMoreFiles()}>${filesLoadingMore ? "Loading…" : "Load more"}</button></div>` : nothing}
+      ${visible.length ? html`<div class="list-rows file-list">${visible.map(fileRow)}</div>` : html`<div class="empty compact">${filtered ? i18n("No files match these filters.") : i18n("No files yet. Upload one here or ask the agent to create one.")}</div>`}
+      ${filesNextCursor ? html`<div class="list-footer"><button class="btn" type="button" ?disabled=${filesLoadingMore} @click=${() => void loadMoreFiles()}>${filesLoadingMore ? i18n("Loading…") : i18n("Load more")}</button></div>` : nothing}
     `,
     filesHost,
   );
@@ -204,9 +205,9 @@ function fileRow(f: FileRow) {
     <span class="file-row-icon">${icon(isImage ? Image : File, 17)}</span>
     <span class="list-row-title"><span>${f.name}</span><span class="file-row-type">${f.mimetype}</span></span>
     <span class="list-row-meta"
-      >${scopeChip(fileScope(f))}<span class="badge">${f.kind}</span><span>${formatBytes(f.sizeBytes)}</span
+      >${scopeChip(fileScope(f))}<span class="badge">${i18n(f.kind)}</span><span>${formatBytes(f.sizeBytes)}</span
       ><span>${relTime(f.createdAt)}</span
-      >${f.openable ? html`<a class="btn compact" href=${contentUrl} target="_blank" rel="noreferrer">Open</a>` : html`<span>Unavailable</span>`}</span
+      >${f.openable ? html`<a class="btn compact" href=${contentUrl} target="_blank" rel="noreferrer">${i18n("Open")}</a>` : html`<span>${i18n("Unavailable")}</span>`}</span
     >
   </article>`;
 }
@@ -229,7 +230,7 @@ async function uploadOne(file: globalThis.File): Promise<void> {
   });
   if (!r.ok) {
     const text = await r.text();
-    let message = `Upload failed (${r.status})`;
+    let message = tr("Upload failed ({status})")(r.status);
     try {
       const parsed = JSON.parse(text) as { message?: string; error?: string } & SigninRequired;
       if (r.status === 401) reportSigninRequired(parsed);
@@ -245,7 +246,7 @@ async function uploadFiles(files: globalThis.File[]): Promise<void> {
   const picked = files.filter((f) => f.size >= 0);
   if (!picked.length || filesUploading) return;
   filesUploading = true;
-  filesNotice = `Uploading ${picked.length} ${picked.length === 1 ? "file" : "files"}…`;
+  filesNotice = tr("Uploading {n} files…")(picked.length);
   drawFiles();
   let uploaded = 0;
   try {
@@ -253,10 +254,10 @@ async function uploadFiles(files: globalThis.File[]): Promise<void> {
       await uploadOne(file);
       uploaded++;
     }
-    filesNotice = `Uploaded ${picked.length} ${picked.length === 1 ? "file" : "files"}.`;
+    filesNotice = tr("Uploaded {n} files.")(picked.length);
     await loadFiles(appState.viewRenderSeq);
   } catch (e) {
-    filesNotice = `${uploaded ? `Uploaded ${uploaded} of ${picked.length}. ` : ""}${errMessage(e, "Upload failed.")}`;
+    filesNotice = `${uploaded ? `${tr("Uploaded {done} of {total}.")(uploaded, picked.length)} ` : ""}${errMessage(e, String(i18n("Upload failed.")))}`;
     if (uploaded) await loadFiles(appState.viewRenderSeq);
     else drawFiles();
   } finally {
@@ -332,7 +333,7 @@ async function loadMoreFiles(): Promise<void> {
     filesNextCursor = page.nextCursor;
   } catch (e) {
     if (requestSeq !== filesRequestSeq) return;
-    filesNotice = errMessage(e, "Failed to load more files.");
+    filesNotice = errMessage(e, String(i18n("Failed to load more files.")));
   }
   if (requestSeq !== filesRequestSeq) return;
   filesLoadingMore = false;
@@ -365,7 +366,7 @@ async function loadAllFiles(): Promise<void> {
     }
   } catch (e) {
     if (requestSeq !== filesRequestSeq) return;
-    filesNotice = errMessage(e, "Failed to load all matching files.");
+    filesNotice = errMessage(e, String(i18n("Failed to load all matching files.")));
   }
   if (requestSeq !== filesRequestSeq) return;
   filesLoadAllQueued = false;
@@ -387,7 +388,7 @@ async function loadFiles(seq: number): Promise<void> {
     void loadAllFiles();
   } catch (e) {
     if (requestSeq !== filesRequestSeq || seq !== appState.viewRenderSeq || appState.currentView !== "files") return;
-    filesNotice = errMessage(e, "Failed to load files.");
+    filesNotice = errMessage(e, String(i18n("Failed to load files.")));
   }
   drawFiles();
 }

@@ -10,7 +10,7 @@ const css = readFileSync(new URL("../src/shell.css", import.meta.url), "utf8");
 test("the pinned-header panel exists only for channel scopes and follows the org default", () => {
   assert.match(panel, /scopeId\.startsWith\("channel:"\)/);
   assert.match(panel, /\?selected=\$\{channelHeaderState\.configured === null\}/);
-  assert.match(panel, /Default \(\$\{channelHeaderState\.orgDefault \? "on" : "off"\}\)/);
+  assert.match(panel, /tr\("Default \(\{state\}\)"\)\(channelHeaderState\.orgDefault \? i18n\("on"\) : i18n\("off"\)\)/);
   assert.match(panel, /save\(scopeId, v === "default" \? null : v === "on"\)/);
 });
 

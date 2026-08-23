@@ -1,4 +1,5 @@
 import { sharedContextLabel, type CoreContext, type CoreProject, type CoreSession } from "./core-bridge.ts";
+import { i18n, tr } from "./locale/index.ts";
 
 type ProjectAwareContext = CoreContext & { project?: CoreProject };
 
@@ -86,11 +87,11 @@ export function groupProjectSessions(
 export function recencyGroup(ms: number, now = Date.now()): string {
   const d = new Date(now);
   const dayStart = (back: number): number => new Date(d.getFullYear(), d.getMonth(), d.getDate() - back).getTime();
-  if (ms >= dayStart(0)) return "Today";
-  if (ms >= dayStart(1)) return "Yesterday";
-  if (ms >= dayStart(6)) return "Previous 7 days";
-  if (ms >= dayStart(29)) return "Previous 30 days";
-  return "Older";
+  if (ms >= dayStart(0)) return String(i18n("Today"));
+  if (ms >= dayStart(1)) return String(i18n("Yesterday"));
+  if (ms >= dayStart(6)) return String(i18n("Previous 7 days"));
+  if (ms >= dayStart(29)) return String(i18n("Previous 30 days"));
+  return String(i18n("Older"));
 }
 
 export function withPendingSession(list: CoreSession[], pending: CoreSession): CoreSession[] {
@@ -176,9 +177,9 @@ export function backgroundLabel(
   crons: number,
 ): { jobs: number; watches: number; crons: number; label: string } | null {
   const parts: string[] = [];
-  if (jobs > 0) parts.push(`${jobs} background job${jobs === 1 ? "" : "s"} running`);
-  if (watches > 0) parts.push(`${watches} watch${watches === 1 ? "" : "es"} armed`);
-  if (crons > 0) parts.push(`${crons} cron${crons === 1 ? "" : "s"} scheduled here`);
+  if (jobs > 0) parts.push(tr(jobs === 1 ? "{count} background job running" : "{count} background jobs running")(jobs));
+  if (watches > 0) parts.push(tr(watches === 1 ? "{count} watch armed" : "{count} watches armed")(watches));
+  if (crons > 0) parts.push(tr(crons === 1 ? "{count} cron scheduled here" : "{count} crons scheduled here")(crons));
   return parts.length ? { jobs, watches, crons, label: parts.join(" · ") } : null;
 }
 

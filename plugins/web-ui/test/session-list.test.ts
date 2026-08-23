@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { activateZh } from "./zh-locale.ts";
 import {
   activityOf,
   applySessionState,
@@ -20,6 +21,8 @@ import {
   withoutUnsentPending,
 } from "../src/session-list.ts";
 import type { CoreSession } from "../src/core-bridge.ts";
+
+await activateZh();
 
 function pending(threadRef: string): CoreSession {
   return {
@@ -252,30 +255,30 @@ test("recencyGroup buckets by calendar day, then widening spans", () => {
   const now = new Date(2026, 6, 14, 15, 30).getTime();
   const day = 86_400_000;
   const midnight = new Date(2026, 6, 14, 0, 0).getTime();
-  assert.equal(recencyGroup(now, now), "Today");
-  assert.equal(recencyGroup(midnight, now), "Today", "first instant of today");
-  assert.equal(recencyGroup(midnight - 1, now), "Yesterday", "last instant of yesterday");
-  assert.equal(recencyGroup(midnight - day, now), "Yesterday");
-  assert.equal(recencyGroup(midnight - day - 1, now), "Previous 7 days");
-  assert.equal(recencyGroup(midnight - 6 * day, now), "Previous 7 days", "6 days back is still in the window");
-  assert.equal(recencyGroup(midnight - 6 * day - 1, now), "Previous 30 days");
-  assert.equal(recencyGroup(midnight - 29 * day, now), "Previous 30 days");
-  assert.equal(recencyGroup(midnight - 29 * day - 1, now), "Older");
+  assert.equal(recencyGroup(now, now), "今天");
+  assert.equal(recencyGroup(midnight, now), "今天", "first instant of today");
+  assert.equal(recencyGroup(midnight - 1, now), "昨天", "last instant of yesterday");
+  assert.equal(recencyGroup(midnight - day, now), "昨天");
+  assert.equal(recencyGroup(midnight - day - 1, now), "近 7 天");
+  assert.equal(recencyGroup(midnight - 6 * day, now), "近 7 天", "6 days back is still in the window");
+  assert.equal(recencyGroup(midnight - 6 * day - 1, now), "近 30 天");
+  assert.equal(recencyGroup(midnight - 29 * day, now), "近 30 天");
+  assert.equal(recencyGroup(midnight - 29 * day - 1, now), "更早");
 });
 
 test("recencyGroup anchors boundaries to calendar days, not fixed 24h offsets", () => {
   const now = new Date(2026, 6, 14, 15, 30).getTime();
-  assert.equal(recencyGroup(new Date(2026, 6, 13, 23, 59, 59).getTime(), now), "Yesterday");
-  assert.equal(recencyGroup(new Date(2026, 6, 13, 0, 0).getTime(), now), "Yesterday");
-  assert.equal(recencyGroup(new Date(2026, 6, 8, 0, 0).getTime(), now), "Previous 7 days");
-  assert.equal(recencyGroup(new Date(2026, 6, 7, 23, 59, 59).getTime(), now), "Previous 30 days");
-  assert.equal(recencyGroup(new Date(2026, 5, 15, 0, 0).getTime(), now), "Previous 30 days");
-  assert.equal(recencyGroup(new Date(2026, 5, 14, 23, 59, 59).getTime(), now), "Older");
+  assert.equal(recencyGroup(new Date(2026, 6, 13, 23, 59, 59).getTime(), now), "昨天");
+  assert.equal(recencyGroup(new Date(2026, 6, 13, 0, 0).getTime(), now), "昨天");
+  assert.equal(recencyGroup(new Date(2026, 6, 8, 0, 0).getTime(), now), "近 7 天");
+  assert.equal(recencyGroup(new Date(2026, 6, 7, 23, 59, 59).getTime(), now), "近 30 天");
+  assert.equal(recencyGroup(new Date(2026, 5, 15, 0, 0).getTime(), now), "近 30 天");
+  assert.equal(recencyGroup(new Date(2026, 5, 14, 23, 59, 59).getTime(), now), "更早");
 });
 
 test("recencyGroup treats a future timestamp (optimistic bump) as Today", () => {
   const now = new Date(2026, 6, 14, 15, 30).getTime();
-  assert.equal(recencyGroup(now + 60_000, now), "Today");
+  assert.equal(recencyGroup(now + 60_000, now), "今天");
 });
 
 test("reconcile replaces an optimistic working stamp with server truth", () => {
@@ -364,20 +367,20 @@ test("rowIndicators: awaitingInput maps through", () => {
 });
 
 test("backgroundLabel: jobs, watches and crons fold into one chip with a spoken label", () => {
-  assert.deepEqual(backgroundLabel(1, 0, 0), { jobs: 1, watches: 0, crons: 0, label: "1 background job running" });
+  assert.deepEqual(backgroundLabel(1, 0, 0), { jobs: 1, watches: 0, crons: 0, label: "1 个后台任务正在运行" });
   assert.deepEqual(backgroundLabel(2, 1, 0), {
     jobs: 2,
     watches: 1,
     crons: 0,
-    label: "2 background jobs running · 1 watch armed",
+    label: "2 个后台任务正在运行 · 1 个 watch 已启用",
   });
-  assert.deepEqual(backgroundLabel(0, 2, 0), { jobs: 0, watches: 2, crons: 0, label: "2 watches armed" });
-  assert.deepEqual(backgroundLabel(0, 0, 1), { jobs: 0, watches: 0, crons: 1, label: "1 cron scheduled here" });
+  assert.deepEqual(backgroundLabel(0, 2, 0), { jobs: 0, watches: 2, crons: 0, label: "2 个 watch 已启用" });
+  assert.deepEqual(backgroundLabel(0, 0, 1), { jobs: 0, watches: 0, crons: 1, label: "1 个定时任务" });
   assert.deepEqual(backgroundLabel(0, 1, 2), {
     jobs: 0,
     watches: 1,
     crons: 2,
-    label: "1 watch armed · 2 crons scheduled here",
+    label: "1 个 watch 已启用 · 2 个定时任务",
   });
   assert.equal(backgroundLabel(0, 0, 0), null, "nothing running, nothing to say");
 });
@@ -388,10 +391,10 @@ test("rowIndicators: background counts flow through backgroundLabel — zero cou
     jobs: 2,
     watches: 1,
     crons: 0,
-    label: "2 background jobs running · 1 watch armed",
+    label: "2 个后台任务正在运行 · 1 个 watch 已启用",
   });
   const cronOnly = rowIndicators({ ...saved("1", "web:u:x"), crons: 3 }, null);
-  assert.deepEqual(cronOnly.background, { jobs: 0, watches: 0, crons: 3, label: "3 crons scheduled here" });
+  assert.deepEqual(cronOnly.background, { jobs: 0, watches: 0, crons: 3, label: "3 个定时任务" });
   assert.equal(
     rowIndicators({ ...saved("1", "web:u:x"), backgroundJobs: 0, watches: 0, crons: 0 }, null).background,
     null,
@@ -405,7 +408,7 @@ test("conversationBackground: resolves the mounted conversation by session id", 
     jobs: 2,
     watches: 1,
     crons: 0,
-    label: "2 background jobs running · 1 watch armed",
+    label: "2 个后台任务正在运行 · 1 个 watch 已启用",
   });
 });
 
@@ -415,7 +418,7 @@ test("conversationBackground: falls back to threadRef while the conversation is 
     jobs: 0,
     watches: 1,
     crons: 0,
-    label: "1 watch armed",
+    label: "1 个 watch 已启用",
   });
 });
 

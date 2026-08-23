@@ -1,6 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { api } from "./core-bridge";
 import { errMessage } from "../../chassis/src/errors";
+import { i18n, tr } from "./locale/index.ts";
 import { fieldSelect } from "./ui";
 
 interface HeaderPinWire {
@@ -58,7 +59,7 @@ export async function loadChannelHeader(scopeId: string, onChange: () => void): 
     channelHeaderState.loaded = true;
   } catch (e) {
     if (seq !== loadSeq) return;
-    channelHeaderState.notice = errMessage(e, "Couldn't load the pinned header setting.");
+    channelHeaderState.notice = errMessage(e, String(i18n("Couldn't load the pinned header setting.")));
     channelHeaderState.noticeKind = "error";
   } finally {
     if (seq === loadSeq) {
@@ -83,11 +84,11 @@ async function save(scope: string, on: boolean | null): Promise<void> {
     if (seq !== loadSeq) return;
     channelHeaderState.on = r.on;
     channelHeaderState.configured = r.configured ?? null;
-    channelHeaderState.notice = r.on ? "Header pinned in the channel." : "Pinned header removed.";
+    channelHeaderState.notice = r.on ? String(i18n("Header pinned in the channel.")) : String(i18n("Pinned header removed."));
     channelHeaderState.noticeKind = "saved";
   } catch (e) {
     if (seq !== loadSeq) return;
-    channelHeaderState.notice = errMessage(e, "Couldn't update the pinned header setting.");
+    channelHeaderState.notice = errMessage(e, String(i18n("Couldn't update the pinned header setting.")));
     channelHeaderState.noticeKind = "error";
   } finally {
     if (seq === loadSeq) {
@@ -106,15 +107,15 @@ export function channelHeaderSection(scopeId: string): TemplateResult | typeof n
   if (!channelHeaderApplies(scopeId) || channelHeaderState.scope !== scopeId) return nothing;
   if (channelHeaderState.loading)
     return html`<section class="context-panel channel-header" aria-labelledby="channel-header-title">
-      <h2 class="context-panel-title" id="channel-header-title">Pinned header</h2>
-      <div class="context-panel-loading">Loading…</div>
+      <h2 class="context-panel-title" id="channel-header-title">${i18n("Pinned header")}</h2>
+      <div class="context-panel-loading">${i18n("Loading…")}</div>
     </section>`;
   return html`
     <section class="context-panel channel-header" aria-labelledby="channel-header-title">
       <div class="context-panel-heading">
         <div>
-          <h2 class="context-panel-title" id="channel-header-title">Pinned header</h2>
-          <p class="context-panel-copy">A small pinned message in the Slack channel naming the model in use.</p>
+          <h2 class="context-panel-title" id="channel-header-title">${i18n("Pinned header")}</h2>
+          <p class="context-panel-copy">${i18n("A small pinned message in the Slack channel naming the model in use.")}</p>
         </div>
       </div>
       ${
@@ -124,23 +125,24 @@ export function channelHeaderSection(scopeId: string): TemplateResult | typeof n
               className: "channel-header-select",
               focusKey: "channel-header",
               describedBy: "channel-header-hint",
-              ariaLabel: "Pinned Slack header for this channel",
+              ariaLabel: String(i18n("Pinned Slack header for this channel")),
               disabled: channelHeaderState.saving,
               value: configuredSelectValue(channelHeaderState.configured),
               onChange: (v) => void save(scopeId, v === "default" ? null : v === "on"),
               options: [
                 html`<option value="default" ?selected=${channelHeaderState.configured === null}>
-                  Default (${channelHeaderState.orgDefault ? "on" : "off"})
+                  ${tr("Default ({state})")(channelHeaderState.orgDefault ? i18n("on") : i18n("off"))}
                 </option>`,
-                html`<option value="on" ?selected=${channelHeaderState.configured === true}>On</option>`,
-                html`<option value="off" ?selected=${channelHeaderState.configured === false}>Off</option>`,
+                html`<option value="on" ?selected=${channelHeaderState.configured === true}>${i18n("On")}</option>`,
+                html`<option value="off" ?selected=${channelHeaderState.configured === false}>${i18n("Off")}</option>`,
               ],
             })
           : nothing
       }
       <p class="channel-header-hint" id="channel-header-hint">
-        Turning it on posts and pins the header; turning it off unpins and removes it. Default follows the org-wide
-        setting. Model changes edit the pinned message in place.
+        ${i18n(
+          "Turning it on posts and pins the header; turning it off unpins and removes it. Default follows the org-wide setting. Model changes edit the pinned message in place.",
+        )}
       </p>
       ${
         channelHeaderState.notice

@@ -44,6 +44,7 @@ import {
 } from "./split-layout";
 import { preservingFocus } from "./pane-focus";
 import { hideTooltip, showTooltip } from "./tooltip";
+import { i18n, tr } from "./locale/index.ts";
 import { icon } from "./ui";
 import { contextsState, scopeTitle } from "./contexts";
 import type { DensityTier } from "./density";
@@ -181,7 +182,7 @@ function buildDock(): DockviewApi {
     if (e.getData() === undefined) return;
     if (api.groups.length >= MAX_TILES && dropAddsTile(nativeDrop(api, e))) {
       e.preventDefault();
-      canvasToast(`${MAX_TILES} tiles is the limit — drop it on a tab strip instead`);
+      canvasToast(tr("{max} tiles is the limit — drop it on a tab strip instead")(MAX_TILES));
     }
   };
   api.onWillDrop(holdTileCap);
@@ -490,14 +491,14 @@ function openInPane(paneId: string, sessionId: string, threadRef: string): void 
 
 function roomForAnotherPane(): boolean {
   if ((dockApi?.panels.length ?? 0) < MAX_PANES) return true;
-  canvasToast(`${MAX_PANES} conversations is all one canvas holds — close one first`);
+  canvasToast(tr("{max} conversations is all one canvas holds — close one first")(MAX_PANES));
   return false;
 }
 
 function splitPane(paneId: string, edge: SplitEdge, params: PaneParams): void {
   if (!dockApi || !roomForAnotherPane()) return;
   if (dockApi.groups.length >= MAX_TILES) {
-    if (tabIntoPane(paneId, params)) canvasToast(`${MAX_TILES} tiles is the limit — opened as a tab`);
+    if (tabIntoPane(paneId, params)) canvasToast(tr("{max} tiles is the limit — opened as a tab")(MAX_TILES));
     return;
   }
   const fresh = addPane(params, { referencePanel: paneId, direction: edgeToDirection(edge) });
@@ -986,8 +987,8 @@ class PaneTab implements ITabRenderer {
     this.element.title = crumb ? `${crumb} / ${title}` : title;
     render(
       html`
-        ${working ? html`<span class="working-dot" ${ref(syncWorkingPulse)} title="Agent is working"></span>` : nothing}
-        ${awaiting ? html`<span class="awaiting-dot" title="Waiting for your reply" aria-label="Waiting for your reply"></span>` : nothing}
+        ${working ? html`<span class="working-dot" ${ref(syncWorkingPulse)} title=${i18n("Agent is working")}></span>` : nothing}
+        ${awaiting ? html`<span class="awaiting-dot" title=${i18n("Waiting for your reply")} aria-label=${i18n("Waiting for your reply")}></span>` : nothing}
         ${
           background
             ? html`<span
@@ -1012,8 +1013,8 @@ class PaneTab implements ITabRenderer {
             ? html`<button
                 class="icon-btn subtle split-tab-close"
                 type="button"
-                title="Close pane"
-                aria-label="Close pane"
+                title=${i18n("Close pane")}
+                aria-label=${i18n("Close pane")}
                 @click=${(e: Event) => {
                   e.stopPropagation();
                   closePanels([panel]);
@@ -1147,8 +1148,8 @@ class GroupActions implements IHeaderActionsRenderer {
           <button
             class="icon-btn subtle split-tools-btn ${this.menuOpen ? "active" : ""}"
             type="button"
-            title="Tools"
-            aria-label="Tools"
+            title=${i18n("Tools")}
+            aria-label=${i18n("Tools")}
             aria-haspopup="menu"
             aria-expanded=${this.menuOpen ? "true" : "false"}
             @click=${() => {

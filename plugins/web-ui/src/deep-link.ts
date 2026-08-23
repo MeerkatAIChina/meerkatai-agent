@@ -1,3 +1,5 @@
+import { i18n } from "./locale/index.ts";
+
 export const UI_BASE = ((import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? "/").replace(
   /\/$/,
   "",
@@ -12,11 +14,11 @@ export function deepLinkPath(
 ): string {
   const b = base.replace(/\/$/, "");
   if (view === "contexts" && contextScope) {
-    if (itemId) throw new Error("the contexts view is addressed by scope, not by item id");
+    if (itemId) throw new Error(String(i18n("the contexts view is addressed by scope, not by item id")));
     return `${b}/contexts?scope=${encodeURIComponent(contextScope)}`;
   }
   if (view !== "chats") return `${b}/${encodeURIComponent(view)}${itemId ? `/${encodeURIComponent(itemId)}` : ""}`;
-  if (itemId) throw new Error("the chats view is addressed by session, not by item id");
+  if (itemId) throw new Error(String(i18n("the chats view is addressed by session, not by item id")));
   return `${b}/${sessionId ? `?session=${encodeURIComponent(sessionId)}` : ""}`;
 }
 

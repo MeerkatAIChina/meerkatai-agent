@@ -2,6 +2,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import { ArrowLeft, Plus, RefreshCw, Search } from "lucide";
 import { icon } from "./ui";
+import { i18n } from "./locale/index.ts";
 import { scopeFilterControl } from "./contexts";
 
 export function listBackLink(label: string, onBack: () => void): TemplateResult {
@@ -34,8 +35,8 @@ export function listPageTpl(o: ListPageOpts): TemplateResult {
             ? html`<button
                 class="pane-refresh"
                 type="button"
-                title="Refresh"
-                aria-label="Refresh"
+                title=${i18n("Refresh")}
+                aria-label=${i18n("Refresh")}
                 @click=${o.onRefresh}
               >
                 ${icon(RefreshCw, 17)}

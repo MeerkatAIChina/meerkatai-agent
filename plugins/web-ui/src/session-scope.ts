@@ -1,6 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { Box, Brain, Clock3, Files, GitFork, KeyRound, Rocket } from "lucide";
 import { api } from "./core-bridge";
+import { i18n, tr } from "./locale/index.ts";
 import { icon } from "./ui";
 
 /** A session's context carried into the crons/files/memory views so the whole
@@ -101,7 +102,7 @@ export function sessionTopbarTpl(o: SessionTopbarOpts): TemplateResult {
     return html`<button
         class="session-crumb as-link"
         type="button"
-        title="Open the ${o.crumb} project"
+        title=${tr("Open the {crumb} project")(o.crumb)}
         @click=${(e: Event) => {
           e.stopPropagation();
           o.onCrumb!();
@@ -118,20 +119,22 @@ export function sessionTopbarTpl(o: SessionTopbarOpts): TemplateResult {
         ? html`<button
             class="session-fork-badge"
             type="button"
-            title="Forked from ${o.fork.title}${o.fork.onClick ? " — open the original" : ""}"
+            title=${tr("Forked from {title}")(o.fork.title) + (o.fork.onClick ? String(i18n(" — open the original")) : "")}
             ?disabled=${!o.fork.onClick}
             @click=${(e: Event) => {
               e.stopPropagation();
               o.fork?.onClick?.();
             }}
           >
-            ${icon(GitFork, 12)}<span>fork</span>
+            ${icon(GitFork, 12)}<span>${i18n("fork")}</span>
           </button>`
         : nothing
     }
   `;
   const headingTitle = o.crumb
-    ? `This chat runs in the ${o.crumb} context — the agent works with that context's files and memory, separate from your personal context.`
+    ? tr("This chat runs in the {crumb} context — the agent works with that context's files and memory, separate from your personal context.")(
+        o.crumb,
+      )
     : o.title;
   const tool = (t: SessionTool, glyph: Parameters<typeof icon>[0], hint: string) => {
     const count = o.toolCount?.(t) ?? null;
@@ -151,15 +154,15 @@ export function sessionTopbarTpl(o: SessionTopbarOpts): TemplateResult {
     <header class="chat-topbar session-topbar">
       ${
         o.onTitle
-          ? html`<button class="session-heading as-link" type="button" title="Back to this chat" @click=${o.onTitle}>
+          ? html`<button class="session-heading as-link" type="button" title=${i18n("Back to this chat")} @click=${o.onTitle}>
               ${heading}
             </button>`
           : html`<div class="session-heading" title=${headingTitle}>${heading}</div>`
       }
       <div class="topbar-actions session-tools">
-        ${tool("crons", Clock3, "Crons")} ${tool("files", Files, "Files")} ${tool("apps", Rocket, "Apps")}
-        ${tool("skills", Box, "Skills")} ${tool("memory", Brain, "Memory")}
-        ${tool("keychain", KeyRound, "Your keychain")}
+        ${tool("crons", Clock3, String(i18n("Crons")))} ${tool("files", Files, String(i18n("Files")))} ${tool("apps", Rocket, String(i18n("Apps")))}
+        ${tool("skills", Box, String(i18n("Skills")))} ${tool("memory", Brain, String(i18n("Memory")))}
+        ${tool("keychain", KeyRound, String(i18n("Your keychain")))}
       </div>
     </header>
   `;

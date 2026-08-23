@@ -10,7 +10,7 @@ import { JSDOM } from "jsdom";
 const core = createServer((req: IncomingMessage, res) => {
   if ((req.url ?? "").startsWith("/v1/surface-config")) {
     res.writeHead(200, { "content-type": "application/json" });
-    return void res.end(JSON.stringify({ branding: { accent: "#f0652f", mark: "Y", selfLabel: "QM" } }));
+    return void res.end(JSON.stringify({ branding: { accent: "#f0652f", mark: "Y", selfLabel: "MeerkatAI" } }));
   }
   res.writeHead(200, { "content-type": "application/json" });
   res.end("{}");
@@ -49,23 +49,23 @@ test("cold start: the FIRST shell render already carries accent, mark, and self-
   assert.match(html, /--brand-mark:"Y"/, "mark injected on the first render");
   assert.match(
     html,
-    /<meta name="brand-self-label" content="QM"\s*\/?>/,
+    /<meta name="brand-self-label" content="MeerkatAI"\s*\/?>/,
     "self-label meta injected regardless of template formatting",
   );
 });
 
 test("the vite template carries the self-label anchor the server injects into", () => {
   const template = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-  assert.match(template, /<meta name="brand-self-label" content="QM"\s*\/?>/);
+  assert.match(template, /<meta name="brand-self-label" content="MeerkatAI"\s*\/?>/);
 });
 
 test("injectBranding rewrites the tab title with the escaped label when a suffix is given", async () => {
   const { injectBranding } = await import("../../chassis/src/branding.ts");
   const shell =
-    '<!doctype html><html><head><title>QM · Web</title><meta name="brand-self-label" content="Agent" /></head><body></body></html>';
+    '<!doctype html><html><head><title>MeerkatAI · Web</title><meta name="brand-self-label" content="Agent" /></head><body></body></html>';
   const branded = injectBranding(shell, { selfLabel: "straylight" }, { titleSuffix: "· Web" });
   assert.match(branded, /<title>straylight · Web<\/title>/);
-  assert.match(injectBranding(shell, {}, { titleSuffix: "· Web" }), /<title>QM · Web<\/title>/);
+  assert.match(injectBranding(shell, {}, { titleSuffix: "· Web" }), /<title>MeerkatAI · Web<\/title>/);
   const hostile = injectBranding(shell, { selfLabel: "x</title><script>alert(1)</script>" }, { titleSuffix: "· Web" });
   assert.doesNotMatch(hostile, /<script>/i);
   assert.match(hostile, /<title>x&lt;\/title&gt;/);
@@ -82,5 +82,5 @@ test("brandName() reads the injected self-label and falls back to the product na
   } finally {
     delete (globalThis as { document?: Document }).document;
   }
-  assert.equal(brandName!(), "QM");
+  assert.equal(brandName!(), "MeerkatAI");
 });

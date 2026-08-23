@@ -1151,7 +1151,7 @@ export function createChatSurface(
       title,
       fork: forkedFrom
         ? {
-            title: forkedFrom.title?.trim() || "another conversation",
+            title: forkedFrom.title?.trim() || String(i18n("another conversation")),
             onClick: () => void forkOriginController.navigate(),
           }
         : null,

@@ -3,14 +3,14 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 import { brandName, copyText } from "../src/ui.ts";
 
-test("brand name defaults to QM", () => {
+test("brand name defaults to MeerkatAI", () => {
   const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: new JSDOM("").window.document,
   });
   try {
-    assert.equal(brandName(), "QM");
+    assert.equal(brandName(), "MeerkatAI");
   } finally {
     if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
     else delete (globalThis as { document?: Document }).document;

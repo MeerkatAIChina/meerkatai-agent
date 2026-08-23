@@ -14,7 +14,7 @@ test("the scope's model panel writes through the same endpoint the composer's de
 });
 
 test("the panel offers inheriting the org default and names what is serving now", () => {
-  assert.match(panel, /Org default \(\$\{labelForRuntime\(config, config\.orgDefault\)\}\)/);
+  assert.match(panel, /tr\("Org default \(\{label\}\)"\)\(labelForRuntime\(config, config\.orgDefault\)\)/);
   assert.match(panel, /!options\.some\(\(o\) => o\.value === selected\)/);
   assert.match(panel, /no longer offered/);
   assert.match(panel, /Saved — new conversations here run on/);
@@ -22,7 +22,7 @@ test("the panel offers inheriting the org default and names what is serving now"
 });
 
 test("the panel is labelled, focus-keyed, and disabled while saving", () => {
-  assert.match(panel, /ariaLabel: "Default model for this project"/);
+  assert.match(panel, /ariaLabel: String\(i18n\("Default model for this project"\)\)/);
   assert.match(panel, /focusKey: "context-model"/);
   assert.match(panel, /disabled: contextModelState\.saving/);
   assert.match(panel, /aria-live="polite"/);
@@ -57,7 +57,7 @@ test("an in-flight pick wins the saving re-render — no snap-back while the sav
 
 test("a pinned model offers a default effort level on the panel", () => {
   assert.match(panel, /harnessSupportsEffort\(pinnedHarness\)/);
-  assert.match(panel, /ariaLabel: "Default effort level for this project"/);
+  assert.match(panel, /ariaLabel: String\(i18n\("Default effort level for this project"\)\)/);
   assert.match(panel, /focusKey: "context-effort"/);
   // effort choices are filtered to what the pinned harness accepts
   assert.match(panel, /if \(value === "ultracode"\) return harnessId === "pi"/);

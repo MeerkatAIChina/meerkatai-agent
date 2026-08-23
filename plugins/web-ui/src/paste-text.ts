@@ -1,3 +1,5 @@
+import { tr } from "./locale/index.ts";
+
 export function bytesToBase64(bytes: Uint8Array): string {
   const parts: string[] = [];
   const chunkSize = 0x8000;
@@ -23,12 +25,15 @@ export function base64ToText(content: string): string {
   return new TextDecoder().decode(base64ToBytes(content));
 }
 
-export function pasteChipLabel(charCount: number): string {
+export function formatCharCount(charCount: number): string {
   const k = charCount / 1000;
-  let count = `${Math.round(k)}k`;
-  if (charCount < 1000) count = `${charCount}`;
-  else if (k < 9.95) count = `${k.toFixed(1)}k`;
-  return `Pasted text · ${count} chars`;
+  if (charCount < 1000) return `${charCount}`;
+  if (k < 9.95) return `${k.toFixed(1)}k`;
+  return `${Math.round(k)}k`;
+}
+
+export function pasteChipLabel(charCount: number): string {
+  return tr("Pasted text · {count} chars")(formatCharCount(charCount));
 }
 
 export function insertIntoDraft(draft: string, text: string, cursor: number | null): { draft: string; cursor: number } {

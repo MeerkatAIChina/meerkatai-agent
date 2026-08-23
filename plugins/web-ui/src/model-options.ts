@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBaseModel } from "./pi-models.ts";
+import { i18n } from "./locale/index.ts";
 
 export type ModelOptionValue = string;
 export interface ModelOption {
@@ -201,7 +202,7 @@ export const EFFORT_LEVELS: Array<{ value: EffortLevel; label: string }> = [
 ];
 
 export function effortLabel(level: EffortLevel): string {
-  return EFFORT_LEVELS.find((option) => option.value === level)?.label ?? level;
+  return String(i18n(EFFORT_LEVELS.find((option) => option.value === level)?.label ?? level));
 }
 
 export function harnessSupportsEffort(harnessId: string): boolean {
