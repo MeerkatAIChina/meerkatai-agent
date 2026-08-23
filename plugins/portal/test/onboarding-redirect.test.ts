@@ -62,7 +62,7 @@ test("unconfigured deployment: non-admin HTML navigation gets a not-set-up page,
     redirect: "manual",
   });
   assert.equal(r.status, 503);
-  assert.match(await r.text(), /isn&#39;t set up yet/);
+  assert.match(await r.text(), /尚未完成设置/);
 });
 
 test("unconfigured deployment: web-ui JSON requests still proxy through untouched", async () => {

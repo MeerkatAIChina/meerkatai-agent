@@ -82,22 +82,22 @@ function readAuthorizeRequest(
   const clientId = params.get("client_id") ?? "";
   const redirectUri = params.get("redirect_uri") ?? "";
   if (!clientId || !safeEqual(clientId, cfg.clientId))
-    return { problem: "This sign-in request is for an unknown application." };
+    return { problem: "此登录请求来自未知应用。" };
   if (!redirectUri || !safeEqual(redirectUri, cfg.redirectUri))
-    return { problem: "This sign-in request would return you to an address that is not registered." };
+    return { problem: "此登录请求的返回地址未注册。" };
   if ((params.get("response_type") ?? "") !== "code")
-    return { problem: "Only the authorization-code flow is supported." };
+    return { problem: "仅支持授权码（authorization-code）流程。" };
   if ((params.get("code_challenge_method") ?? "") !== "S256")
-    return { problem: "This sign-in request must use PKCE with S256." };
+    return { problem: "此登录请求必须使用 S256 方式的 PKCE。" };
   const codeChallenge = params.get("code_challenge") ?? "";
   if (!/^[A-Za-z0-9\-_]{43}$/.test(codeChallenge))
-    return { problem: "This sign-in request carries a malformed PKCE challenge." };
+    return { problem: "此登录请求携带的 PKCE challenge 格式错误。" };
   const state = params.get("state") ?? "";
   const nonce = params.get("nonce") ?? "";
-  if (!state || state.length > 512) return { problem: "This sign-in request is missing its state." };
-  if (!nonce || nonce.length > 512) return { problem: "This sign-in request is missing its nonce." };
+  if (!state || state.length > 512) return { problem: "此登录请求缺少 state。" };
+  if (!nonce || nonce.length > 512) return { problem: "此登录请求缺少 nonce。" };
   const scope = params.get("scope") ?? "openid";
-  if (!scope.split(/\s+/).includes("openid")) return { problem: "This sign-in request must ask for the openid scope." };
+  if (!scope.split(/\s+/).includes("openid")) return { problem: "此登录请求必须包含 openid scope。" };
   return { request: { clientId, redirectUri, state, nonce, codeChallenge, scope } };
 }
 
@@ -139,8 +139,8 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
       400,
       problemPage({
         brandName: brandName(),
-        heading: "This sign-in link no longer works",
-        msg: "Sign-in links work once and expire quickly. Request a fresh one and open it right away.",
+        heading: "此登录链接已失效",
+        msg: "登录链接只能使用一次且很快过期。请重新索取并立即打开。",
         ...(signInUrl ? { retryUrl: signInUrl } : {}),
       }),
     );
@@ -151,8 +151,8 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
       return problem(
         res,
         400,
-        "This sign-in link isn't valid",
-        "Start again from the page you were trying to reach.",
+        "此登录链接无效",
+        "请从你原本要访问的页面重新开始。",
         parsed.problem,
       );
     const sealed = await signer.sealRequest(parsed.request, cfg.requestTtlS, now());
@@ -197,7 +197,7 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
       raw = await readBody(req, MAX_FORM_BYTES);
     } catch (e) {
       if (e instanceof PayloadTooLargeError)
-        return problem(res, 413, "That didn't work", "The sign-in form sent more data than we accept.");
+        return problem(res, 413, "操作失败", "登录表单发送的数据超出接受范围。");
       throw e;
     }
     const form = new URLSearchParams(raw);
@@ -206,8 +206,8 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
       return problem(
         res,
         400,
-        "This sign-in page expired",
-        "Sign-in pages are only valid for a short while. Start again from the page you were trying to reach.",
+        "此登录页面已过期",
+        "登录页面只在短时间内有效。请从你原本要访问的页面重新开始。",
       );
     }
     const email = normalizeEmail(form.get("email") ?? "");
@@ -220,7 +220,7 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
           brandName: brandName(),
           action: formAction,
           requestToken: sealed.token,
-          problem: "That doesn't look like an email address.",
+          problem: "这看起来不是一个有效的邮箱地址。",
         }),
       );
     }
@@ -243,7 +243,7 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
     try {
       raw = await readBody(req, MAX_FORM_BYTES);
     } catch {
-      return problem(res, 413, "That didn't work", "The sign-in form sent more data than we accept.");
+      return problem(res, 413, "操作失败", "登录表单发送的数据超出接受范围。");
     }
     const opened = await signer.openLink(new URLSearchParams(raw).get("token") ?? "", now());
     if (!opened) return staleLink(res);
@@ -253,12 +253,12 @@ export function createAuthHandler(deps: AuthDeps): (req: IncomingMessage, res: S
       return problem(
         res,
         400,
-        "This sign-in link no longer works",
-        "The sign-in configuration changed after this link was sent. Start again.",
+        "此登录链接已失效",
+        "链接发出后登录配置发生了变化。请重新开始。",
       );
     }
     if (!emailAllowed(cfg, link.email)) {
-      return problem(res, 403, "This address can't sign in", "Your administrator has not allowed this email address.");
+      return problem(res, 403, "此地址无法登录", "管理员未允许此邮箱地址。");
     }
     const code = await signer.sealCode(
       {

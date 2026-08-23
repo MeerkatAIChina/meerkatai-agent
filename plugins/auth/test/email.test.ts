@@ -13,10 +13,10 @@ test("the sign-in email carries the link once in both alternatives and never a b
     link: "https://agent.example.test/idp/verify?token=abc.def.ghi",
     ttlMinutes: 15,
   });
-  assert.equal(message.subject, "Sign in to qm");
+  assert.equal(message.subject, "登录 qm");
   assert.match(message.text, /https:\/\/agent\.example\.test\/idp\/verify\?token=abc\.def\.ghi/);
   assert.match(message.html, /href="https:\/\/agent\.example\.test\/idp\/verify\?token=abc\.def\.ghi"/);
-  assert.match(message.text, /works once and expires in 15 minutes/);
+  assert.match(message.text, /只能使用一次，15 分钟后过期/);
 });
 
 test("the link is HTML-escaped so a crafted token cannot break out of the anchor", () => {

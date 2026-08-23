@@ -442,11 +442,11 @@ function cardPage(o: {
   help: string;
 }): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(o.title)} · Portal</title>
+<title>${escapeHtml(o.title)} · MeerkatAI</title>
 ${CARD_STYLE}
 </head>
 <body>
@@ -470,58 +470,58 @@ ${CARD_STYLE}
 
 export function signInErrorHtml(detail: string): string {
   return cardPage({
-    title: "Sign-in failed",
-    heading: "We couldn't sign you in",
-    msg: "Your sign-in didn't complete. This is usually temporary — trying again resolves most cases.",
+    title: "登录失败",
+    heading: "无法为你登录",
+    msg: "登录没有完成。这通常是暂时问题 — 重试一般就能解决。",
     icon: ALERT_ICON,
     warn: true,
-    extra: `<p class="reason"><strong>Details</strong>${escapeHtml(detail)}</p>`,
-    actions: `<a class="btn primary" href="/auth/login">Try signing in again</a>
-        <a class="btn ghost" href="/">Back to start</a>`,
-    help: "Still stuck? Make sure you're a member of the approved workspace, then contact your admin.",
+    extra: `<p class="reason"><strong>详情</strong>${escapeHtml(detail)}</p>`,
+    actions: `<a class="btn primary" href="/auth/login">重新尝试登录</a>
+        <a class="btn ghost" href="/">返回首页</a>`,
+    help: "还是不行？请确认你是获批工作区的成员，然后联系管理员。",
   });
 }
 
 export function nonAdminDeniedHtml(o: { sub: string; org: string }): string {
   return cardPage({
-    title: "No admin access",
-    heading: "You don't have admin access",
-    msg: "The Admin area is limited to governance admins. Your account is signed in and verified — it just isn't granted admin rights.",
+    title: "无管理员权限",
+    heading: "你没有管理员权限",
+    msg: "管理区仅限治理管理员使用。你的账户已登录并完成验证 — 只是没有被授予管理员权限。",
     icon: LOCK_ICON,
     wide: true,
     extra: `<div class="note">
-        <span class="who">Signed in as <b>${escapeHtml(o.sub)}</b> &middot; ${escapeHtml(o.org)}</span>
-        <p>Admin rights come from your organization's admin grants. If you need access, ask an existing admin to grant it.</p>
+        <span class="who">当前登录为 <b>${escapeHtml(o.sub)}</b> &middot; ${escapeHtml(o.org)}</span>
+        <p>管理员权限来自组织内管理员的授权。如需访问，请让现有管理员为你授权。</p>
       </div>`,
-    actions: `<a class="btn primary" href="/">Back to your surfaces</a>
-        <a class="btn ghost" href="/admin/">Try again</a>
-        <a class="btn ghost" href="/">Open the assistant instead</a>`,
-    help: "You can keep using every surface available to your account.",
+    actions: `<a class="btn primary" href="/">返回你的界面</a>
+        <a class="btn ghost" href="/admin/">重试</a>
+        <a class="btn ghost" href="/">改为打开助手</a>`,
+    help: "你可以继续使用账户可用的所有界面。",
   });
 }
 
 export function notConfiguredHtml(): string {
   return cardPage({
-    title: "Not set up yet",
-    heading: "This deployment isn't set up yet",
-    msg: "An admin still needs to finish setup by adding a model API key. Until then the assistant can't answer.",
+    title: "尚未完成设置",
+    heading: "此部署尚未完成设置",
+    msg: "管理员还需要添加模型 API key 才能完成设置，在此之前助手无法应答。",
     icon: ALERT_ICON,
     warn: true,
-    actions: `<a class="btn primary" href="/">Try again</a>`,
-    help: "Ask your admin to complete onboarding in the Admin area.",
+    actions: `<a class="btn primary" href="/">重试</a>`,
+    help: "请联系管理员在管理区完成初始化引导。",
   });
 }
 
 export function adminUnavailableHtml(): string {
   return cardPage({
-    title: "Admin temporarily unavailable",
-    heading: "Admin is temporarily unavailable",
-    msg: "We couldn't check your admin access right now. This is usually temporary — trying again resolves most cases.",
+    title: "管理区暂时不可用",
+    heading: "管理区暂时不可用",
+    msg: "现在无法检查你的管理员权限。这通常是暂时问题 — 重试一般就能解决。",
     icon: ALERT_ICON,
     warn: true,
-    actions: `<a class="btn primary" href="/admin/">Try again</a>
-        <a class="btn ghost" href="/">Back to your surfaces</a>`,
-    help: "If this keeps happening, the admin service may be down — contact your admin.",
+    actions: `<a class="btn primary" href="/admin/">重试</a>
+        <a class="btn ghost" href="/">返回你的界面</a>`,
+    help: "如果持续出现，管理区服务可能已宕机 — 请联系管理员。",
   });
 }
 
@@ -539,33 +539,33 @@ const connectStyle = (): string => `<style>
 </style>`;
 
 function connectPage(o: { title: string; body: string; action?: string }): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(o.title)} · Portal</title>${connectStyle()}</head>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(o.title)} · MeerkatAI</title>${connectStyle()}</head>
 <body><div class="card"><h1>${escapeHtml(o.title)}</h1><p>${escapeHtml(o.body)}</p>${o.action ?? ""}</div></body></html>`;
 }
 
 function providerLabel(provider: string): string {
   if (provider === "google") return "Google";
-  return provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "this app";
+  return provider ? provider.charAt(0).toUpperCase() + provider.slice(1) : "此应用";
 }
 
 export function connectErrorHtml(detail: string): string {
-  return connectPage({ title: "Can't connect", body: detail });
+  return connectPage({ title: "无法连接", body: detail });
 }
 
 export function connectWrongRecipientHtml(o: { provider: string; alreadyConnected: boolean }): string {
   const prov = providerLabel(o.provider);
   if (o.alreadyConnected) {
     return connectPage({
-      title: `You've already connected ${prov}`,
-      body: `This link was meant for a different teammate, and your ${prov} is already connected — there's nothing to do here.`,
-      action: `<a class="muted" href="/connectors">Manage your connections</a>`,
+      title: `你已连接过 ${prov}`,
+      body: `此链接是为另一位同事准备的，而你的 ${prov} 已经连接 — 无需任何操作。`,
+      action: `<a class="muted" href="/connectors">管理你的连接</a>`,
     });
   }
   return connectPage({
-    title: "This link was for someone else",
-    body: `This connect link was created for a different teammate. Want to connect your own ${prov} instead?`,
-    action: `<a class="btn" href="/connect/${encodeURIComponent(o.provider)}/self-connect">Connect my ${escapeHtml(prov)}</a>`,
+    title: "此链接是为他人准备的",
+    body: `此连接链接是为另一位同事创建的。要改为连接你自己的 ${prov} 吗？`,
+    action: `<a class="btn" href="/connect/${encodeURIComponent(o.provider)}/self-connect">连接我的 ${escapeHtml(prov)}</a>`,
   });
 }
 
@@ -587,13 +587,13 @@ async function handleConsentRedeem(
     return sendHtml(
       res,
       502,
-      connectErrorHtml("We couldn't reach the connection service. Please try the link again in a moment."),
+      connectErrorHtml("无法访问连接服务。请稍后再试此链接。"),
     );
   }
   switch (data.status) {
     case "authorize":
       if (!data.authorizeUrl)
-        return sendHtml(res, 502, connectErrorHtml("The connection service returned an unexpected response."));
+        return sendHtml(res, 502, connectErrorHtml("连接服务返回了异常响应。"));
       res.writeHead(302, { location: data.authorizeUrl, "cache-control": "no-store" });
       return void res.end();
     case "wrong_recipient":
@@ -603,12 +603,12 @@ async function handleConsentRedeem(
         connectWrongRecipientHtml({ provider: data.provider ?? "", alreadyConnected: !!data.clickerConnected }),
       );
     case "expired":
-      return sendHtml(res, 200, connectErrorHtml("This connect link has expired — ask the agent for a fresh one."));
+      return sendHtml(res, 200, connectErrorHtml("此连接链接已过期 — 请向代理索取新链接。"));
     default:
       return sendHtml(
         res,
         200,
-        connectErrorHtml("This connect link is invalid or was already used — ask the agent for a fresh one."),
+        connectErrorHtml("此连接链接无效或已被使用 — 请向代理索取新链接。"),
       );
   }
 }
@@ -666,7 +666,7 @@ async function handleSecretDrop(
     return sendHtml(
       res,
       502,
-      '<!doctype html><meta charset=utf-8><body style="font-family:system-ui;max-width:32rem;margin:4rem auto"><h2>Service unavailable</h2><p>Try the link again in a moment.</p></body>',
+      '<!doctype html><meta charset=utf-8><body style="font-family:system-ui;max-width:32rem;margin:4rem auto"><h2>服务不可用</h2><p>请稍后再试此链接。</p></body>',
     );
   }
   const bodyText = await r.text();
@@ -692,13 +692,13 @@ async function handleSelfConnect(res: ServerResponse, o: { provider: string; ses
     return sendHtml(
       res,
       200,
-      connectErrorHtml(data.message ?? "We couldn't start the connection. This app may not be configured."),
+      connectErrorHtml(data.message ?? "无法启动连接。此应用可能尚未配置。"),
     );
   } catch {
     return sendHtml(
       res,
       502,
-      connectErrorHtml("We couldn't reach the connection service. Please try again in a moment."),
+      connectErrorHtml("无法访问连接服务。请稍后再试。"),
     );
   }
 }
@@ -774,24 +774,24 @@ export function mintBucketOf(ip: string): string {
 
 export function playgroundBusyHtml(): string {
   return cardPage({
-    title: "Playground is busy",
-    heading: "The playground is busy",
-    msg: "We couldn't start a fresh playground session for you right now. Waiting a little while and reloading resolves most cases.",
+    title: "体验区繁忙",
+    heading: "体验区繁忙",
+    msg: "现在无法为你开启新的体验会话。稍等片刻再刷新，一般就能解决。",
     icon: ALERT_ICON,
     warn: true,
-    actions: `<a class="btn primary" href="/">Try again</a>`,
-    help: "Playground sessions are limited per visitor to keep the demo responsive for everyone.",
+    actions: `<a class="btn primary" href="/">重试</a>`,
+    help: "为保证演示对所有人保持流畅，体验会话按访客限量。",
   });
 }
 
 export function playgroundRestrictedHtml(): string {
   return cardPage({
-    title: "Not available in the playground",
-    heading: "Not available in the playground",
-    msg: "Connecting accounts and dropping secrets are disabled for anonymous playground sessions — clearing your cookie would orphan real credentials.",
+    title: "体验区中不可用",
+    heading: "体验区中不可用",
+    msg: "匿名体验会话已禁用连接账户和存放密钥 — 清除 cookie 会让真实凭据失去归属。",
     icon: LOCK_ICON,
-    actions: `<a class="btn primary" href="/">Back to the playground</a>`,
-    help: "Sign in with a real account at /auth/login to use this link.",
+    actions: `<a class="btn primary" href="/">返回体验区</a>`,
+    help: "请在 /auth/login 用真实账户登录后再使用此链接。",
   });
 }
 
@@ -811,7 +811,7 @@ async function mintPlaygroundSession(req: IncomingMessage, res: ServerResponse):
     k: "session",
     sub: `playground-${randomToken(8)}`,
     org: ORG,
-    name: "Guest",
+    name: "访客",
     anon: true,
     auth: now,
     iat: now,
@@ -1152,14 +1152,14 @@ async function authCallback(req: IncomingMessage, res: ServerResponse, url: URL)
     sendHtml(res, 400, signInErrorHtml(detail));
   };
 
-  if (url.searchParams.get("error")) return fail(`identity provider returned: ${url.searchParams.get("error") ?? ""}`);
+  if (url.searchParams.get("error")) return fail(`身份供应商返回：${url.searchParams.get("error") ?? ""}`);
   const code = url.searchParams.get("code") ?? "";
   const stateParam = url.searchParams.get("state") ?? "";
 
   const tmp = openTmp(readCookie(req.headers.cookie, "portal_oidc_tmp"), tmpKey, Date.now());
-  if (!tmp) return fail("login session expired — please try again");
-  if (!code || !stateParam || !safeEqual(stateParam, tmp.state)) return fail("invalid login state");
-  if (!consumeState(tmp.state)) return fail("login already used — please try again");
+  if (!tmp) return fail("登录会话已过期 — 请重试");
+  if (!code || !stateParam || !safeEqual(stateParam, tmp.state)) return fail("登录状态无效");
+  if (!consumeState(tmp.state)) return fail("登录已被使用 — 请重试");
 
   let sub: string;
   let name = "";
@@ -1178,7 +1178,7 @@ async function authCallback(req: IncomingMessage, res: ServerResponse, url: URL)
     const rawName = info.name ?? claims.name;
     if (typeof rawName === "string") name = rawName.trim().slice(0, 200);
   } catch (e) {
-    return fail(errMessage(e, "sign-in failed"));
+    return fail(errMessage(e, "登录失败"));
   }
 
   const now = Math.floor(Date.now() / 1000);

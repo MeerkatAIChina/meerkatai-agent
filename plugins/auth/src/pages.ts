@@ -90,7 +90,7 @@ function page(o: {
   help: string;
 }): string {
   return `<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -120,49 +120,49 @@ export function emailFormPage(o: {
   problem?: string;
 }): string {
   return page({
-    title: "Sign in",
+    title: "登录",
     brandName: o.brandName,
     icon: MAIL_ICON,
-    heading: `Sign in to ${o.brandName}`,
-    msg: "Enter your work email and we'll send you a one-time sign-in link.",
-    body: `${o.problem ? `<p class="reason"><strong>Try again</strong>${escapeHtml(o.problem)}</p>` : ""}<form method="post" action="${escapeHtml(o.action)}">
+    heading: `登录 ${o.brandName}`,
+    msg: "输入你的工作邮箱，我们会给你发送一个一次性登录链接。",
+    body: `${o.problem ? `<p class="reason"><strong>请重试</strong>${escapeHtml(o.problem)}</p>` : ""}<form method="post" action="${escapeHtml(o.action)}">
         <input type="hidden" name="request" value="${escapeHtml(o.requestToken)}">
-        <label for="email">Email address</label>
+        <label for="email">邮箱地址</label>
         <input id="email" name="email" type="email" autocomplete="email" inputmode="email" required autofocus
           spellcheck="false" maxlength="254" placeholder="you@example.com" value="${escapeHtml(o.email ?? "")}">
-        <button class="btn" type="submit">Email me a sign-in link</button>
+        <button class="btn" type="submit">给我发送登录链接</button>
       </form>`,
-    help: "Only addresses your administrator has allowed can sign in.",
+    help: "只有管理员允许的地址才能登录。",
   });
 }
 
 export function linkSentPage(o: { brandName: string; email: string; ttlMinutes: number }): string {
   return page({
-    title: "Check your email",
+    title: "查收邮件",
     brandName: o.brandName,
     icon: SENT_ICON,
-    heading: "Check your email",
-    msg: `If that address can sign in, a one-time link is on its way. Open it in this browser — it works once and expires in ${o.ttlMinutes} minutes.`,
+    heading: "查收邮件",
+    msg: `如果该地址可以登录，一次性链接正在发送中。请在此浏览器中打开 — 它只能使用一次，${o.ttlMinutes} 分钟后过期。`,
     body: `<p class="who">${escapeHtml(o.email)}</p>`,
-    help: "Nothing after a minute or two? Check spam, then ask your administrator whether the address is allowed.",
+    help: "一两分钟后还没收到？先查垃圾邮件，再向管理员确认该地址是否被允许。",
   });
 }
 
 export function confirmSignInPage(o: { brandName: string; action: string }): string {
   return page({
-    title: "Finish signing in",
+    title: "完成登录",
     brandName: o.brandName,
     icon: LOCK_ICON,
-    heading: `Finish signing in to ${o.brandName}`,
-    msg: "Confirm below to complete sign-in. Your link is spent the moment you confirm, so do it in the browser you want to be signed in to.",
-    body: `<p class="reason" id="no-token" hidden><strong>Nothing to confirm</strong>This page did not receive a sign-in link. Open the link from your email directly, in a browser with JavaScript enabled, or ask for a fresh one.</p>
-      <noscript><p class="reason"><strong>JavaScript required</strong>The last step of sign-in reads your link out of the page address so it never reaches a server log. Enable JavaScript for this page, then reopen the link.</p></noscript>
+    heading: `完成 ${o.brandName} 登录`,
+    msg: "在下方确认即可完成登录。确认后链接立即失效，所以请在你想保持登录的浏览器中操作。",
+    body: `<p class="reason" id="no-token" hidden><strong>没有可确认的内容</strong>此页面没有收到登录链接。请直接从邮件中打开链接（浏览器需启用 JavaScript），或重新索取一个。</p>
+      <noscript><p class="reason"><strong>需要 JavaScript</strong>登录的最后一步会从页面地址中读取你的链接，使其永远不会进入服务器日志。请为此页面启用 JavaScript，然后重新打开链接。</p></noscript>
       <form method="post" action="${escapeHtml(o.action)}">
         <input type="hidden" name="token" id="token" value="">
-        <button class="btn" type="submit" id="confirm">Sign in</button>
+        <button class="btn" type="submit" id="confirm">登录</button>
       </form>
       <script>${CONFIRM_SCRIPT}</script>`,
-    help: "Didn't ask to sign in? Close this page — nothing happens until you confirm.",
+    help: "不是你发起的登录？关闭此页面即可 — 在你确认之前不会发生任何操作。",
   });
 }
 
@@ -173,17 +173,17 @@ export function problemPage(o: {
   detail?: string;
   retryUrl?: string;
 }): string {
-  const detail = o.detail ? `<p class="reason"><strong>Details</strong>${escapeHtml(o.detail)}</p>` : "";
-  const retry = o.retryUrl ? `<a class="btn" href="${escapeHtml(o.retryUrl)}">Request a new sign-in link</a>` : "";
+  const detail = o.detail ? `<p class="reason"><strong>详情</strong>${escapeHtml(o.detail)}</p>` : "";
+  const retry = o.retryUrl ? `<a class="btn" href="${escapeHtml(o.retryUrl)}">重新索取登录链接</a>` : "";
   const body = `${detail}${retry}`;
   return page({
-    title: "Sign-in problem",
+    title: "登录问题",
     brandName: o.brandName,
     icon: ALERT_ICON,
     warn: true,
     heading: o.heading,
     msg: o.msg,
     ...(body ? { body } : {}),
-    help: "If this keeps happening, contact your administrator.",
+    help: "如果持续出现，请联系管理员。",
   });
 }

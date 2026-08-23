@@ -149,7 +149,7 @@ test("an admin-probe outage is reported as unavailable and is NOT negative-cache
     headers: { cookie: sessionCookie("U-admin-outage"), accept: "text/html" },
   });
   assert.equal(denied.status, 403);
-  assert.match(await denied.text(), /temporarily unavailable/i, "an outage must not read as 'you are not an admin'");
+  assert.match(await denied.text(), /暂时不可用/, "an outage must not read as 'you are not an admin'");
 
   whoamiMode = "ok";
   const ok = await fetch(`${base}/admin/api/me`, { headers: { cookie: sessionCookie("U-admin-outage") } });
@@ -162,7 +162,7 @@ test("a malformed admin verdict fails readiness instead of being cached as non-a
     headers: { cookie: sessionCookie("U-admin-malformed"), accept: "text/html" },
   });
   assert.equal(denied.status, 403);
-  assert.match(await denied.text(), /temporarily unavailable/i);
+  assert.match(await denied.text(), /暂时不可用/);
   whoamiMode = "ok";
 });
 

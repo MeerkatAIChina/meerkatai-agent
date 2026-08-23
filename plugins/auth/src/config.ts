@@ -95,7 +95,7 @@ export function readConfig(env: NodeJS.ProcessEnv): AuthConfig {
     allowedEmails: listFrom(env.AUTH_ALLOWED_EMAILS),
     allowedEmailDomain: env.AUTH_ALLOWED_EMAIL_DOMAIN?.trim().toLowerCase() || undefined,
     emailFrom: env.AUTH_EMAIL_FROM?.trim() ?? "",
-    brandName: env.AUTH_BRAND_NAME?.trim() || "qm",
+    brandName: env.AUTH_BRAND_NAME?.trim() || "MeerkatAI",
     transport,
     resendApiKey: env.RESEND_API_KEY ?? "",
     smtp: {

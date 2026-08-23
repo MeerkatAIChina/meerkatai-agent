@@ -148,7 +148,7 @@ test("a replayed magic link is refused", async (t) => {
   const replay = await openLink(h, link);
   assert.equal(replay.status, 400);
   const stale = await replay.text();
-  assert.match(stale, /no longer works/);
+  assert.match(stale, /已失效/);
   assert.match(stale, /href="https:\/\/agent\.example\.test\/auth\/login"/);
 });
 
@@ -222,13 +222,13 @@ test("authorize refuses plain PKCE, an unknown client, and a foreign redirect_ur
   const h = await startHarness();
   t.after(() => h.close());
   const cases: Array<[Record<string, string>, RegExp]> = [
-    [{ code_challenge_method: "plain" }, /PKCE with S256/],
-    [{ client_id: "someone-else" }, /unknown application/],
-    [{ redirect_uri: "https://evil.example.com/auth/callback" }, /not registered/],
-    [{ response_type: "token" }, /authorization-code flow/],
+    [{ code_challenge_method: "plain" }, /S256 方式的 PKCE/],
+    [{ client_id: "someone-else" }, /未知应用/],
+    [{ redirect_uri: "https://evil.example.com/auth/callback" }, /未注册/],
+    [{ response_type: "token" }, /authorization-code/],
     [{ scope: "email" }, /openid scope/],
-    [{ state: "" }, /missing its state/],
-    [{ nonce: "" }, /missing its nonce/],
+    [{ state: "" }, /缺少 state/],
+    [{ nonce: "" }, /缺少 nonce/],
   ];
   for (const [over, expected] of cases) {
     const response = await fetch(`${h.base}/authorize?${authorizeQuery(over)}`);
@@ -454,7 +454,7 @@ test("a stale sign-in form is refused rather than silently reissued", async (t) 
   h.now.ms += (h.cfg.requestTtlS + 60) * 1000;
   const submitted = await fetch(`${h.base}/authorize`, form({ request, email: "admin@example.com" }));
   assert.equal(submitted.status, 400);
-  assert.match(await submitted.text(), /expired/);
+  assert.match(await submitted.text(), /已过期/);
 });
 
 test("the sign-in link never puts its token anywhere a server or proxy logs it", async (t) => {
@@ -517,14 +517,14 @@ test("a live brandName accessor overrides the env default on pages and emails", 
   const { challenge } = pkcePair();
   const query = authorizeQuery({ code_challenge: challenge });
   const before = await (await fetch(`${h.base}/authorize?${query}`)).text();
-  assert.match(before, /Sign in to qm/);
+  assert.match(before, /登录 qm/);
 
   live = "straylight";
   const after = await (
     await fetch(`${h.base}/authorize?${authorizeQuery({ code_challenge: pkcePair().challenge })}`)
   ).text();
-  assert.match(after, /Sign in to straylight/);
-  assert.doesNotMatch(after, /Sign in to qm/);
+  assert.match(after, /登录 straylight/);
+  assert.doesNotMatch(after, /登录 qm/);
 
   await requestLink(h);
   assert.match(h.mailer.sent[0]!.subject, /straylight/);

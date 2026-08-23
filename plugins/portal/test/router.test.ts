@@ -159,7 +159,7 @@ test("admin tier (derived gate): non-admin sub is 403 before the upstream; admin
   assert.equal(denied.status, 403);
   const deniedHtml = await fetch(`${base}/admin/`, { headers: { cookie: sessionCookie("U1"), accept: "text/html" } });
   assert.equal(deniedHtml.status, 403);
-  assert.match(await deniedHtml.text(), /admin access/i);
+  assert.match(await deniedHtml.text(), /管理员权限/);
 
   const ok = await fetch(`${base}/admin/api/me`, { headers: { cookie: sessionCookie("U-admin") } });
   assert.equal(ok.status, 200);
