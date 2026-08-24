@@ -1,5 +1,5 @@
 {
-  "defaultProvider": "tensoris",
-  "defaultModelId": "gpt-5.4-nano",
+  "defaultProvider": "local-secure",
+  "defaultModelId": "Meerkat-TRIZ-v1",
   "webuiModels": ["gpt-5.4-nano", "gemini-3.1-flash-lite", "Meerkat-TRIZ-v1"]
 }
