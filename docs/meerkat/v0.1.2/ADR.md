@@ -102,3 +102,4 @@
   - 同步收紧服务端规则 —— 会拒绝按宽松规则已存在的合法 name，且与 issue #7 的范围重叠；
   - 复用服务端同款宽松规则做 UI 校验 —— 放过大写/点/下划线，不满足需求给定的 Claude Skill 规范口径。
 - **后果**：随主仓升级若上游改动 `skills.ts` 的 create 表单会产生小冲突，解法同 ADR-006 的 merge 惯例；回归把守 `plugins/web-ui/test/skill-name.test.ts`（规则单测 + 表单接线源码断言）。
+- **补记（issue #7 Bug A 服务端侧）**：UI 前置拦截之外，服务端三层失守一并修复——`assertSafeSkillName` 改抛带类型的 `SkillNameError`（`src/skills/skill-name.ts`），`src/api/server.ts` 的 `respondError` 与 fastify `setErrorHandler` 两处 500 兜底统一映射为 400 + 规则文案（沿用 `PayloadTooLargeError`→413 的既有 typed-error 模式）。修在所有路径的汇聚层，create/edit/publish/import 等全部经过 `assertSafeSkillName` 的入口一次覆盖，路由层零改动；存量合法 name 行为不变（错误类型是 `Error` 子类，既有 catch 语义不受影响）。回归把守 `test/skills-http.test.ts`（中文名 POST 断言 400 + 规则文案）。

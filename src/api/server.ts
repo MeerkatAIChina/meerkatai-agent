@@ -21,6 +21,7 @@ import { verifyPortalIdentity, PORTAL_IDENTITY_HEADER, type PortalIdentity } fro
 import { isUserScoped, userScopedField, assertedActor, isUnclassifiedWrite } from "./user-scoped-routes.ts";
 import { errMessage } from "../util/errors.ts";
 import { parseScopeId } from "../types.ts";
+import { SkillNameError } from "../skills/skill-name.ts";
 import { canonicalPayload, PayloadTooLargeError, readRawBody, sendJson, verifyOrReject } from "./http.ts";
 import { dispatch, findRoute, run, type ApiCtx, type BaseCtx, type Route, type RouteAuth } from "./routes/route.ts";
 import { apiRoutes, rawRoutes } from "./routes/index.ts";
@@ -313,6 +314,11 @@ function respondError(req: IncomingMessage, res: ServerResponse, err: unknown): 
     else res.destroy();
     return;
   }
+  if (err instanceof SkillNameError) {
+    if (!res.headersSent) sendJson(res, 400, { error: "bad_request", message: errMessage(err) });
+    else res.destroy();
+    return;
+  }
   console.error("[server] 500 %s %s: %s", req.method ?? "?", req.url ?? "?", errMessage(err));
   if (!res.headersSent) sendJson(res, 500, { error: "internal_error", message: "internal server error" });
   else res.destroy();
@@ -382,6 +388,9 @@ function buildFastify(wiring: Wiring, server: Server): { fastify: FastifyInstanc
   fastify.decorateRequest("gate", undefined);
 
   fastify.setErrorHandler((err, request, reply) => {
+    if (err instanceof SkillNameError) {
+      return reply.code(400).send({ error: "bad_request", message: errMessage(err) });
+    }
     console.error(`[server] 500 ${request.raw.method ?? "?"} ${request.raw.url ?? "?"}:`, errMessage(err));
     return reply.code(500).send({ error: "internal_error", message: "internal server error" });
   });

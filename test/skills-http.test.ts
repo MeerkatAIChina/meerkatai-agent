@@ -58,6 +58,23 @@ interface SkillView {
   version?: number;
 }
 
+test("POST /v1/skills rejects a non-ASCII name with 400 and the naming rule, not a 500", async () => {
+  const srv = start();
+  try {
+    const res = await fetch(`${srv.base}/v1/skills`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ principalId: "U1", name: "中文技能", description: "d", body: "b" }),
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: string; message: string };
+    assert.equal(body.error, "bad_request");
+    assert.match(body.message, /1-128 ASCII/);
+  } finally {
+    await srv.close();
+  }
+});
+
 test("GET /v1/skills returns metadata only; authorized detail fetch returns the body", async () => {
   const srv = start();
   try {
