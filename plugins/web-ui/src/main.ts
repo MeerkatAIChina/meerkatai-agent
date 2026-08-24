@@ -1,5 +1,6 @@
 import "dockview-core/dist/styles/dockview.css";
 import "./shell.css";
+import "pi-web-ui-i18n";
 import { setupLocale } from "./locale/index.ts";
 import { bootSafely } from "./shell";
 import { registerChatSearchHotkey } from "./search";

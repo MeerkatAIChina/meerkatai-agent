@@ -23,6 +23,7 @@ export default defineConfig({
       { find: "hljs-real-markdown", replacement: here("node_modules/highlight.js/lib/languages/markdown.js") },
       { find: "hljs-real", replacement: here("node_modules/highlight.js/lib/core.js") },
       { find: /^highlight\.js\/lib\/languages\/.*$/, replacement: here("src/hljs-lang-stub.ts") },
+      { find: "pi-web-ui-i18n", replacement: here("node_modules/@earendil-works/pi-web-ui/dist/utils/i18n.js") },
     ],
   },
   build: {
