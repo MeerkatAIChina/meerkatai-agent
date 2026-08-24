@@ -78,6 +78,7 @@
         cursor: pointer;
       }
       button:hover { border-color: var(--muted); }
+      #sandbox-enable { align-self: flex-start; margin-top: 8px; }
       .actions { margin-top: 20px; display: none; gap: 10px; }
       .actions.show { display: flex; }
       #interrupt {
@@ -130,6 +131,7 @@
         <div class="body">
           <div class="row"><span class="name">沙箱</span><span class="meta"></span></div>
           <div class="reason" hidden></div>
+          <button id="sandbox-enable" hidden>启用沙箱（需管理员授权）</button>
         </div>
       </div>
       <div class="item pending" id="item-skillpacks">
@@ -287,23 +289,39 @@
 
       function refreshSandbox(s) {
         if (state.sandbox === "ready") return;
+        const enableBtn = document.getElementById("sandbox-enable");
+        enableBtn.hidden = true;
         if (!s.supported) {
-          state.sandbox = "degraded";
+          state.sandbox = "failed";
           render("sandbox");
-          setReason("sandbox", `此机器不支持沙箱（${s.reason ?? "系统版本过低"}）`);
+          setReason("sandbox", `此机器不支持沙箱（${s.reason ?? "系统版本过低"}）——所有对话将无法执行`);
         } else if (!s.wsl_enabled) {
-          state.sandbox = "degraded";
+          state.sandbox = "failed";
           render("sandbox");
-          setReason("sandbox", "未启用（可在设置页开启）");
+          setReason("sandbox", "未启用 WSL2 沙箱——所有对话将无法执行，启用并重启电脑后恢复");
+          enableBtn.hidden = false;
         } else if (s.imported && s.fingerprint_current) {
           state.sandbox = "ready";
           render("sandbox");
         } else if (s.pending_reboot) {
           state.sandbox = "degraded";
           render("sandbox");
-          setReason("sandbox", "已启用，重启电脑后生效");
+          setReason("sandbox", "已启用沙箱，重启电脑后生效");
         }
       }
+
+      document.getElementById("sandbox-enable").addEventListener("click", async (ev) => {
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        try {
+          await invoke("enable_wsl2");
+          refreshSandbox(await invoke("wsl2_status"));
+        } catch (err) {
+          setReason("sandbox", `启用失败：${err}`);
+        } finally {
+          btn.disabled = false;
+        }
+      });
 
       invoke("wsl2_status").then(refreshSandbox).catch(() => {
         state.sandbox = "degraded";
