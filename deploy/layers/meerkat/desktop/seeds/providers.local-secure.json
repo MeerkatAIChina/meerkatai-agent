@@ -3,5 +3,5 @@
   "name": "local-secure",
   "protocol": "openai",
   "baseUrl": "",
-  "models": [{ "id": "Meerkat-TRIZ-v1" }]
+  "models": [{ "id": "Meerkat-TRIZ-v1", "modalities": ["text", "image"] }]
 }
