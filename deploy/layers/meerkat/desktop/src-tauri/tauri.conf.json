@@ -18,7 +18,12 @@
     "targets": ["nsis", "dmg"],
     "createUpdaterArtifacts": true,
     "icon": ["icons/icon.ico", "icons/icon.icns"],
-    "resources": { "../payload": "payload" }
+    "resources": { "../payload": "payload" },
+    "windows": {
+      "nsis": {
+        "installerHooks": "./nsis-hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "updater": {

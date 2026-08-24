@@ -199,8 +199,14 @@ pub fn ensure_rootfs(app: &AppHandle, payload_dir: &Path, data_dir: &Path) -> Re
         ])
         .map_err(|e| e.to_string())?;
         if !out.status.success() || !backup.exists() {
-            emit_sandbox(app, "workspace 备份失败，已中止更新（旧沙箱保留）");
-            return Err("rootfs update aborted: /home backup failed".into());
+            let bootable = wsl(&["-d", DISTRO, "-u", "root", "--", "true"])
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if bootable {
+                emit_sandbox(app, "workspace 备份失败，已中止更新（旧沙箱保留）");
+                return Err("rootfs update aborted: /home backup failed".into());
+            }
+            emit_sandbox(app, "旧沙箱已损坏无法启动，执行全新导入");
         }
         let _ = wsl(&["--unregister", DISTRO]);
     }
