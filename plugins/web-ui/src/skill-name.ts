@@ -1,0 +1,3 @@
+export function isValidSkillName(name: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name) && !name.includes("--");
+}

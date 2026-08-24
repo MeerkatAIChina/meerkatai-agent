@@ -91,3 +91,14 @@
   - admin 与 web-ui 共享字典/抽公共模块 —— 跨无构建静态文件与 Vite 工程，过度设计。
 - **后果**：core 改动面大（web-ui 27 文件 + admin 单文件 + portal/auth 六文件（portal/index.ts、portal/oidc.ts + auth/config.ts、email.ts、pages.ts、server.ts）），随主仓升级会产生冲突。量化评估（2026-08-23 实证）：近 90 天 origin/main 对 web-ui/src 共 43 个提交、触及 27 个目标文件 89 次、admin/index.html 12 次；抽样 diff 显示上游改动绝大多数是逻辑/结构行而非文案行，冲突只在「上游改的行 ∩ 我们包过的文案行」时发生，预估每次升级几处到几十处小冲突，叠加新增英文串补翻，**常态维护成本约 0.5~1 人日/次**。三层缓冲：① 字典集中单文件，永远零冲突；② 包裹改动机械同构，冲突有固定解法（保留 i18n() 包裹 + 吸收上游语义改动）；③ **merge 惯例：每次 update-qm 后跑一次 `plugins/web-ui/scripts/check-untranslated.mjs` 扫描脚本，裸露英文清单即补翻 todo**（脚本兼作 merge 检查门）。存量环境注意：web-ui 文案为构建期产物、portal/auth 为运行期渲染，升级后需重建并重启进程才生效。
 - **补记（issue #14）**：pi-web-ui 的 `dist/utils/i18n.js` 顶层执行 `setTranslations({en,de})`（整体替换语义），其 chunk 在 boot 后动态加载时会把 `setupLocale` 注册的 zh 字典抹掉，表现为中文闪现后恒回英文。对策：入口 `main.ts` 静态 import 该模块（经 vite 别名 `pi-web-ui-i18n`，受 exports 限制无法深路径直引），利用求值顺序让其覆盖先跑完、`setupLocale` 的合并最终生效；模块单例只求值一次，后续动态加载不再二次覆盖。回归把守：`plugins/web-ui/test/locale.test.ts`（wipe 后重注册 + 入口顺序源码断言）。
+
+## ADR-007：New skill 表单 name 严格校验前置到 UI——直改 core，服务端宽松规则不动
+
+- **状态**：已接受（优化 3「Skill name 中文校验」）
+- **背景**：web-ui 的 New skill 表单对 name 只查非空，中文等非法字符直送服务端后以 500（internal server error）收场。core 服务端实际校验规则（1-128 位、允许大写/点/下划线）比 Claude Skill 规范宽松，收紧服务端会影响既有合法存量 skill，且 500→400 的修复已归 issue #7，不在本需求范围。
+- **决策**：UI 层前置严格校验（对齐 Claude Skill 规范：1-64 位、仅小写字母/数字/连字符、不以连字符开头结尾、不连续连字符），规则收敛为新模块 `plugins/web-ui/src/skill-name.ts` 的 `isValidSkillName()`；`creatorPane` 输入非法时内联提示并禁用提交按钮，`saveCreate` 同规则二次把守；提示文案走 ADR-006 的 i18n 字典。改动面：`plugins/web-ui/src/{skill-name.ts,skills.ts,locale/zh-cn.ts}` + `plugins/web-ui/test/skill-name.test.ts`。
+- **理由**：校验逻辑与表单组件同仓同语言，插拔层无法在不改组件模板的前提下注入；抽独立模块是为单测可断言规则本身（沿用 skills-refresh/skills-mutation 的抽取惯例）。服务端规则保持宽松，UI 严格子集提前拦截，两层规则不冲突。
+- **被否决**：
+  - 同步收紧服务端规则 —— 会拒绝按宽松规则已存在的合法 name，且与 issue #7 的范围重叠；
+  - 复用服务端同款宽松规则做 UI 校验 —— 放过大写/点/下划线，不满足需求给定的 Claude Skill 规范口径。
+- **后果**：随主仓升级若上游改动 `skills.ts` 的 create 表单会产生小冲突，解法同 ADR-006 的 merge 惯例；回归把守 `plugins/web-ui/test/skill-name.test.ts`（规则单测 + 表单接线源码断言）。

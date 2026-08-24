@@ -29,6 +29,7 @@ import { scopedSession, scopedViewTopbar } from "./session-scope";
 import { focusDialogCancel, restoreDialogFocus, trapDialogFocus } from "./dialog-focus";
 import { SkillsRefreshSequence } from "./skills-refresh";
 import { SkillsMutationSequence } from "./skills-mutation";
+import { isValidSkillName } from "./skill-name.ts";
 
 let skillRows: SkillItem[] = [];
 let skillsNotice = "";
@@ -358,8 +359,10 @@ function editorPane() {
 
 function creatorPane() {
   const c = creating!;
-  const ready = c.name.trim() !== "" && c.description.trim() !== "" && c.body.trim() !== "";
-  const reviewed = createReviewMatches(c.review, c.name.trim(), c.description.trim(), c.body.trim(), c.scopeId);
+  const name = c.name.trim();
+  const nameInvalid = name !== "" && !isValidSkillName(name);
+  const ready = !nameInvalid && name !== "" && c.description.trim() !== "" && c.body.trim() !== "";
+  const reviewed = createReviewMatches(c.review, name, c.description.trim(), c.body.trim(), c.scopeId);
   let createLabel = String(i18n("Create skill"));
   if (creatingSaving) createLabel = String(i18n("Saving…"));
   else if (reviewed) createLabel = String(i18n("Publish skill"));
@@ -394,6 +397,7 @@ function creatorPane() {
             drawSkills();
           }}
         />
+        ${nameInvalid ? html`<small class="card-meta skill-name-hint">${i18n("1-64 lowercase letters, digits, and hyphens; no leading, trailing, or consecutive hyphens.")}</small>` : nothing}
       </label>
       <label class="skill-field">
         <span>${i18n("Available to")}</span>
@@ -718,7 +722,7 @@ async function saveCreate(): Promise<void> {
   const name = creating.name.trim();
   const description = creating.description.trim();
   const body = creating.body.trim();
-  if (!name || !description || !body) {
+  if (!isValidSkillName(name) || !description || !body) {
     createError = String(i18n("Name, description, and instructions are all required."));
     drawSkills();
     return;
