@@ -103,3 +103,19 @@
   - 复用服务端同款宽松规则做 UI 校验 —— 放过大写/点/下划线，不满足需求给定的 Claude Skill 规范口径。
 - **后果**：随主仓升级若上游改动 `skills.ts` 的 create 表单会产生小冲突，解法同 ADR-006 的 merge 惯例；回归把守 `plugins/web-ui/test/skill-name.test.ts`（规则单测 + 表单接线源码断言）。
 - **补记（issue #7 Bug A 服务端侧）**：UI 前置拦截之外，服务端三层失守一并修复——`assertSafeSkillName` 改抛带类型的 `SkillNameError`（`src/skills/skill-name.ts`），`src/api/server.ts` 的 `respondError` 与 fastify `setErrorHandler` 两处 500 兜底统一映射为 400 + 规则文案（沿用 `PayloadTooLargeError`→413 的既有 typed-error 模式）。修在所有路径的汇聚层，create/edit/publish/import 等全部经过 `assertSafeSkillName` 的入口一次覆盖，路由层零改动；存量合法 name 行为不变（错误类型是 `Error` 子类，既有 catch 语义不受影响）。回归把守 `test/skills-http.test.ts`（中文名 POST 断言 400 + 规则文案）。
+
+## ADR-008：无沙箱基质的 turn 失败走 NonRetryableTurnError + UI 人话映射——core 只改错误类型，文案归属 UI 层
+
+- **状态**：已接受（issue #8）
+- **背景**：无 WSL2 的 Windows 裸机上 `SANDBOX_BACKEND=none`，`none-sandbox` 以裸 `Error` reject，turn 崩溃被 worker 重试数次后兜底为 "That turn failed..."，用户完全无法得知原因是沙箱基质缺失，也无法自救。桌面壳侧 `enable_wsl2`（提权 `wsl --install`）+ `pending_reboot` + rootfs 自动导入链路早已存在但未在任何界面接线（仅首启 setup.html 有一键启用按钮，设置页不可回访属需求 4 范围）。
+- **决策**：
+  1. core：`none-sandbox.ts` 改抛 `NonRetryableTurnError`——无基质的重试必然失败，立即以原文 surfaced 且零重试；错误消息保持英文技术签名（`SANDBOX_BACKEND=none`），core 不携带任何桌面/语言特定文案；
+  2. web-ui：新增 `turn-failure.ts` 的 `humanizeTurnFailure()`，按技术签名映射为 i18n 中文可操作文案（指引「重启应用 → 启动页启用沙箱 → 重启电脑」），其余 turn 失败消息原样透传；中文文案归属 UI 层沿用 ADR-006 的口径；
+  3. 桌面启动清单页（`deploy/layers/meerkat/desktop/ui/index.html`，org 层零内核触碰）：沙箱 `supported && !wsl_enabled` 与 `!supported` 从黄灯降级改为红灯 failed + 说明后果（所有对话将无法执行），并内嵌「启用沙箱」按钮直调既有 `enable_wsl2` 命令，成功后转入 pending_reboot 黄灯「重启电脑后生效」；
+  4. 不硬阻断自动进入主界面：红色提示 + 人话报错已构成完整自救回路，硬阻断会把暂不想处理的用户困在启动页，且对 `!supported` 机器等于死锁。
+- **理由**：`NonRetryableTurnError` 是 core 既有的「原因直达用户」通道（orchestrator 3140 行），语义精确匹配；技术签名→人话文案的映射放 UI 层，core 对上游保持干净。
+- **被否决**：
+  - core 直接抛中文/桌面指引文案 —— 语言和恢复路径是桌面产品决策，不属于内核；
+  - 启动页硬阻断进入主界面 —— 见决策 4；
+  - worker 层识别沙箱错误再翻译 —— 错误类型本身即信号，无需在 worker 加模式匹配。
+- **后果**：无沙箱机器上的 turn 失败从「重试数次 + 兜底文案」变为「首次失败即告知原因与恢复路径」；任何依赖 none backend 重试语义的行为（不存在合理场景——无基质重试必然失败）消失。回归把守 `test/none-sandbox.test.ts`（NonRetryableTurnError 类型断言）、`plugins/web-ui/test/turn-failure.test.ts`（映射 + 透传 + 接线源码断言）。随主仓升级若上游改动 none-sandbox 或 core-bridge 的 turn_failure 回放段会产生小冲突，解法同 ADR-006 惯例。

@@ -365,6 +365,8 @@ export const ZH_CN: Record<string, unknown> = {
   "Name, description, and instructions are all required.": "名称、描述和指令均为必填。",
   "1-64 lowercase letters, digits, and hyphens; no leading, trailing, or consecutive hyphens.":
     "1-64 位小写字母、数字或连字符；不能以连字符开头/结尾，也不能连续使用连字符。",
+  "This machine has no working sandbox (WSL2 is not enabled), so conversations cannot run. Restart the app, click \"Enable sandbox\" on the launch page (admin approval required), then restart the computer.":
+    "本机未启用沙箱（WSL2），对话暂时无法进行。请重启应用，在启动页点击「启用沙箱」（需管理员授权），然后重启电脑。",
   "Narrower scope takes precedence where both apply": "两者都适用时，范围更小的优先生效",
   "Navigation": "导航",
   "Need attention": "需要关注",

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createNoneSandbox } from "../src/sandbox/none-sandbox.ts";
+import { NonRetryableTurnError } from "../src/core/turn-error.ts";
 import { loadConfig } from "../src/config.ts";
 
 const rw = [{ scopeId: "personal:U0", mountPath: "", mode: "rw" as const }];
@@ -8,6 +9,18 @@ const rw = [{ scopeId: "personal:U0", mountPath: "", mode: "rw" as const }];
 test("none backend rejects provision with a clear actionable error", async () => {
   const sb = createNoneSandbox();
   await assert.rejects(sb.provision(rw as never), /SANDBOX_BACKEND=none/);
+});
+
+test("none backend failures are non-retryable so the reason reaches the user immediately", async () => {
+  const sb = createNoneSandbox();
+  await assert.rejects(sb.provision(rw as never), (err: unknown) => {
+    assert.ok(err instanceof NonRetryableTurnError);
+    return true;
+  });
+  await assert.rejects(sb.run({ id: "x", rootDir: "/x" }, "true"), (err: unknown) => {
+    assert.ok(err instanceof NonRetryableTurnError);
+    return true;
+  });
 });
 
 test("none backend declares an honest empty profile", () => {

@@ -1,9 +1,10 @@
 import type { Sandbox } from "./sandbox.ts";
+import { NonRetryableTurnError } from "../core/turn-error.ts";
 
 const UNAVAILABLE = "sandbox unavailable: SANDBOX_BACKEND=none (no sandbox substrate on this machine)";
 
 export function createNoneSandbox(): Sandbox {
-  const fail = (): Promise<never> => Promise.reject(new Error(UNAVAILABLE));
+  const fail = (): Promise<never> => Promise.reject(new NonRetryableTurnError(UNAVAILABLE));
   return {
     profile: {
       backend: "none",

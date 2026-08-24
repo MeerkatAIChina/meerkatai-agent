@@ -5,6 +5,7 @@ import { swallow } from "../../chassis/src/errors.ts";
 import { groupDmText } from "./group-dm-label.ts";
 import { base64ToBytes } from "./paste-text.ts";
 import { defaultEffortForModel, harnessSupportsEffort } from "./model-options.ts";
+import { humanizeTurnFailure } from "./turn-failure.ts";
 import { i18n, tr } from "./locale/index.ts";
 
 const BASE_URL = ((import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? "/").replace(/\/$/, "");
@@ -1415,7 +1416,7 @@ export function entriesToMessages(entries: SessionEntry[], model: Model<Api>): A
           model: model.id,
           usage: zeroUsage(),
           stopReason: "error",
-          errorMessage: failure.message,
+          errorMessage: humanizeTurnFailure(failure.message),
           timestamp: e.createdAt,
         };
         out.push(msg as AgentMessage);
