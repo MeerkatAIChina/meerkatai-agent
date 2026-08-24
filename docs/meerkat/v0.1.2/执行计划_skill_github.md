@@ -10,7 +10,7 @@
 
 **Tech Stack:** TypeScript（node:test 测试）、PowerShell/Bash 构建脚本、Tauri 2（Rust，ureq 已在依赖）、plain HTML/JS splash。
 
-**Spec:** [设计文档.md](./设计文档.md)「skill 快照随包内置」一节；ADR：[ADR.md](./ADR.md) ADR-003/ADR-004；调研：[需求调研.md](./需求调研.md)「Issue 3」一节。
+**Spec:** [设计文档.md](./设计文档.md)「skill 快照随包内置」一节；ADR：[ADR.md](./ADR.md) ADR-003/ADR-004；调研：[需求调研.md](./需求调研.md)「Bug」一节。
 
 ### Global Constraints
 
@@ -1619,7 +1619,7 @@ git commit -m "fix(core): review follow-ups for skill pack snapshot channel (#6)
 
 ## Self-Review 记录
 
-- **Spec 覆盖**：设计 §2 构建快照 → Task 7；§3.1 直读 → Task 1；§3.2 字段 → Task 2；§3.3 routes/守卫 → Task 3；§3.4 onlyIfUpdate/源/保留 commit → Task 4；§3.5 engine upstream → Task 5；§4 启动任务 → Task 6；§5 可见性 → Task 6（端点）+ Task 8（行）；§6 错误矩阵 → 各 Task 测试断言 + Task 9 活体；§7 测试 → 各 Task Step 内。设置页按钮（优化 4）明确不做。
+- **Spec 覆盖**：设计 §2 构建快照 → Task 7；§3.1 直读 → Task 1；§3.2 字段 → Task 2；§3.3 routes/守卫 → Task 3；§3.4 onlyIfUpdate/源/保留 commit → Task 4；§3.5 engine upstream → Task 5；§4 启动任务 → Task 6；§5 可见性 → Task 6（端点）+ Task 8（行）；§6 错误矩阵 → 各 Task 测试断言 + Task 9 活体；§7 测试 → 各 Task Step 内。设置页按钮（优化 2）明确不做。
 - **Placeholder 扫描**：无 TBD/TODO；所有测试与实现代码完整给出。
 - **类型一致性**：`upstreamSource`（Task 2 定义）在 Task 4/5 同名消费；`upToDate` 响应字段 Task 4 产出、Task 6/9 消费；`SkillPackStatusEntry` 形状 Task 6 产出、Task 8 消费；`skillpacks_status` command Task 8 定义与消费一致。
 

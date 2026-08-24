@@ -94,7 +94,7 @@
 
 ## ADR-007：New skill 表单 name 严格校验前置到 UI——直改 core，服务端宽松规则不动
 
-- **状态**：已接受（优化 3「Skill name 中文校验」）
+- **状态**：已接受（优化 1「Skill name 中文校验」）
 - **背景**：web-ui 的 New skill 表单对 name 只查非空，中文等非法字符直送服务端后以 500（internal server error）收场。core 服务端实际校验规则（1-128 位、允许大写/点/下划线）比 Claude Skill 规范宽松，收紧服务端会影响既有合法存量 skill，且 500→400 的修复已归 issue #7，不在本需求范围。
 - **决策**：UI 层前置严格校验（对齐 Claude Skill 规范：1-64 位、仅小写字母/数字/连字符、不以连字符开头结尾、不连续连字符），规则收敛为新模块 `plugins/web-ui/src/skill-name.ts` 的 `isValidSkillName()`；`creatorPane` 输入非法时内联提示并禁用提交按钮，`saveCreate` 同规则二次把守；提示文案走 ADR-006 的 i18n 字典。改动面：`plugins/web-ui/src/{skill-name.ts,skills.ts,locale/zh-cn.ts}` + `plugins/web-ui/test/skill-name.test.ts`。
 - **理由**：校验逻辑与表单组件同仓同语言，插拔层无法在不改组件模板的前提下注入；抽独立模块是为单测可断言规则本身（沿用 skills-refresh/skills-mutation 的抽取惯例）。服务端规则保持宽松，UI 严格子集提前拦截，两层规则不冲突。
@@ -107,7 +107,7 @@
 ## ADR-008：无沙箱基质的 turn 失败走 NonRetryableTurnError + UI 人话映射——core 只改错误类型，文案归属 UI 层
 
 - **状态**：已接受（issue #8）
-- **背景**：无 WSL2 的 Windows 裸机上 `SANDBOX_BACKEND=none`，`none-sandbox` 以裸 `Error` reject，turn 崩溃被 worker 重试数次后兜底为 "That turn failed..."，用户完全无法得知原因是沙箱基质缺失，也无法自救。桌面壳侧 `enable_wsl2`（提权 `wsl --install`）+ `pending_reboot` + rootfs 自动导入链路早已存在但未在任何界面接线（仅首启 setup.html 有一键启用按钮，设置页不可回访属需求 4 范围）。
+- **背景**：无 WSL2 的 Windows 裸机上 `SANDBOX_BACKEND=none`，`none-sandbox` 以裸 `Error` reject，turn 崩溃被 worker 重试数次后兜底为 "That turn failed..."，用户完全无法得知原因是沙箱基质缺失，也无法自救。桌面壳侧 `enable_wsl2`（提权 `wsl --install`）+ `pending_reboot` + rootfs 自动导入链路早已存在但未在任何界面接线（仅首启 setup.html 有一键启用按钮，设置页不可回访属优化 2 范围）。
 - **决策**：
   1. core：`none-sandbox.ts` 改抛 `NonRetryableTurnError`——无基质的重试必然失败，立即以原文 surfaced 且零重试；错误消息保持英文技术签名（`SANDBOX_BACKEND=none`），core 不携带任何桌面/语言特定文案；
   2. web-ui：新增 `turn-failure.ts` 的 `humanizeTurnFailure()`，按技术签名映射为 i18n 中文可操作文案（指引「重启应用 → 启动页启用沙箱 → 重启电脑」），其余 turn 失败消息原样透传；中文文案归属 UI 层沿用 ADR-006 的口径；
