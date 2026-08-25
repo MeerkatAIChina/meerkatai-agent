@@ -119,3 +119,14 @@
   - 启动页硬阻断进入主界面 —— 见决策 4；
   - worker 层识别沙箱错误再翻译 —— 错误类型本身即信号，无需在 worker 加模式匹配。
 - **后果**：无沙箱机器上的 turn 失败从「重试数次 + 兜底文案」变为「首次失败即告知原因与恢复路径」；任何依赖 none backend 重试语义的行为（不存在合理场景——无基质重试必然失败）消失。回归把守 `test/none-sandbox.test.ts`（NonRetryableTurnError 类型断言）、`plugins/web-ui/test/turn-failure.test.ts`（映射 + 透传 + 接线源码断言）。随主仓升级若上游改动 none-sandbox 或 core-bridge 的 turn_failure 回放段会产生小冲突，解法同 ADR-006 惯例。
+
+## ADR-009：MCP server 认证支持自定义单头模式——YAGNI 否决任意字典，secret 语义对齐既有凭据
+
+- **状态**：已接受（需求 3，Brainstorming 2026-08-24 拍板）
+- **背景**：桌面版需接入 lawaken memory MCP 服务，其鉴权方式为非标准自定义头（`X-Lawaken-MCP-Key`）；core 的 MCP client 只支持 `none / bearer / client-credentials`，`authHeaders()` 只会产出 `Authorization` 头，无法发出自定义头。
+- **决策**：`McpServerAuthMode` 新增 `"header"` 单头模式：`McpServer` 增加 `headerName?` / `headerValue?` 两个字段，`authHeaders()` 产出 `{ [name.toLowerCase()]: value }`；路由校验 headerName 为合法 HTTP header token 且大小写不敏感地不在保留名单（authorization/host/content-type/accept/content-length/connection/transfer-encoding）内；`headerValue` 与 `bearerToken`/`clientSecret` 同等待遇（新建必填、更新留空=保留、GET redact 不回明文、不进沙箱）；`redact()` 同步扩展 `hasHeaderValue`。实现保持上游可贡献形态：代码与测试零 meerkat/lawaken 字样，测试用中性头名 `X-Custom-Key`，保留 upstream-pr 送回主仓的选项。
+- **被否决**：
+  - 任意字典 `Record<string,string>` —— lawaken 只需一个头，X-API-Key 类服务也几乎都是单头；Record 是为「一个调用方都没有的模式」造的抽象（AGENTS.md 明确反对），且每个 key 都要重复保留名单校验、鼓励塞非鉴权头，语义变浑；
+  - lawaken 侧兼容 `Authorization: Bearer` —— 依赖外部团队排期，且需求给定的鉴权方式就是自定义头；
+  - 本地 sidecar 代理改写头 —— 零内核改动但多一个常驻组件，key 的管理面反而变大。
+- **后果**：内核缝改动四处——`mcp-server-store.ts`（类型）、`mcp-client.ts`（`McpAuth` + `authHeaders()`）、`mcp-servers.ts`（`AUTH_MODES` + 校验 + `redact()` 签名扩展）、`mcp-tool-service.ts`（`authOf()` 映射）；存量 none/bearer/client-credentials 注册行为逐字节不变；回归测试把守（`test/mcp-connectors.test.ts` 传输层、`test/mcp-servers-route.test.ts` 路由校验/redact/留空=保留/切换清 secret/probe fail-closed）。
