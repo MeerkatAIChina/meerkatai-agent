@@ -130,3 +130,18 @@
   - lawaken 侧兼容 `Authorization: Bearer` —— 依赖外部团队排期，且需求给定的鉴权方式就是自定义头；
   - 本地 sidecar 代理改写头 —— 零内核改动但多一个常驻组件，key 的管理面反而变大。
 - **后果**：内核缝改动四处——`mcp-server-store.ts`（类型）、`mcp-client.ts`（`McpAuth` + `authHeaders()`）、`mcp-servers.ts`（`AUTH_MODES` + 校验 + `redact()` 签名扩展）、`mcp-tool-service.ts`（`authOf()` 映射）；存量 none/bearer/client-credentials 注册行为逐字节不变；回归测试把守（`test/mcp-connectors.test.ts` 传输层、`test/mcp-servers-route.test.ts` 路由校验/redact/留空=保留/切换清 secret/probe fail-closed）。
+
+## ADR-010：分类器路由与锁回放的模型可用性校验前置——L3 跳过降级、L1 fail-closed 阻断
+
+- **状态**：已接受（issue #12）
+- **背景**：桌面版 `seeds/routes.json` 把 L1（PII）/L3（TRIZ）都路由到 `Meerkat-TRIZ-v1`，但 `local-secure` provider 只在设置页填了本地模型 endpoint 时才注册（`plugins/web-ui/server/index.ts` 的 `registerProviders`）——未填则 core 的 custom registry 里不存在该模型 id。而分类器的 PII/TRIZ 命中是纯本地规则层（`deploy/layers/meerkat/classifier/src/pipeline.ts`），不依赖任何用户配置。`orchestrator.ts` 应用分类器路由（含 `sessionPin` 写锁）与回放会话锁时**全程无 `modelSupportedByHarness` 校验**，直接把 `input.model` 覆盖为未注册 id，下游 `harness-router.ts` 对 requested 不合法即抛 `runtime pi/Meerkat-TRIZ-v1 is not approved`——L3 单轮炸，L1 锁会话后每轮必炸，且错误文案对用户无任何可行动指引（issue #12 截图即此）。
+- **决策**：在两处覆盖点（全仓仅有的两处无校验 `input.model` 写入）前置 `isHarnessId + modelSupportedByHarness` 校验，按路由的安全语义分流：
+  1. **L3 域路由（非 pin）不可用 → 跳过**：不覆盖 `input.harness/input.model`，turn 用用户/默认 runtime 继续，审计 `classifier.route` status=`skipped`（detail 带 `reason:"model not available"`）——TRIZ 路由是回答质量优化项而非安全项，对齐 v0.1 设计文档「知识包未导入不阻断、TRIZ 回答退化」的既有哲学；
+  2. **L1 隐私路由（pin）不可用 → fail-closed 阻断**：抛 `NonRetryableTurnError`（文案明确「敏感内容必须走该模型、其 provider 未配置、拒绝回退其他模型」），审计 status=`blocked`，且**不写会话锁**——锁一个不可用模型等于把会话永久锁死在必炸状态。依据 v0.0 ADR「分类不可用即假定最坏情况，不 fail-open」：敏感内容绝不能静默改道云端模型；
+  3. **锁回放不可用 → 同样 fail-closed**：锁写入时模型合法、回放时可能已不合法（provider 被移除），校验失败抛 `NonRetryableTurnError`（指明会话被隐私锁定到不可用模型），审计新增 `session_lock.blocked`。隐私锁与普通路由同一标准，不留后门。
+- **被否决**：
+  - 在 `harness-router`/`resolveRuntimeChoice` 层把「requested 不合法」从抛错改为静默回退 —— 改变上游公共语义，所有 surface 的显式模型请求都会被静默换模型，误导面比修复面更大；
+  - L3 路由不可用也阻断 —— 优化项缺失不应打断正常聊天，与决策 1 的既有哲学冲突；
+  - 源头永远注册 `local-secure`（空 baseUrl 占位）—— 空 baseUrl 过不了 `validateCustomProviderSpec`，填假地址只会把错误挪到更难懂的「连接失败」，且没解决 routes.json 写错 id 这类通用缺口；
+  - 修在 web-ui/桌面层 —— 覆盖发生在 orchestrator 执行期，UI 层拦不住；修在汇聚层两处即覆盖全部 surface。
+- **后果**：core 改动限 `orchestrator.ts` 两处 + import 行；错误呈现走 ADR-008 的既有 `NonRetryableTurnError → turn_failure` 通道，用户看到的是可行动文案而非 "not approved"；`desktop/seeds/routes.json` 与 `providers.local-secure.json` 的模型 id 保持一致（注册了即合法），本 ADR 兜的是「未注册/锁后失效」窗口；随主仓升级若上游改动 orchestrator 分类器段会产生小冲突，解法同 ADR-006 惯例。回归把守 `test/sensitivity-classifier-integration.test.ts` 三个新用例（L3 跳过不写锁 / L1 阻断不写锁 / 锁回放失效阻断）。
