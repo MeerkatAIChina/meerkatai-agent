@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Rocket,
   Search,
+  Settings,
   ShieldCheck,
   Webhook,
   type IconNode,
@@ -27,13 +28,14 @@ import {
   type SigninRequired,
   TAIL_TURNS,
   withBase,
+  withPortalToken,
 } from "./core-bridge";
 import { applyRuntimeOptions } from "./model-options";
 import { errMessage, swallow } from "../../chassis/src/errors";
 import { brandMark, brandName, icon, initials } from "./ui";
 import { i18n, tr } from "./locale/index.ts";
 import { markConnectorConnected } from "./chat";
-import { clearSkillsCache, resyncModelSelection, seedRuntimeConfig } from "./composer";
+import { clearSkillsCache, isDesktop, resyncModelSelection, seedRuntimeConfig } from "./composer";
 import { ensureDeliveryStream, mainConversation, onExitCanvas } from "./conversations";
 import { clearAllDrafts, saveDraft, storedDraft } from "./drafts";
 import { deepLinkPath, isPlainLeftClick, parseDeepLink, UI_BASE } from "./deep-link";
@@ -452,6 +454,9 @@ export function mountShell(): void {
             <a class="icon-btn subtle" href=${ADMIN_HOME_URL} title=${i18n("Back to admin")} aria-label=${i18n("Back to admin")}
               >${icon(ShieldCheck, 17)}</a
             >
+            ${isDesktop()
+              ? html`<a class="icon-btn subtle" href=${withPortalToken(withBase("/setup"))} title=${i18n("Settings")} aria-label=${i18n("Settings")}>${icon(Settings, 17)}</a>`
+              : nothing}
             <theme-toggle .includeSystem=${true} title=${i18n("Color scheme: light / dark / system")}></theme-toggle>
             <button class="icon-btn subtle" title=${i18n("Sign out")} aria-label=${i18n("Sign out")} @click=${signOut}>
               ${icon(LogOut, 17)}

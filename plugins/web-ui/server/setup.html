@@ -75,7 +75,7 @@
       <h1>欢迎使用 Meerkat</h1>
       <p class="sub">首次使用需要完成服务配置。以下信息由你的服务提供方签发。</p>
       <section>
-        <label for="token">服务令牌 <small>必填</small></label>
+        <label for="token">服务令牌 <small id="token-rule">首次必填</small></label>
         <input id="token" type="password" autocomplete="off" placeholder="粘贴服务令牌" />
         <p class="hint" id="provider-hint"></p>
       </section>
@@ -101,6 +101,7 @@
       </section>
       <button id="save">验证并保存</button>
       <p id="status"></p>
+      <p class="hint" style="text-align:center"><a id="back-home" href="/" style="color:var(--muted)">返回主界面</a></p>
     </main>
     <script>
       (function () {
@@ -114,6 +115,8 @@
           history.replaceState(null, "", location.pathname + (q ? "?" + q : ""));
         }
         var portal = token || localStorage.getItem(KEY) || "";
+        var needsSetup = true;
+        document.getElementById("back-home").href = "/?portal_token=" + encodeURIComponent(portal);
 
         var tokenInput = document.getElementById("token");
         var localInput = document.getElementById("local");
@@ -158,11 +161,17 @@
                 "服务地址：" + d.tensoris.baseUrl;
             }
             if (d && d.gitProxy) proxyInput.value = d.gitProxy;
+            if (d && d.needsSetup === false) {
+              needsSetup = false;
+              document.querySelector("h1").textContent = "Meerkat 设置";
+              document.querySelector(".sub").textContent = "修改配置后保存即可生效；密钥类字段留空表示不修改。";
+              document.getElementById("token").placeholder = "已配置过时留空表示不修改";
+            }
           })
           .catch(function () {});
 
         saveBtn.addEventListener("click", function () {
-          if (!tokenInput.value.trim()) {
+          if (needsSetup && !tokenInput.value.trim()) {
             say("请先粘贴服务令牌", "err");
             return;
           }

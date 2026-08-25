@@ -1121,8 +1121,8 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
 
 let setupCache: { at: number; needs: boolean } | null = null;
 
-async function needsSetup(): Promise<boolean> {
-  if (setupCache && Date.now() - setupCache.at < 10_000) return setupCache.needs;
+async function needsSetup(fresh = false): Promise<boolean> {
+  if (!fresh && setupCache && Date.now() - setupCache.at < 10_000) return setupCache.needs;
   let needs = false;
   try {
     const r = await coreFetch("GET", "/v1/admin/custom-providers", "", 3_000);
@@ -1166,7 +1166,8 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
     return json(res, 400, { error: "bad_request" });
   }
   const token = typeof body.token === "string" ? body.token.trim() : "";
-  if (!token) return json(res, 400, { error: "bad_request", message: "service token is required" });
+  const firstBoot = await needsSetup(true);
+  if (firstBoot && !token) return json(res, 400, { error: "bad_request", message: "service token is required" });
   const gitProxy = typeof body.gitProxy === "string" ? body.gitProxy.trim() : "";
   if (gitProxy) {
     let proxyUrl: URL;
@@ -1188,7 +1189,7 @@ async function registerProviders(res: ServerResponse, rawBody: string): Promise<
       protocol: tensoris.protocol,
       baseUrl: tensoris.baseUrl,
       models: tensoris.models,
-      apiKey: token,
+      ...(token ? { apiKey: token } : {}),
     }),
   );
   if (put.status !== 200) {
@@ -1285,7 +1286,7 @@ const apiRoutes: readonly WebRoute[] = [
     handle: async (c) => {
       const { res } = c;
       if (!DESKTOP) return json(res, 404, { error: "not found" });
-      return json(res, 200, { ...setupDefaults(), gitProxy: readGitProxy() });
+      return json(res, 200, { ...setupDefaults(), gitProxy: readGitProxy(), needsSetup: await needsSetup(true) });
     },
   },
   {
