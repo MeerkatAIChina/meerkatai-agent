@@ -1,4 +1,5 @@
 import { getTranslations, i18n as miniLitI18n, setTranslations, type i18nMessages } from "@mariozechner/mini-lit";
+import { errMessage } from "../../../chassis/src/errors.ts";
 import { ZH_CN } from "./zh-cn.ts";
 
 export function i18n(key: string): unknown {
@@ -18,7 +19,7 @@ export function setupLocale(): void {
   try {
     localStorage.setItem("language", "zh");
   } catch (e) {
-    console.debug("locale: language preference not persisted", e);
+    console.debug("locale: language preference not persisted", errMessage(e));
   }
   setTranslations({ ...getTranslations(), zh: ZH_CN as unknown as i18nMessages });
 }

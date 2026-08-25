@@ -1030,7 +1030,7 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
     const isLocal = p.local === true;
     const snapshotCommit = isLocal ? readSnapshotCommit(url) : null;
     skillPackStatus.set(name, { name, phase: "importing" });
-    let packId: string | null = null;
+    let packId: string | null;
     try {
       const existing = await fetchPackList();
       const found = existing.find((x) => matchesSeedPack(x, url, upstreamUrl));
