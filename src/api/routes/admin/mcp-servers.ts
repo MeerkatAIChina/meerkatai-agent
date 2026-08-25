@@ -9,19 +9,30 @@ import { sendJson } from "../../http.ts";
 import type { ApiCtx } from "../route.ts";
 import { audit, authorizeAdmin, orgScope } from "../shared.ts";
 
-const AUTH_MODES: McpServerAuthMode[] = ["none", "bearer", "client-credentials"];
+const AUTH_MODES: McpServerAuthMode[] = ["none", "bearer", "client-credentials", "header"];
+const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const RESERVED_HEADER_NAMES = new Set([
+  "authorization",
+  "host",
+  "content-type",
+  "accept",
+  "content-length",
+  "connection",
+  "transfer-encoding",
+]);
 
 async function actor(ctx: ApiCtx) {
   const scope = orgScope(ctx.deps);
   return authorizeAdmin(ctx, scope);
 }
 
-function redact(server: McpServer): Omit<McpServer, "bearerToken" | "clientSecret"> & {
+function redact(server: McpServer): Omit<McpServer, "bearerToken" | "clientSecret" | "headerValue"> & {
   hasBearerToken: boolean;
   hasClientSecret: boolean;
+  hasHeaderValue: boolean;
 } {
-  const { bearerToken, clientSecret, ...rest } = server;
-  return { ...rest, hasBearerToken: !!bearerToken, hasClientSecret: !!clientSecret };
+  const { bearerToken, clientSecret, headerValue, ...rest } = server;
+  return { ...rest, hasBearerToken: !!bearerToken, hasClientSecret: !!clientSecret, hasHeaderValue: !!headerValue };
 }
 
 export async function getMcpServers(ctx: ApiCtx): Promise<void> {
@@ -79,6 +90,15 @@ export async function putMcpServer(ctx: ApiCtx): Promise<void> {
     return sendJson(ctx.res, 400, { error: "bad_request", message: `auth must be one of ${AUTH_MODES.join(", ")}` });
   }
   const existing = await ctx.deps.mcpServers.get(id);
+  const headerName = typeof b.headerName === "string" ? b.headerName.trim() : "";
+  if (auth === "header") {
+    if (!HEADER_NAME_PATTERN.test(headerName)) {
+      return sendJson(ctx.res, 400, { error: "bad_request", message: "header auth requires headerName to be a valid HTTP header token" });
+    }
+    if (RESERVED_HEADER_NAMES.has(headerName.toLowerCase())) {
+      return sendJson(ctx.res, 400, { error: "bad_request", message: `headerName must not be ${headerName}` });
+    }
+  }
   const server: McpServer = {
     id,
     name: typeof b.name === "string" && b.name.trim() ? b.name.trim().slice(0, 80) : id,
@@ -93,6 +113,12 @@ export async function putMcpServer(ctx: ApiCtx): Promise<void> {
           clientSecret: typeof b.clientSecret === "string" && b.clientSecret ? b.clientSecret : existing?.clientSecret,
         }
       : {}),
+    ...(auth === "header"
+      ? {
+          headerName,
+          headerValue: typeof b.headerValue === "string" && b.headerValue ? b.headerValue : existing?.headerValue,
+        }
+      : {}),
     readOnly: b.readOnly !== false,
     enabled: b.enabled !== false,
     updatedAt: Date.now(),
@@ -100,6 +126,9 @@ export async function putMcpServer(ctx: ApiCtx): Promise<void> {
   };
   if (auth === "bearer" && !server.bearerToken) {
     return sendJson(ctx.res, 400, { error: "bad_request", message: "bearer auth requires bearerToken" });
+  }
+  if (auth === "header" && !server.headerValue) {
+    return sendJson(ctx.res, 400, { error: "bad_request", message: "header auth requires headerValue" });
   }
   if (auth === "client-credentials" && (!server.clientId || !server.clientSecret)) {
     return sendJson(ctx.res, 400, {
