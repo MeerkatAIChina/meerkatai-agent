@@ -308,9 +308,18 @@
                 : s.auth === "bearer" ? (s.hasBearerToken ? "令牌已配置" : "令牌未配置") : "无鉴权";
               var info = document.createElement("div");
               info.className = "grow";
-              info.innerHTML = "<div>" + (s.name || s.id) + " <span class='meta'>(" + s.id + ")</span></div>" +
-                "<div class='meta'>" + s.url + " · " + secretState + " · 工具 " + toolCount + " 个" +
-                (s.readOnly ? " · 只读" : "") + (s.enabled ? "" : " · 已停用") + "</div>";
+              var titleLine = document.createElement("div");
+              titleLine.appendChild(document.createTextNode((s.name || s.id) + " "));
+              var idSpan = document.createElement("span");
+              idSpan.className = "meta";
+              idSpan.textContent = "(" + s.id + ")";
+              titleLine.appendChild(idSpan);
+              var metaLine = document.createElement("div");
+              metaLine.className = "meta";
+              metaLine.textContent = s.url + " · " + secretState + " · 工具 " + toolCount + " 个" +
+                (s.readOnly ? " · 只读" : "") + (s.enabled ? "" : " · 已停用");
+              info.appendChild(titleLine);
+              info.appendChild(metaLine);
               var edit = document.createElement("button");
               edit.type = "button";
               edit.textContent = "编辑";
