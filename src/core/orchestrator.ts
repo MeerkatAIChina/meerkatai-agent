@@ -135,7 +135,7 @@ import { randomUUID } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import type { SkillResolution, GrantedSkillRef } from "../skills/skill-store.ts";
 import type { Orchestrator, OrchestratorDeps, OrchestratorInput } from "./orchestrator/types.ts";
-import { resolveModel } from "../model/pi-models.ts";
+import { isHarnessId, modelSupportedByHarness, resolveModel } from "../model/pi-models.ts";
 import {
   MAX_AUTO_ATTACHMENT_SCREEN_BYTES,
   approvalGrantId,
@@ -2062,6 +2062,23 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         const sessionLock = deps.sessionLockStore ? await deps.sessionLockStore.get(session.id) : null;
         let privacyLocked = sessionLock !== null;
         if (sessionLock) {
+          if (
+            !isHarnessId(sessionLock.harnessId) ||
+            !modelSupportedByHarness(sessionLock.modelId, sessionLock.harnessId)
+          ) {
+            deps.auditLog.record({
+              at: Date.now(),
+              principalId: actor.id,
+              action: "session_lock.blocked",
+              resource: session.id,
+              scopeLabel: scopeId,
+              status: "blocked",
+              detail: JSON.stringify({ harnessId: sessionLock.harnessId, modelId: sessionLock.modelId }),
+            });
+            throw new NonRetryableTurnError(
+              `this session is privacy-locked to ${sessionLock.harnessId}/${sessionLock.modelId}, which isn't available on this deployment (its provider isn't configured)`,
+            );
+          }
           input.harness = sessionLock.harnessId;
           input.model = sessionLock.modelId;
           deps.auditLog.record({
@@ -2122,30 +2139,55 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             }
           }
           if (sensitivityVerdict?.route) {
-            input.harness = sensitivityVerdict.route.harnessId;
-            input.model = sensitivityVerdict.route.model;
-            deps.auditLog.record({
-              at: Date.now(),
-              principalId: actor.id,
-              action: "classifier.route",
-              resource: sensitivityVerdict.route.policy,
-              scopeLabel: scopeId,
-              status: "routed",
-              detail: JSON.stringify({
-                level: sensitivityVerdict.level,
-                domain: sensitivityVerdict.domain,
-                model: sensitivityVerdict.route.model,
-                harnessId: sensitivityVerdict.route.harnessId,
-                sessionPin: sensitivityVerdict.route.sessionPin,
-              }),
-            });
-            if (sensitivityVerdict.route.sessionPin) {
-              privacyLocked = true;
-              if (deps.sessionLockStore) {
-                await deps.sessionLockStore.put(session.id, {
+            const route = sensitivityVerdict.route;
+            if (!isHarnessId(route.harnessId) || !modelSupportedByHarness(route.model, route.harnessId)) {
+              deps.auditLog.record({
+                at: Date.now(),
+                principalId: actor.id,
+                action: "classifier.route",
+                resource: route.policy,
+                scopeLabel: scopeId,
+                status: route.sessionPin ? "blocked" : "skipped",
+                detail: JSON.stringify({
+                  level: sensitivityVerdict.level,
+                  domain: sensitivityVerdict.domain,
+                  model: route.model,
+                  harnessId: route.harnessId,
+                  sessionPin: route.sessionPin,
+                  reason: "model not available",
+                }),
+              });
+              if (route.sessionPin) {
+                throw new NonRetryableTurnError(
+                  `sensitive content requires ${route.harnessId}/${route.model}, which isn't available on this deployment (its provider isn't configured) — refusing to fall back to another model`,
+                );
+              }
+            } else {
+              input.harness = route.harnessId;
+              input.model = route.model;
+              deps.auditLog.record({
+                at: Date.now(),
+                principalId: actor.id,
+                action: "classifier.route",
+                resource: sensitivityVerdict.route.policy,
+                scopeLabel: scopeId,
+                status: "routed",
+                detail: JSON.stringify({
+                  level: sensitivityVerdict.level,
+                  domain: sensitivityVerdict.domain,
+                  model: sensitivityVerdict.route.model,
                   harnessId: sensitivityVerdict.route.harnessId,
-                  modelId: sensitivityVerdict.route.model,
-                });
+                  sessionPin: sensitivityVerdict.route.sessionPin,
+                }),
+              });
+              if (sensitivityVerdict.route.sessionPin) {
+                privacyLocked = true;
+                if (deps.sessionLockStore) {
+                  await deps.sessionLockStore.put(session.id, {
+                    harnessId: sensitivityVerdict.route.harnessId,
+                    modelId: sensitivityVerdict.route.model,
+                  });
+                }
               }
             }
           }

@@ -221,3 +221,77 @@ test("no classifier configured skips classification entirely", async () => {
   const events = await built.auditLog.events();
   assert.ok(!events.some((e) => e.action.startsWith("classifier.")));
 });
+
+test("a route to an unavailable model is skipped, not applied — the turn keeps its own runtime", async () => {
+  const sidecar = await fakeClassifier(() => ({
+    level: "L3",
+    domain: "triz",
+    route: { policy: "meerkat-triz-v1", model: "Meerkat-TRIZ-v1", harness_id: "pi", session_pin: false },
+  }));
+  try {
+    const built = freshApp({ classifierUrl: sidecar.url });
+    const res = await built.app.turn(dm("analyze this contradiction"));
+    assert.equal(res.status, "ok", res.reason);
+    assert.match(res.reply ?? "", /You said: analyze this contradiction/, "the default harness ran the turn");
+
+    const events = await built.auditLog.events();
+    const route = events.find((e) => e.action === "classifier.route");
+    assert.ok(route, "expected a classifier.route audit event");
+    assert.equal(route.status, "skipped");
+    const detail = JSON.parse(route.detail ?? "{}");
+    assert.equal(detail.model, "Meerkat-TRIZ-v1");
+    assert.ok(res.sessionId, "expected a session id");
+    assert.equal(await built.sessionLockStore.get(res.sessionId), null, "a skipped route writes no lock");
+  } finally {
+    await sidecar.close();
+  }
+});
+
+test("a pinning route to an unavailable model refuses the turn instead of failing open", async () => {
+  const sidecar = await fakeClassifier(() => ({
+    level: "L1",
+    domain: "general",
+    route: { policy: "local-secure", model: "Meerkat-TRIZ-v1", harness_id: "pi", session_pin: true },
+  }));
+  try {
+    const built = freshApp({ classifierUrl: sidecar.url });
+    await assert.rejects(built.app.turn(dm("my phone is 13800138000")), /isn't available on this deployment/);
+
+    const events = await built.auditLog.events();
+    const route = events.find((e) => e.action === "classifier.route");
+    assert.ok(route, "expected a classifier.route audit event");
+    assert.equal(route.status, "blocked");
+    assert.equal(
+      (await built.sessionLockStore.entries()).length,
+      0,
+      "a blocked pin must not lock the session onto an unusable model",
+    );
+  } finally {
+    await sidecar.close();
+  }
+});
+
+test("a session lock pointing at an unavailable model refuses the turn instead of crashing downstream", async () => {
+  const sidecar = await fakeClassifier(() => ({
+    level: "L1",
+    domain: "general",
+    route: { policy: "local-secure", model: "claude-opus-4-8", harness_id: "mock", session_pin: true },
+  }));
+  try {
+    const built = freshApp({ classifierUrl: sidecar.url });
+    const first = await built.app.turn(dm("sensitive start"));
+    assert.equal(first.status, "ok", first.reason);
+    assert.ok(first.sessionId, "expected a session id");
+
+    await built.sessionLockStore.put(first.sessionId, { harnessId: "pi", modelId: "Meerkat-TRIZ-v1" });
+    await assert.rejects(built.app.turn(dm("continue chatting")), /privacy-locked to pi\/Meerkat-TRIZ-v1/);
+
+    const events = await built.auditLog.events();
+    assert.ok(
+      events.some((e) => e.action === "session_lock.blocked" && e.status === "blocked"),
+      "expected a session_lock.blocked audit event",
+    );
+  } finally {
+    await sidecar.close();
+  }
+});
