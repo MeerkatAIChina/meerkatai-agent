@@ -68,6 +68,10 @@
       #status { font-size: 13px; min-height: 20px; margin-top: 14px; line-height: 1.5; }
       #status.err { color: var(--red); }
       #status.ok { color: var(--green); }
+      .mcp-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:13px; }
+      .mcp-row .grow { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .mcp-row .meta { color:var(--muted); font-size:12px; }
+      .mcp-row button { width:auto; padding:4px 10px; font-size:12px; margin:0; background:var(--line); }
     </style>
   </head>
   <body>
@@ -92,6 +96,46 @@
         <label for="proxy">网络代理 <small>选填</small></label>
         <input id="proxy" type="text" autocomplete="off" placeholder="http://127.0.0.1:7890" />
         <p class="hint">直连 GitHub 不稳定的网络下填写，用于拉取技能包。保存后会自动重启核心服务生效。</p>
+      </section>
+      <section id="mcp-section">
+        <label>MCP 服务 <small>选填，按需配置</small></label>
+        <div id="mcp-list"></div>
+        <div id="mcp-form" hidden>
+          <label for="mcp-id">服务 ID <small>小写字母开头，小写+数字+连字符，2-40 位</small></label>
+          <input id="mcp-id" type="text" autocomplete="off" placeholder="如 memory" />
+          <label for="mcp-name" style="margin-top:10px">显示名称</label>
+          <input id="mcp-name" type="text" autocomplete="off" placeholder="如 记忆服务" />
+          <label for="mcp-url" style="margin-top:10px">服务地址</label>
+          <input id="mcp-url" type="text" autocomplete="off" placeholder="https://example.com/api/memory/mcp" />
+          <label for="mcp-auth" style="margin-top:10px">鉴权方式</label>
+          <select id="mcp-auth" style="width:100%;font:inherit;font-size:13px;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)">
+            <option value="none">无</option>
+            <option value="bearer">Bearer 令牌</option>
+            <option value="header">自定义请求头</option>
+          </select>
+          <div id="mcp-bearer-row" hidden style="margin-top:10px">
+            <label for="mcp-token">Bearer 令牌</label>
+            <input id="mcp-token" type="password" autocomplete="off" />
+          </div>
+          <div id="mcp-header-rows" hidden style="margin-top:10px">
+            <label for="mcp-header-name">请求头名称</label>
+            <input id="mcp-header-name" type="text" autocomplete="off" placeholder="如 X-Custom-Key" />
+            <label for="mcp-header-value" style="margin-top:10px">请求头密钥</label>
+            <input id="mcp-header-value" type="password" autocomplete="off" />
+          </div>
+          <p class="hint" style="margin-top:10px">
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:0"><input id="mcp-readonly" type="checkbox" checked style="width:auto" /> 只读（推荐，agent 不会写入该服务）</label>
+            <br />
+            <label style="display:inline-flex;align-items:center;gap:6px;margin:6px 0 0"><input id="mcp-enabled" type="checkbox" checked style="width:auto" /> 启用</label>
+          </p>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button type="button" id="mcp-save" style="margin-top:0">验证并保存</button>
+            <button type="button" id="mcp-cancel" style="margin-top:0;background:var(--line)">取消</button>
+          </div>
+          <p class="hint" id="mcp-form-status"></p>
+        </div>
+        <button type="button" id="mcp-add" style="width:auto;padding:8px 16px;font-size:13px">添加 MCP 服务</button>
+        <p class="hint">接入外部 MCP 工具服务。保存时会先验证连通性，连不通不会保存。</p>
       </section>
       <section>
         <label>沙箱（代码执行能力） <small>选填</small></label>
@@ -227,6 +271,123 @@
               saveBtn.disabled = false;
             });
         });
+
+        var mcpList = document.getElementById("mcp-list");
+        var mcpForm = document.getElementById("mcp-form");
+        var mcpAddBtn = document.getElementById("mcp-add");
+        var mcpFormStatus = document.getElementById("mcp-form-status");
+        var editingId = null;
+
+        function mcpSay(text, cls) {
+          mcpFormStatus.textContent = text;
+          mcpFormStatus.style.color = cls === "err" ? "var(--red)" : "var(--muted)";
+        }
+
+        function mcpApi(path, init) {
+          return fetch(path, {
+            method: (init && init.method) || "GET",
+            headers: { "content-type": "application/json", "x-portal-identity": portal },
+            body: init && init.body ? JSON.stringify(init.body) : undefined,
+          }).then(async function (r) {
+            var body = await r.json().catch(function () { return {}; });
+            return { status: r.status, body: body };
+          });
+        }
+
+        function loadMcp() {
+          mcpApi("/api/setup/mcp-servers").then(function (r) {
+            if (r.status !== 200) { mcpList.innerHTML = ""; return; }
+            var servers = (r.body && r.body.servers) || [];
+            var tools = (r.body && r.body.tools) || [];
+            mcpList.innerHTML = "";
+            servers.forEach(function (s) {
+              var row = document.createElement("div");
+              row.className = "mcp-row";
+              var toolCount = tools.filter(function (t) { return t.serverId === s.id; }).length;
+              var secretState = s.auth === "header" ? (s.hasHeaderValue ? "密钥已配置" : "密钥未配置")
+                : s.auth === "bearer" ? (s.hasBearerToken ? "令牌已配置" : "令牌未配置") : "无鉴权";
+              var info = document.createElement("div");
+              info.className = "grow";
+              info.innerHTML = "<div>" + (s.name || s.id) + " <span class='meta'>(" + s.id + ")</span></div>" +
+                "<div class='meta'>" + s.url + " · " + secretState + " · 工具 " + toolCount + " 个" +
+                (s.readOnly ? " · 只读" : "") + (s.enabled ? "" : " · 已停用") + "</div>";
+              var edit = document.createElement("button");
+              edit.type = "button";
+              edit.textContent = "编辑";
+              edit.addEventListener("click", function () { openMcpForm(s); });
+              var del = document.createElement("button");
+              del.type = "button";
+              del.textContent = "删除";
+              del.addEventListener("click", function () {
+                if (!confirm("删除后该服务的所有工具将立即下线，确认删除 " + s.id + "？")) return;
+                mcpApi("/api/setup/mcp-servers/" + encodeURIComponent(s.id), { method: "DELETE" }).then(function () { loadMcp(); });
+              });
+              row.appendChild(info); row.appendChild(edit); row.appendChild(del);
+              mcpList.appendChild(row);
+            });
+          });
+        }
+
+        function openMcpForm(s) {
+          editingId = s ? s.id : null;
+          document.getElementById("mcp-id").value = s ? s.id : "";
+          document.getElementById("mcp-id").disabled = !!s;
+          document.getElementById("mcp-name").value = s ? s.name || "" : "";
+          document.getElementById("mcp-url").value = s ? s.url : "";
+          document.getElementById("mcp-auth").value = s ? s.auth : "header";
+          document.getElementById("mcp-token").value = "";
+          document.getElementById("mcp-header-name").value = s && s.headerName ? s.headerName : "";
+          document.getElementById("mcp-header-value").value = "";
+          document.getElementById("mcp-readonly").checked = s ? s.readOnly !== false : true;
+          document.getElementById("mcp-enabled").checked = s ? s.enabled !== false : true;
+          syncMcpAuthRows(s ? s : null);
+          mcpForm.hidden = false;
+          mcpAddBtn.hidden = true;
+          mcpSay("");
+        }
+
+        function syncMcpAuthRows(s) {
+          var auth = document.getElementById("mcp-auth").value;
+          document.getElementById("mcp-bearer-row").hidden = auth !== "bearer";
+          document.getElementById("mcp-header-rows").hidden = auth !== "header";
+          var hasSecret = s && (auth === "header" ? s.hasHeaderValue : s.hasBearerToken);
+          var keepHint = hasSecret ? "已配置，留空则不修改" : "";
+          document.getElementById("mcp-token").placeholder = auth === "bearer" ? keepHint : "";
+          document.getElementById("mcp-header-value").placeholder = auth === "header" ? keepHint : "";
+        }
+
+        document.getElementById("mcp-auth").addEventListener("change", function () { syncMcpAuthRows(null); });
+        mcpAddBtn.addEventListener("click", function () { openMcpForm(null); });
+        document.getElementById("mcp-cancel").addEventListener("click", function () {
+          mcpForm.hidden = true;
+          mcpAddBtn.hidden = false;
+        });
+        document.getElementById("mcp-save").addEventListener("click", function () {
+          var id = editingId || document.getElementById("mcp-id").value.trim();
+          var auth = document.getElementById("mcp-auth").value;
+          if (!id) { mcpSay("请填写服务 ID", "err"); return; }
+          var body = {
+            name: document.getElementById("mcp-name").value.trim() || id,
+            url: document.getElementById("mcp-url").value.trim(),
+            auth: auth,
+            readOnly: document.getElementById("mcp-readonly").checked,
+            enabled: document.getElementById("mcp-enabled").checked,
+          };
+          if (auth === "bearer") body.bearerToken = document.getElementById("mcp-token").value;
+          if (auth === "header") {
+            body.headerName = document.getElementById("mcp-header-name").value.trim();
+            body.headerValue = document.getElementById("mcp-header-value").value;
+          }
+          mcpSay("正在验证并保存…");
+          mcpApi("/api/setup/mcp-servers/" + encodeURIComponent(id), { method: "PUT", body: body }).then(function (r) {
+            if (r.status !== 200) { mcpSay("保存失败：" + (r.body.message || r.status), "err"); return; }
+            mcpForm.hidden = true;
+            mcpAddBtn.hidden = false;
+            loadMcp();
+          });
+        });
+
+        loadMcp();
       })();
     </script>
   </body>
