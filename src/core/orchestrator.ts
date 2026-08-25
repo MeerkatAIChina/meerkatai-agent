@@ -1860,6 +1860,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           deploy: deps.deploy,
           acl: deps.acl,
           files: deps.files,
+          miniapps: deps.miniapps,
           auditLog: deps.auditLog,
           createdBy: actor.id,
           ...(() => {
