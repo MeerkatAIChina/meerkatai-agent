@@ -1141,6 +1141,18 @@ function serveSetupHtml(res: ServerResponse): void {
   sendInlineHtml(res, 200, readFileSync(join(ROOT, "server", "setup.html"), "utf8"));
 }
 
+async function forwardCore(res: ServerResponse, r: { status: number; text: string }): Promise<void> {
+  let body: unknown = {};
+  try {
+    body = JSON.parse(r.text);
+  } catch (e) {
+    swallow("setup:mcp-forward", e);
+  }
+  if (r.status === 200) return json(res, 200, body);
+  if (r.status === 400 || r.status === 404) return json(res, r.status, body);
+  return json(res, 502, { error: "core_error", message: `core returned HTTP ${r.status}` });
+}
+
 async function registerProviders(res: ServerResponse, rawBody: string): Promise<void> {
   let body: { token?: unknown; localEndpoint?: unknown; localApiKey?: unknown; gitProxy?: unknown };
   try {
@@ -1283,6 +1295,45 @@ const apiRoutes: readonly WebRoute[] = [
       const { req, res } = c;
       if (!DESKTOP) return json(res, 404, { error: "not found" });
       return registerProviders(res, await readBody(req));
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/setup/mcp-servers",
+    handle: async (c) => {
+      const { res } = c;
+      if (!DESKTOP) return json(res, 404, { error: "not found" });
+      return forwardCore(res, await coreFetch("GET", "/v1/admin/mcp-servers"));
+    },
+  },
+  {
+    method: "PUT",
+    path: "/api/setup/mcp-servers/:id",
+    handle: async (c) => {
+      const { req, res, params } = c;
+      if (!DESKTOP) return json(res, 404, { error: "not found" });
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      for (const key of ["bearerToken", "clientSecret", "headerValue"]) {
+        if (body[key] === "") delete body[key];
+      }
+      return forwardCore(
+        res,
+        await coreFetch("PUT", `/v1/admin/mcp-servers/${encodeURIComponent(params.id ?? "")}`, JSON.stringify(body)),
+      );
+    },
+  },
+  {
+    method: "DELETE",
+    path: "/api/setup/mcp-servers/:id",
+    handle: async (c) => {
+      const { res, params } = c;
+      if (!DESKTOP) return json(res, 404, { error: "not found" });
+      return forwardCore(res, await coreFetch("DELETE", `/v1/admin/mcp-servers/${encodeURIComponent(params.id ?? "")}`));
     },
   },
   {
