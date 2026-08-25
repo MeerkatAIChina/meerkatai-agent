@@ -19,11 +19,17 @@ const TOOLS = [
   { name: "update", description: "Write a record", inputSchema: { type: "object", properties: {} } },
 ];
 
-function fakeServerFetch(opts?: { requireBearer?: string; sse?: boolean }): { fetch: McpFetch; calls: string[] } {
+function fakeServerFetch(opts?: { requireBearer?: string; requireHeader?: { name: string; value: string }; sse?: boolean }): {
+  fetch: McpFetch;
+  calls: string[];
+} {
   const calls: string[] = [];
   const fetch: McpFetch = async (url, init) => {
     calls.push(url);
     if (opts?.requireBearer && init.headers.authorization !== `Bearer ${opts.requireBearer}`) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
+    if (opts?.requireHeader && init.headers[opts.requireHeader.name.toLowerCase()] !== opts.requireHeader.value) {
       return jsonResponse({ error: "unauthorized" }, 401);
     }
     const req = JSON.parse(init.body) as { id: number; method: string; params: { name?: string } };
@@ -81,6 +87,34 @@ test("mcp client sends bearer auth", async () => {
   assert.equal((await client.listTools()).length, 2);
   const bad = createMcpClient({ url: "https://mcp.example.com/mcp", auth: { mode: "none" }, fetchImpl: fetch });
   await assert.rejects(() => bad.listTools(), /HTTP 401/);
+});
+
+test("mcp client sends a custom auth header", async () => {
+  const { fetch } = fakeServerFetch({ requireHeader: { name: "X-Custom-Key", value: "sekret" } });
+  const client = createMcpClient({
+    url: "https://mcp.example.com/mcp",
+    auth: { mode: "header", name: "X-Custom-Key", value: "sekret" },
+    fetchImpl: fetch,
+  });
+  assert.equal((await client.listTools()).length, 2);
+  const bad = createMcpClient({
+    url: "https://mcp.example.com/mcp",
+    auth: { mode: "header", name: "X-Custom-Key", value: "wrong" },
+    fetchImpl: fetch,
+  });
+  await assert.rejects(() => bad.listTools(), /HTTP 401/);
+});
+
+test("tool service maps a header-auth server to the client", async () => {
+  const store = createMcpServerStore(createMemoryMap<McpServer>());
+  const { fetch } = fakeServerFetch({ requireHeader: { name: "X-Custom-Key", value: "sekret" } });
+  const service = createMcpToolService({ servers: store, fetchImpl: fetch, refreshIntervalMs: 3600_000 });
+  await store.put(server({ auth: "header", headerName: "X-Custom-Key", headerValue: "sekret" }));
+  await service.refresh();
+  assert.equal(service.toolDefs().length, 2);
+  const out = await service.call("crm_query", { q: "hello" }, "internal:U1");
+  assert.equal(out, "ran query");
+  service.close();
 });
 
 test("server id validation", () => {

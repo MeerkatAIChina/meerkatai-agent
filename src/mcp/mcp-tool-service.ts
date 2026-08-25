@@ -41,6 +41,8 @@ function authOf(server: McpServer): McpAuth {
   if (server.auth === "bearer") return { mode: "bearer", token: server.bearerToken ?? "" };
   if (server.auth === "client-credentials")
     return { mode: "client-credentials", clientId: server.clientId ?? "", clientSecret: server.clientSecret ?? "" };
+  if (server.auth === "header")
+    return { mode: "header", name: server.headerName ?? "", value: server.headerValue ?? "" };
   return { mode: "none" };
 }
 

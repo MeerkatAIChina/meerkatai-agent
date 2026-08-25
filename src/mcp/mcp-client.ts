@@ -105,7 +105,8 @@ interface McpRemoteTool {
 export type McpAuth =
   | { mode: "none" }
   | { mode: "bearer"; token: string }
-  | { mode: "client-credentials"; clientId: string; clientSecret: string };
+  | { mode: "client-credentials"; clientId: string; clientSecret: string }
+  | { mode: "header"; name: string; value: string };
 
 export interface McpClient {
   readonly base: string;
@@ -156,6 +157,7 @@ export function createMcpClient(opts: {
     const auth = opts.auth;
     if (auth.mode === "none") return {};
     if (auth.mode === "bearer") return { authorization: `Bearer ${auth.token}` };
+    if (auth.mode === "header") return { [auth.name.toLowerCase()]: auth.value };
     return { authorization: `Bearer ${await mintToken(auth.clientId, auth.clientSecret)}` };
   }
 
