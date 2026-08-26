@@ -157,3 +157,16 @@
   - 缓存内容内存化、每次重写同一路径 —— 目录整体被删时 writeFileSync 仍失败，还要额外 mkdir，与重新 mkdtemp 等价比没有优势；
   - 文件 watcher 监听删除事件主动重建 —— 跨平台 watcher 语义复杂（chokidar 级依赖），为每轮一次 existsSync 就能解决的问题引入持续监听不值得。
 - **后果**：core 改动限 `pi-harness.ts` 的 `customModelsPath` 一处 + fs import；version bump 行为逐字节不变；`customModelsPath` 导出供测试直驱。被清理后下一轮 turn 自动恢复，无需重启、无需 admin 重写。回归把守 `test/pi-harness-custom-models.test.ts`（缓存命中 / 文件消失重建 / 目录消失重建 / 空 registry 返回 null）。该模式同样适用于上游 qm（%TEMP% 清理在 Windows 桌面是常态），保留 upstream-pr 送回主仓的选项。
+
+## ADR-012：DM turn 收口兜底登记未交付的 workspace 产出——默认关的配置开关，桌面经 env 开启
+
+- **状态**：已接受（需求 5 / issue #24，Brainstorming 2026-08-26 拍板）
+- **背景**：交付仅两条通道（DM 的 `$AGENT_OUTBOX` 与 `post(files)`），都依赖模型自觉遵循 FILE_SEND_GUIDANCE。上游 qm 的场景假设——Slack 主界面「回消息 = 交付」、强模型遵循指引、多用户注册表需要显式意图过滤——在桌面端「单用户 + 本地弱模型 + 用户预期文件可见」下全部反转：本地模型不遵循交付指引，产出只留在沙箱 workspace，「文件」面板（artifact 注册表）不可见、无下载入口，模型还幻觉「复制到 workspace 即可见」误导用户（issue #24 实证）。
+- **决策**：DM turn 收口块（outbox 收集之后、`outbound` 合流处）追加兜底扫描：对两个 sandbox handle 的 workspace 根执行一次 `find`（mtime > turnStart 毫秒精度、噪声目录在表达式内 prune），命中文件复用 artifact 注册通道登记（seed 加 `:sweep` 后缀照 `:scratch` 先例隔离命名空间），挂聊天附件卡片（`SWEEP_MAX_CARDS = 5`，溢出仍注册 + delivery session entry text 尾注汇总 + operator log）。与显式交付的去重用「路径 + 内容哈希」双集合：`collectOutbound`/`collectNamedOutbound` 收集时本就读了字节，顺带返回 sha256；sweep 注册前算哈希比对，命中即跳过。开关 `deliverWorkspaceOutputs`（env `DELIVER_WORKSPACE_OUTPUTS`）默认 false，桌面 proc.rs 注入开启。automated turn（`input.origin.kind === "automation"`）不兜底。
+- **被否决**：
+  - 方案 A（提示强化）——本地模型提示遵循度差，事故中已实证其会幻觉交付机制，治标不治本；
+  - 方案 C（Tauri 直读 `\\wsl$` 列 workspace）——绕开 artifact 注册表与统一权限模型，文件体系与对话体系分裂成两套，长期是债；
+  - 快照 diff 变更检测——能兜 `cp -p`/unzip 保 mtime 的漏检，但每 turn 两次全量遍历 + 快照存储；mtime 单次扫描已覆盖主流产出路径，漏检登记为可接受缺陷，升级快照 diff 是纯增量、不推翻本期结构；
+  - 纯路径去重——outbox 交付的是副本，原件留在 workspace 且 mtime 新，路径集合盖不住，守指引的 agent 每次交付必触发双卡片（设计评审实证的阻断级漏洞），必须加内容哈希；
+  - automated turn 同样兜底——cron/wake 产出与「后台任务写入本期不管」的拍板同属一条边界，且 sweep 附件会破坏 poll 静默分支（`orchestrator.ts:3084`），本想静默的轮询 turn 会转成 `status:"ok"` 把回复发出去，cron 频繁打扰用户。
+- **后果**：内核缝改动六处——`orchestrator.ts`（收口块接线 + `DeliveredTracker`）、`attachments.ts`（`collectWorkspaceSweep` 新导出 + `collectOutbound`/`collectNamedOutbound` 返回 hashes）、`surface-tools.ts`（`resolveFiles` 记录 tracker）、`config.ts`（开关）、`wiring.ts`（开关注入 orchestrator deps）、`pi-tools.ts`（FILE_SEND_GUIDANCE 补后台任务交付边界一句）。开关默认关 → 上游所有部署形态语义逐字节不变；automated turn 排除保住 poll 静默分支。已知限制：后台任务 turn 外写入的产物 mtime 相对下一 turn 的 turnStart 已陈旧，mtime 检测在原理上扫不到（非「后续 turn 兜底会带出来」——不成立），FILE_SEND_GUIDANCE 的边界句是这条边界的唯一防线。随主仓升级若上游改动 turn 收口块会产生小冲突，解法同 ADR-006 惯例。回归把守：turn 级集成测试八用例（未交付产出兜底 / post 路径去重 / outbox 原件哈希去重 / 噪声 prune / 开关关闭 / 卡片上限与尾注 / seed 隔离 / automated turn 不兜底）。
