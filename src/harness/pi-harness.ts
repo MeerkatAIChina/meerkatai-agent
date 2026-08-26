@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1012,9 +1012,11 @@ export interface ProviderKeys {
 // custom-provider registry does, so cache the materialized file per registry
 // version instead of leaking a temp dir per turn.
 let cachedCustomModels: { version: number; path: string | null } | null = null;
-function customModelsPath(): string | null {
+export function customModelsPath(): string | null {
   const version = customProvidersVersion();
-  if (cachedCustomModels?.version === version) return cachedCustomModels.path;
+  if (cachedCustomModels?.version === version) {
+    if (cachedCustomModels.path === null || existsSync(cachedCustomModels.path)) return cachedCustomModels.path;
+  }
   const custom = customModelsJson();
   let path: string | null = null;
   if (custom) {

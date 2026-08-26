@@ -145,3 +145,15 @@
   - 源头永远注册 `local-secure`（空 baseUrl 占位）—— 空 baseUrl 过不了 `validateCustomProviderSpec`，填假地址只会把错误挪到更难懂的「连接失败」，且没解决 routes.json 写错 id 这类通用缺口；
   - 修在 web-ui/桌面层 —— 覆盖发生在 orchestrator 执行期，UI 层拦不住；修在汇聚层两处即覆盖全部 surface。
 - **后果**：core 改动限 `orchestrator.ts` 两处 + import 行；错误呈现走 ADR-008 的既有 `NonRetryableTurnError → turn_failure` 通道，用户看到的是可行动文案而非 "not approved"；`desktop/seeds/routes.json` 与 `providers.local-secure.json` 的模型 id 保持一致（注册了即合法），本 ADR 兜的是「未注册/锁后失效」窗口；随主仓升级若上游改动 orchestrator 分类器段会产生小冲突，解法同 ADR-006 惯例。回归把守 `test/sensitivity-classifier-integration.test.ts` 三个新用例（L3 跳过不写锁 / L1 阻断不写锁 / 锁回放失效阻断）。
+
+## ADR-011：custom provider 的 models.json 缓存路径按「存在性」失效重建——缓存键从版本号到版本号+文件存活
+
+- **状态**：已接受（issue #21）
+- **背景**：`customModelsPath()`（`src/harness/pi-harness.ts`）把 custom provider 的 models.json 物化到 `os.tmpdir()` 下的 `pi-custom-models-*` 目录，并按 registry version 在内存缓存路径、从不校验文件是否还在。Windows 存储感知（及任何第三方清理工具）扫 %TEMP% 删掉该文件后，pi 的 `ModelConfig.load` 对缺失路径**静默返回空配置**——provider 未注册 → `checkAuth` 返回 undefined → 模型切换抛错被吞 → session 回落内置默认模型（anthropic）→ 无 key 崩溃，且每轮必现，直到进程重启或 admin 再写一次 provider（issue #21 有完整定位链与复现验证）。桌面端实机 2026-08-26 09:57:41 存储感知一次性清空 15 个 `pi-custom-models-*` 目录后全量复现。
+- **决策**：缓存命中条件从「version 相同」收紧为「version 相同**且缓存路径文件仍存在**」（`existsSync` 每轮一次，成本可忽略）；文件（或整个目录）消失即按同 version 重新物化到新目录并更新缓存。物化位置仍在 %TEMP% 不动。
+- **理由**：失效模式的本质是「缓存假设了身外之物的存活」，存在性校验兜住一切删除原因（清理工具、手动删除、整目录被端），而不只对存储感知这一个来源；改在 `customModelsPath` 这个唯一汇聚点，`buildModelRuntime` 及所有调用方零改动。
+- **被否决**：
+  - 物化到 DATA_DIR 而非 %TEMP% —— 缩小了暴露面但不解决本质（DATA_DIR 同样可被外部删除），且 DATA_DIR 需要把配置参数穿进 harness 层，改动面大于收益；存在性校验达成同等恢复力；
+  - 缓存内容内存化、每次重写同一路径 —— 目录整体被删时 writeFileSync 仍失败，还要额外 mkdir，与重新 mkdtemp 等价比没有优势；
+  - 文件 watcher 监听删除事件主动重建 —— 跨平台 watcher 语义复杂（chokidar 级依赖），为每轮一次 existsSync 就能解决的问题引入持续监听不值得。
+- **后果**：core 改动限 `pi-harness.ts` 的 `customModelsPath` 一处 + fs import；version bump 行为逐字节不变；`customModelsPath` 导出供测试直驱。被清理后下一轮 turn 自动恢复，无需重启、无需 admin 重写。回归把守 `test/pi-harness-custom-models.test.ts`（缓存命中 / 文件消失重建 / 目录消失重建 / 空 registry 返回 null）。该模式同样适用于上游 qm（%TEMP% 清理在 Windows 桌面是常态），保留 upstream-pr 送回主仓的选项。
