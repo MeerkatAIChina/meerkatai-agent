@@ -259,6 +259,7 @@ fn spawn_component(
                 .env("CLASSIFIER_FALLBACK_MODEL", "Meerkat-TRIZ-v1")
                 .env("CLASSIFIER_FALLBACK_HARNESS", "pi")
                 .env("ALLOW_LOCAL_SKILL_PACKS", "1")
+                .env("DELIVER_WORKSPACE_OUTPUTS", "1")
                 .env("ADMIN_GRANTS", "meerkat-desktop:org_admin")
                 .env("CAPABILITY_SECRET", &ctx.secrets.capability_secret)
                 .env("CONNECTOR_SECRET_KEY", &ctx.secrets.connector_secret_key)
