@@ -383,6 +383,8 @@ export const ZH_CN: Record<string, unknown> = {
   "New webhook": "新建 Webhook",
   "Newest": "最新",
   "Next run": "下次运行",
+  "No API key is configured for the conversation model, so conversations cannot run. Open the settings page (gear icon), re-save the model provider's API address and key, then try again.":
+    "对话模型缺少可用的 API 密钥，暂时无法运行。请打开设置页（右上角齿轮），重新保存模型提供方的 API 地址与密钥后重试。",
   "No accounts available": "暂无可用账户",
   "No active crons.": "没有活跃的定时任务。",
   "No apps in this context.": "此上下文中没有应用。",
