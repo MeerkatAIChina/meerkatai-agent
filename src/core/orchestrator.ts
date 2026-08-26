@@ -2799,7 +2799,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
                 turnStartMs: turnStart,
                 tracker: deliveredTracker,
                 cardBudget: Math.max(0, SWEEP_MAX_CARDS - sweepScoped.attachments.length),
-                register: sweepRegistration,
+                register: { ...sweepRegistration, seed: `${sweepRegistration.seed}:scratch` },
               })
             : noSweep;
         const sweepOverflow = [...sweepScoped.registeredOverflow, ...sweepScratch.registeredOverflow];

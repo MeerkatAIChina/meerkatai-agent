@@ -162,7 +162,7 @@
 
 - **状态**：已接受（需求 5 / issue #24，Brainstorming 2026-08-26 拍板）
 - **背景**：交付仅两条通道（DM 的 `$AGENT_OUTBOX` 与 `post(files)`），都依赖模型自觉遵循 FILE_SEND_GUIDANCE。上游 qm 的场景假设——Slack 主界面「回消息 = 交付」、强模型遵循指引、多用户注册表需要显式意图过滤——在桌面端「单用户 + 本地弱模型 + 用户预期文件可见」下全部反转：本地模型不遵循交付指引，产出只留在沙箱 workspace，「文件」面板（artifact 注册表）不可见、无下载入口，模型还幻觉「复制到 workspace 即可见」误导用户（issue #24 实证）。
-- **决策**：DM turn 收口块（outbox 收集之后、`outbound` 合流处）追加兜底扫描：对两个 sandbox handle 的 workspace 根执行一次 `find`（mtime > turnStart 毫秒精度、噪声目录在表达式内 prune），命中文件复用 artifact 注册通道登记（seed 加 `:sweep` 后缀照 `:scratch` 先例隔离命名空间），挂聊天附件卡片（`SWEEP_MAX_CARDS = 5`，溢出仍注册 + delivery session entry text 尾注汇总 + operator log）。与显式交付的去重用「路径 + 内容哈希」双集合：`collectOutbound`/`collectNamedOutbound` 收集时本就读了字节，顺带返回 sha256；sweep 注册前算哈希比对，命中即跳过。开关 `deliverWorkspaceOutputs`（env `DELIVER_WORKSPACE_OUTPUTS`）默认 false，桌面 proc.rs 注入开启。automated turn（`input.origin.kind === "automation"`）不兜底。
+- **决策**：DM turn 收口块（outbox 收集之后、`outbound` 合流处）追加兜底扫描：对两个 sandbox handle 的 workspace 根执行一次 `find`（mtime > turnStart 毫秒精度、噪声目录在表达式内 prune），命中文件复用 artifact 注册通道登记（scoped box 的 sweep seed 加 `:sweep` 后缀、scratch box 的 sweep seed 用 `:sweep:scratch`，照 `:scratch` 先例隔离命名空间——两次 sweep 调用 batchIndex 各自从 0，共享 seed 会撞 artifact id），挂聊天附件卡片（`SWEEP_MAX_CARDS = 5`，溢出仍注册 + delivery session entry text 尾注汇总 + operator log）。与显式交付的去重用「路径 + 内容哈希」双集合：`collectOutbound`/`collectNamedOutbound` 收集时本就读了字节，顺带返回 sha256；sweep 注册前算哈希比对，命中即跳过。开关 `deliverWorkspaceOutputs`（env `DELIVER_WORKSPACE_OUTPUTS`）默认 false，桌面 proc.rs 注入开启。automated turn（`input.origin.kind === "automation"`）不兜底。
 - **被否决**：
   - 方案 A（提示强化）——本地模型提示遵循度差，事故中已实证其会幻觉交付机制，治标不治本；
   - 方案 C（Tauri 直读 `\\wsl$` 列 workspace）——绕开 artifact 注册表与统一权限模型，文件体系与对话体系分裂成两套，长期是债；

@@ -144,3 +144,24 @@ test("sweep drops files past SWEEP_MAX_FILES", async () => {
   assert.equal(r.dropped, 2);
   assert.equal(r.attachments.length + r.registeredOverflow.length, SWEEP_MAX_FILES);
 });
+
+test("scoped and scratch sweeps with distinct seeds never share an artifact id", async () => {
+  const scopedFiles = new Map([["scoped.txt", bytes("scoped")]]);
+  const scratchFiles = new Map([["scratch.txt", bytes("scratch")]]);
+  const { register } = registration();
+  const scoped = await collectWorkspaceSweep(fakeSweepSandbox(scopedFiles), HANDLE, createMemoryBlobTransferStore(), {
+    turnStartMs: 1692960000123,
+    tracker: newTracker(),
+    cardBudget: SWEEP_MAX_CARDS,
+    register,
+  });
+  const scratch = await collectWorkspaceSweep(fakeSweepSandbox(scratchFiles), HANDLE, createMemoryBlobTransferStore(), {
+    turnStartMs: 1692960000123,
+    tracker: newTracker(),
+    cardBudget: SWEEP_MAX_CARDS,
+    register: { ...register, seed: `${register.seed}:scratch` },
+  });
+  assert.ok(scoped.attachments[0]!.artifactId, "scoped attachment registered");
+  assert.ok(scratch.attachments[0]!.artifactId, "scratch attachment registered");
+  assert.notEqual(scoped.attachments[0]!.artifactId, scratch.attachments[0]!.artifactId);
+});
