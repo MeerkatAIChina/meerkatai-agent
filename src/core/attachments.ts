@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   AttachmentMeta,
   GrantedHandle,
@@ -106,6 +106,34 @@ export function mimeFromName(name: string): string {
 }
 
 export const MAX_OUTBOUND_FILES = 20;
+
+export const SWEEP_PRUNE_PATHS = [
+  "./.agent-turn",
+  "*/node_modules",
+  "*/.git",
+  "*/__pycache__",
+  "./.npm",
+  "./.cache",
+  "./venv",
+  "./.venv",
+] as const;
+export const SWEEP_MAX_CARDS = 5;
+export const SWEEP_MAX_FILES = MAX_OUTBOUND_FILES;
+
+export interface DeliveredTracker {
+  paths: Set<string>;
+  hashes: Set<string>;
+}
+
+export function normalizeWorkspacePath(p: string): string {
+  return p.replace(/^\.\//, "");
+}
+
+export function workspaceSweepCommand(turnStartMs: number): string {
+  const ts = `@${(turnStartMs / 1000).toFixed(3)}`;
+  const prune = SWEEP_PRUNE_PATHS.map((p) => `-path '${p}'`).join(" -o ");
+  return `find . \\( ${prune} \\) -prune -o -type f -newermt '${ts}' -print`;
+}
 
 export const MAX_INBOUND_FILES = 10;
 
@@ -337,8 +365,13 @@ export async function materializeInbound(
   return { metas, images, tooMany, unavailable, blocked, unscreened };
 }
 
-export function deliveryManifest(attachments: readonly OutgoingAttachment[]): string {
-  return attachments.map((a) => `${a.name} (${a.mimetype}, ${a.sizeBytes} bytes)`).join("; ");
+export function deliveryManifest(
+  attachments: readonly OutgoingAttachment[],
+  overflow?: { count: number; names: readonly string[] },
+): string {
+  const base = attachments.map((a) => `${a.name} (${a.mimetype}, ${a.sizeBytes} bytes)`).join("; ");
+  if (!overflow?.count) return base;
+  return `${base}; and ${overflow.count} more file(s) registered to the Files panel: ${overflow.names.join(", ")}`;
 }
 
 export function recentDeliveryNote(history: readonly SessionEntry[]): string {
@@ -359,11 +392,12 @@ export async function collectOutbound(
   transfer: BlobTransferStore,
   register?: ArtifactRegistration,
   outboxDir = OUTBOX_DIR,
-): Promise<{ attachments: OutgoingAttachment[]; oversized: string[]; empty: string[]; dropped: number }> {
+): Promise<{ attachments: OutgoingAttachment[]; oversized: string[]; empty: string[]; dropped: number; hashes: string[] }> {
   const paths = (await sandbox.listDir(handle, outboxDir)).sort();
   const attachments: OutgoingAttachment[] = [];
   const oversized: string[] = [];
   const empty: string[] = [];
+  const hashes: string[] = [];
   const usedNames = new Set<string>();
   let dropped = 0;
   for (const rel of paths) {
@@ -385,6 +419,7 @@ export async function collectOutbound(
     }
     const mimetype = mimeFromName(name);
     const { blobId } = await transfer.put(bytes);
+    hashes.push(createHash("sha256").update(bytes).digest("hex"));
     const artifact = register
       ? await registerArtifact(register, "out", attachments.length, name, mimetype, bytes)
       : undefined;
@@ -396,7 +431,7 @@ export async function collectOutbound(
       ...(artifact ? { artifactId: artifact.id, artifactViewerId: register!.createdBy } : {}),
     });
   }
-  return { attachments, oversized, empty, dropped };
+  return { attachments, oversized, empty, dropped, hashes };
 }
 
 export async function collectNamedOutbound(
@@ -405,13 +440,14 @@ export async function collectNamedOutbound(
   paths: readonly string[],
   transfer: BlobTransferStore,
   register?: ArtifactRegistration,
-): Promise<{ attachments: OutgoingAttachment[]; missing: string[]; empty: string[]; oversized: string[] }> {
+): Promise<{ attachments: OutgoingAttachment[]; missing: string[]; empty: string[]; oversized: string[]; hashes: string[] }> {
   const invalid = paths.filter(hasParentPathSegment);
-  if (invalid.length) return { attachments: [], missing: invalid, empty: [], oversized: [] };
+  if (invalid.length) return { attachments: [], missing: invalid, empty: [], oversized: [], hashes: [] };
   const attachments: OutgoingAttachment[] = [];
   const missing: string[] = [];
   const empty: string[] = [];
   const oversized: string[] = [];
+  const hashes: string[] = [];
   const usedNames = new Set<string>();
   const doomed = () => missing.length > 0 || empty.length > 0 || oversized.length > 0;
   const createdArtifactIds = new Set<string>();
@@ -435,6 +471,7 @@ export async function collectNamedOutbound(
     if (doomed()) continue;
     const mimetype = mimeFromName(name);
     const { blobId } = await transfer.put(bytes);
+    hashes.push(createHash("sha256").update(bytes).digest("hex"));
     const artifact = register ? await registerArtifact(register, "out", i, name, mimetype, bytes) : undefined;
     if (artifact?.created) createdArtifactIds.add(artifact.id);
     i += 1;
@@ -462,6 +499,91 @@ export async function collectNamedOutbound(
       }),
     );
     attachments.length = 0;
+    hashes.length = 0;
   }
-  return { attachments, missing, empty, oversized };
+  return { attachments, missing, empty, oversized, hashes };
+}
+
+export async function collectWorkspaceSweep(
+  sandbox: Sandbox,
+  handle: SandboxHandle,
+  transfer: BlobTransferStore,
+  opts: {
+    turnStartMs: number;
+    tracker: DeliveredTracker;
+    cardBudget: number;
+    register?: ArtifactRegistration;
+  },
+): Promise<{
+  attachments: OutgoingAttachment[];
+  registeredOverflow: string[];
+  duplicates: string[];
+  empty: string[];
+  oversized: string[];
+  dropped: number;
+}> {
+  const none = { attachments: [], registeredOverflow: [], duplicates: [], empty: [], oversized: [], dropped: 0 };
+  const res = await sandbox.run(handle, workspaceSweepCommand(opts.turnStartMs), { timeoutMs: 30_000 });
+  if (res.code !== 0) {
+    console.error(`[attachments] workspace sweep find failed (code ${res.code}): ${res.stderr.trim()}`);
+    return none;
+  }
+  const candidates = res.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map(normalizeWorkspacePath)
+    .sort();
+  const attachments: OutgoingAttachment[] = [];
+  const registeredOverflow: string[] = [];
+  const duplicates: string[] = [];
+  const empty: string[] = [];
+  const oversized: string[] = [];
+  const usedNames = new Set<string>();
+  let dropped = 0;
+  let registered = 0;
+  for (const rel of candidates) {
+    if (opts.tracker.paths.has(rel)) {
+      duplicates.push(rel);
+      continue;
+    }
+    if (registered >= SWEEP_MAX_FILES) {
+      dropped++;
+      continue;
+    }
+    const bytes = await sandbox.readFileBytes(handle, rel);
+    if (!bytes) continue;
+    if (bytes.length === 0) {
+      empty.push(rel);
+      continue;
+    }
+    if (bytes.length > MAX_ATTACHMENT_BYTES) {
+      oversized.push(rel);
+      continue;
+    }
+    if (opts.tracker.hashes.has(createHash("sha256").update(bytes).digest("hex"))) {
+      duplicates.push(rel);
+      continue;
+    }
+    const name = uniqueName(safeAttachmentName(rel.split("/").pop() ?? rel), usedNames);
+    usedNames.add(name);
+    const mimetype = mimeFromName(name);
+    const { blobId } = await transfer.put(bytes);
+    const artifact = opts.register
+      ? await registerArtifact(opts.register, "out", registered, name, mimetype, bytes)
+      : undefined;
+    registered++;
+    if (attachments.length < opts.cardBudget) {
+      attachments.push({
+        name,
+        mimetype,
+        sizeBytes: bytes.length,
+        blobId,
+        ...(artifact ? { artifactId: artifact.id, artifactViewerId: opts.register!.createdBy } : {}),
+      });
+    } else {
+      registeredOverflow.push(name);
+    }
+  }
+  return { attachments, registeredOverflow, duplicates, empty, oversized, dropped };
 }

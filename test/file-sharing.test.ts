@@ -1,5 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -459,6 +460,25 @@ test("deliveryManifest renders name, mimetype, and size; joins several", () => {
     ]),
     "a.png (image/png, 1 bytes); b.csv (text/csv, 2 bytes)",
   );
+});
+
+test("collectOutbound returns sha256 hashes of delivered files only", async () => {
+  const { sandbox, handle, files } = fakeSandbox();
+  const transfer = createMemoryBlobTransferStore();
+  files.set("outbox/report.csv", new Uint8Array(Buffer.from("a,b")));
+  files.set("outbox/blank.txt", new Uint8Array(0));
+  const { attachments, hashes } = await collectOutbound(sandbox, handle, transfer);
+  assert.equal(attachments.length, 1);
+  assert.deepEqual(hashes, [createHash("sha256").update(Buffer.from("a,b")).digest("hex")]);
+});
+
+test("deliveryManifest appends the overflow note when given", () => {
+  const m = deliveryManifest(
+    [{ name: "a.png", mimetype: "image/png", sizeBytes: 1, blobId: "B" }],
+    { count: 2, names: ["b.txt", "c.txt"] },
+  );
+  assert.equal(m, "a.png (image/png, 1 bytes); and 2 more file(s) registered to the Files panel: b.txt, c.txt");
+  assert.equal(deliveryManifest([{ name: "a.png", mimetype: "image/png", sizeBytes: 1, blobId: "B" }]), "a.png (image/png, 1 bytes)");
 });
 
 test("recentDeliveryNote surfaces only the most recent turn's trailing delivery entries", () => {

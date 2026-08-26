@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { collectNamedOutbound, collectOutbound, type ArtifactRegistration } from "../src/core/attachments.ts";
 import { createSurfaceToolDeps, type SurfaceToolsContext } from "../src/core/orchestrator/surface-tools.ts";
 import { createMemoryBlobTransferStore } from "../src/persistence/blob-transfer.ts";
@@ -148,6 +149,13 @@ test("collectNamedOutbound: a missing/empty path is reported (so post can fail t
   assert.deepEqual(r.empty, ["outbox/blank.txt"], "the empty file is surfaced");
   assert.deepEqual(r.attachments, [], "no attachment survives a doomed call");
   assert.equal(await transfer.sweep(0), 0, "no orphaned transfer blob for the good file");
+});
+
+test("collectNamedOutbound returns sha256 hashes of delivered files", async () => {
+  const transfer = createMemoryBlobTransferStore();
+  const sandbox = fakeSandbox({ "outbox/there.png": bytes("X") }, []);
+  const r = await collectNamedOutbound(sandbox, handle, ["outbox/there.png"], transfer);
+  assert.deepEqual(r.hashes, [createHash("sha256").update(bytes("X")).digest("hex")]);
 });
 
 test("collectNamedOutbound: a doomed call's rollback never deletes an artifact an earlier call created (idempotent ids under a shared seed)", async () => {
