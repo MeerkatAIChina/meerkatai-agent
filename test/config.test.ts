@@ -55,6 +55,8 @@ test("production and unauthenticated-core escape hatch are parsed once", () => {
   assert.equal(loadConfig({}).allowLocalSkillPacks, false);
   assert.equal(loadConfig({ ALLOW_LOCAL_SKILL_PACKS: "yes" }).allowLocalSkillPacks, true);
   assert.throws(() => loadConfig({ ALLOW_LOCAL_SKILL_PACKS: "sometimes" }), /not a recognized boolean/);
+  assert.equal(loadConfig({}).deliverWorkspaceOutputs, false);
+  assert.equal(loadConfig({ DELIVER_WORKSPACE_OUTPUTS: "1" }).deliverWorkspaceOutputs, true);
 });
 
 test("harness security posture defaults to auto and validates named modes", () => {

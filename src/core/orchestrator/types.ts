@@ -100,6 +100,7 @@ export interface OrchestratorInput extends Omit<
 
 export interface OrchestratorDeps {
   identity: IdentityService;
+  deliverWorkspaceOutputs?: boolean;
   resolution: ResolutionService;
   config?: ScopedConfigStore;
   brandingDefault?: OrgBranding;

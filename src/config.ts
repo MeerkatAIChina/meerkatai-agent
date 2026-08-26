@@ -99,6 +99,7 @@ export interface Config {
   skillSigningSecret?: string;
   seedSkills: boolean;
   allowLocalSkillPacks: boolean;
+  deliverWorkspaceOutputs: boolean;
   skillPackGitProxy?: string;
   skillsSeedDir: string;
   pluginSkillDirs: string[];
@@ -903,6 +904,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(env.SKILL_SIGNING_SECRET ? { skillSigningSecret: env.SKILL_SIGNING_SECRET } : {}),
     seedSkills: boolEnvStrict("SEED_SKILLS", env.SEED_SKILLS) ?? true,
     allowLocalSkillPacks: boolEnvStrict("ALLOW_LOCAL_SKILL_PACKS", env.ALLOW_LOCAL_SKILL_PACKS) ?? false,
+    deliverWorkspaceOutputs: boolEnvStrict("DELIVER_WORKSPACE_OUTPUTS", env.DELIVER_WORKSPACE_OUTPUTS) ?? false,
     ...(skillPackGitProxy ? { skillPackGitProxy } : {}),
     skillsSeedDir: resolve(env.SKILLS_SEED_DIR ?? "./skills-seed"),
     pluginSkillDirs: csvPaths(env.PLUGIN_SKILLS_DIRS) ?? defaultPluginSkillDirs(),

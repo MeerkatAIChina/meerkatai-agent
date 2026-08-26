@@ -1026,6 +1026,7 @@ export function buildApp(
     identity,
     resolution,
     config: configStore,
+    deliverWorkspaceOutputs: config.deliverWorkspaceOutputs,
     ...(config.brandingDefault ? { brandingDefault: config.brandingDefault } : {}),
     sessionTapeMode: config.sessionTapeMode,
     sessions,
