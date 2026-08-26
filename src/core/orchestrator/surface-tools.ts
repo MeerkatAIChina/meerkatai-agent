@@ -28,7 +28,12 @@ import type {
   SurfaceSearchResult,
 } from "../../tools/primitives.ts";
 import { collectBlob, type BlobTransferStore } from "../../persistence/blob-transfer.ts";
-import { collectNamedOutbound, type ArtifactRegistration } from "../attachments.ts";
+import {
+  collectNamedOutbound,
+  normalizeWorkspacePath,
+  type ArtifactRegistration,
+  type DeliveredTracker,
+} from "../attachments.ts";
 import { parseBotLedger, type BotPolicy } from "../../surface-cache/channel-policy-store.ts";
 import { isoFromTs } from "../../util/message-tag.ts";
 import { errMessage } from "../../util/errors.ts";
@@ -63,6 +68,7 @@ export interface SurfaceToolsContext {
   provision: () => Promise<SandboxHandle>;
   postProvenance: (deliveryKey: string) => DeliveryProvenance;
   spine: SpineState;
+  deliveredTracker?: DeliveredTracker;
 }
 
 function postedFileMetas(attachments: readonly OutgoingAttachment[]): PostedFileMeta[] {
@@ -89,6 +95,7 @@ export function createSurfaceToolDeps(ctx: SurfaceToolsContext): SurfaceToolDeps
     provision,
     postProvenance,
     spine,
+    deliveredTracker,
   } = ctx;
   if (strictReadOnly || !(input.surfaceTools && defaultDestination && deps.deliveries)) return undefined;
   const deliveries = deps.deliveries;
@@ -203,6 +210,8 @@ export function createSurfaceToolDeps(ctx: SurfaceToolsContext): SurfaceToolDeps
     ];
     if (bad.length)
       return { ok: false, message: `couldn't attach: ${bad.join(", ")} — nothing was sent; fix the path(s) and retry` };
+    for (const p of files) deliveredTracker?.paths.add(normalizeWorkspacePath(p));
+    for (const h of r.hashes) deliveredTracker?.hashes.add(h);
     return { ok: true, attachments: r.attachments };
   };
   return {

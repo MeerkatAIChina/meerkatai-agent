@@ -188,6 +188,40 @@ test("collectOutbound: harvests every outbox file (the turn-result rail for a no
   assert.deepEqual(r.attachments.map((a) => a.name).sort(), ["cover.png", "leftover.txt"]);
 });
 
+test("post(files) records delivered paths and hashes into the turn tracker", async () => {
+  const tracker = { paths: new Set<string>(), hashes: new Set<string>() };
+  const sandbox = fakeSandbox({ "report.pdf": bytes("pdf-bytes") }, []);
+  const tools = createSurfaceToolDeps({
+    deps: {
+      deliveries: {
+        async enqueue() {
+          return { id: "d1" };
+        },
+      },
+      sandbox,
+    },
+    input: { surfaceTools: true },
+    actor: { id: "U1" },
+    conversation: { kind: "dm", threadRef: "dm:U1:t1" },
+    session: { id: "S1" },
+    scopeId: scopeId("personal", "U1"),
+    defaultDestination: { type: "web", target: "web:thread" },
+    strictReadOnly: false,
+    blobTransfer: createMemoryBlobTransferStore(),
+    fileRegistration: {},
+    provision: async () => handle,
+    postProvenance() {
+      return {};
+    },
+    spine: { surfaceOutboundCount: 0, crossConversationPosts: 0 },
+    deliveredTracker: tracker,
+  } as unknown as SurfaceToolsContext)!;
+  const r = await tools.post("hi", undefined, ["report.pdf"]);
+  assert.equal(r.ok, true);
+  assert.ok(tracker.paths.has("report.pdf"));
+  assert.deepEqual([...tracker.hashes], [createHash("sha256").update(bytes("pdf-bytes")).digest("hex")]);
+});
+
 test("surface post returns the sent attachments' metadata (so surfaces can render them)", async () => {
   const enqueued: unknown[] = [];
   const tools = createSurfaceToolDeps({

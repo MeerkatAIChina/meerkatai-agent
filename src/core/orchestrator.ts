@@ -3,6 +3,7 @@ import type {
   DeliveryProvenance,
   Destination,
   EntryType,
+  OutgoingAttachment,
   ScopeId,
   SessionEntry,
   SessionType,
@@ -98,8 +99,11 @@ import {
   INBOX_DIR,
   OUTBOX_DIR,
   SHARED_DIR,
+  SWEEP_MAX_CARDS,
+  SWEEP_MAX_FILES,
   TURN_FILES_DIR,
   collectOutbound,
+  collectWorkspaceSweep,
   deliveryManifest,
   environmentNote,
   fileEventPayload,
@@ -114,6 +118,7 @@ import {
   sharedFilesSystemSection,
   turnFileId,
   type ArtifactRegistration,
+  type DeliveredTracker,
 } from "./attachments.ts";
 import { parseRef } from "../acl/resource-ref.ts";
 import { findTrailingPartialTurn, resumeNote } from "./turn-resume.ts";
@@ -1717,6 +1722,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               sessionId: session.id,
             }),
         };
+        const deliveredTracker: DeliveredTracker = { paths: new Set(), hashes: new Set() };
         const postProvenance = (deliveryKey: string): DeliveryProvenance => ({
           trigger: automatedTurn ? (input.surface ?? "wake") : "conversation",
           surface: input.surface ?? "unknown",
@@ -1739,6 +1745,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           provision,
           postProvenance,
           spine,
+          deliveredTracker,
         });
         if (input.surfaceTools && input.origin.kind === "automation" && input.origin.destination && !surfaceToolDeps)
           console.error(
@@ -2743,7 +2750,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         }
         const totalMs = Date.now() - turnStart;
 
-        const noOutbound = { attachments: [], oversized: [], empty: [], dropped: 0 };
+        const noOutbound = { attachments: [], oversized: [], empty: [], dropped: 0, hashes: [] as string[] };
         const harvestOutbox = conversation.kind === "dm";
         const outboundScoped =
           harvestOutbox && box.used && box.handle
@@ -2766,8 +2773,58 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               `[orchestrator] ${orphans.length} outbox file(s) left unsent on a ${conversation.kind} turn (attach via post(files), not the outbox) session=${session.id}: ${orphans.map((p) => p.split("/").pop()).join(", ")}`,
             );
         }
+        for (const h of [...outboundScoped.hashes, ...outboundScratch.hashes]) deliveredTracker.hashes.add(h);
+        const noSweep = {
+          attachments: [] as OutgoingAttachment[],
+          registeredOverflow: [] as string[],
+          duplicates: [] as string[],
+          empty: [] as string[],
+          oversized: [] as string[],
+          dropped: 0,
+        };
+        const sweepEnabled = deps.deliverWorkspaceOutputs === true && harvestOutbox && !automatedTurn;
+        const sweepRegistration: ArtifactRegistration = { ...fileRegistration, seed: `${fileRegistration.seed}:sweep` };
+        const sweepScoped =
+          sweepEnabled && box.used && box.handle
+            ? await collectWorkspaceSweep(deps.sandbox, box.handle, blobTransfer, {
+                turnStartMs: turnStart,
+                tracker: deliveredTracker,
+                cardBudget: SWEEP_MAX_CARDS,
+                register: sweepRegistration,
+              })
+            : noSweep;
+        const sweepScratch =
+          sweepEnabled && scratchBox.handle
+            ? await collectWorkspaceSweep(deps.sandbox, scratchBox.handle, blobTransfer, {
+                turnStartMs: turnStart,
+                tracker: deliveredTracker,
+                cardBudget: Math.max(0, SWEEP_MAX_CARDS - sweepScoped.attachments.length),
+                register: sweepRegistration,
+              })
+            : noSweep;
+        const sweepOverflow = [...sweepScoped.registeredOverflow, ...sweepScratch.registeredOverflow];
+        const sweepDupes = [...sweepScoped.duplicates, ...sweepScratch.duplicates];
+        const sweepEmpty = [...sweepScoped.empty, ...sweepScratch.empty];
+        const sweepOversized = [...sweepScoped.oversized, ...sweepScratch.oversized];
+        const sweepDropped = sweepScoped.dropped + sweepScratch.dropped;
+        if (sweepEnabled && (sweepOverflow.length || sweepDupes.length || sweepEmpty.length || sweepOversized.length || sweepDropped)) {
+          console.error(
+            `[orchestrator] workspace sweep session=${session.id}:` +
+              ` delivered=${sweepScoped.attachments.length + sweepScratch.attachments.length}` +
+              (sweepOverflow.length ? ` registered-without-card=${sweepOverflow.join(", ")}` : "") +
+              (sweepDupes.length ? ` duplicates-skipped=${sweepDupes.join(", ")}` : "") +
+              (sweepEmpty.length ? ` empty-skipped=${sweepEmpty.join(", ")}` : "") +
+              (sweepOversized.length ? ` oversized-skipped=${sweepOversized.join(", ")}` : "") +
+              (sweepDropped ? ` dropped=${sweepDropped} (cap ${SWEEP_MAX_FILES})` : ""),
+          );
+        }
         const outbound = {
-          attachments: [...outboundScoped.attachments, ...outboundScratch.attachments],
+          attachments: [
+            ...outboundScoped.attachments,
+            ...outboundScratch.attachments,
+            ...sweepScoped.attachments,
+            ...sweepScratch.attachments,
+          ],
           oversized: [...outboundScoped.oversized, ...outboundScratch.oversized],
           empty: [...outboundScoped.empty, ...outboundScratch.empty],
           dropped: outboundScoped.dropped + outboundScratch.dropped,
@@ -2812,7 +2869,10 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             deps.sessions.append(lease, {
               type: "delivery",
               payload: {
-                text: deliveryManifest(outbound.attachments),
+                text: deliveryManifest(
+                  outbound.attachments,
+                  sweepOverflow.length ? { count: sweepOverflow.length, names: sweepOverflow } : undefined,
+                ),
                 files: outbound.attachments.map((a) => ({
                   name: a.name,
                   mimetype: a.mimetype,

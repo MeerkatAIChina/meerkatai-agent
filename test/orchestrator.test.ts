@@ -3212,3 +3212,59 @@ test("a RETRYABLE error that exhausts its budget leaves one durable turn_failure
   );
   assert.equal(visibleBoom.length, 1, "the failed message renders once above its error, never per attempt");
 });
+
+test("workspace sweep: an undelivered DM turn output is delivered and registered", async () => {
+  const { app } = freshApp({ deliverWorkspaceOutputs: true });
+  const res = await app.turn(dm("!run printf hello > sweep-me.txt"));
+  assert.equal(res.status, "ok");
+  assert.deepEqual((res.attachments ?? []).map((a) => a.name), ["sweep-me.txt"]);
+  const found = await app.getSession(res.sessionId!);
+  const delivery = found!.entries.find((e) => e.type === "delivery");
+  assert.ok(delivery, "a delivery session entry exists");
+  const files = (delivery!.payload as { files: { name: string; artifactId?: string }[] }).files;
+  assert.equal(files[0]!.name, "sweep-me.txt");
+  assert.ok(files[0]!.artifactId, "registered as an artifact (visible in the Files panel)");
+});
+
+test("workspace sweep: a file copied to $AGENT_OUTBOX is not double-delivered (hash dedup)", async () => {
+  const { app } = freshApp({ deliverWorkspaceOutputs: true });
+  const res = await app.turn(dm('!run printf one > dup.txt && mkdir -p "$AGENT_OUTBOX" && cp dup.txt "$AGENT_OUTBOX/"'));
+  assert.equal(res.status, "ok");
+  assert.deepEqual((res.attachments ?? []).map((a) => a.name), ["dup.txt"]);
+});
+
+test("workspace sweep: dependency noise is pruned", async () => {
+  const { app } = freshApp({ deliverWorkspaceOutputs: true });
+  const res = await app.turn(
+    dm("!run mkdir -p node_modules/dep && printf x > node_modules/dep/index.js && printf y > keep.txt"),
+  );
+  assert.equal(res.status, "ok");
+  assert.deepEqual((res.attachments ?? []).map((a) => a.name), ["keep.txt"]);
+});
+
+test("workspace sweep: off by default (upstream semantics unchanged)", async () => {
+  const { app } = freshApp();
+  const res = await app.turn(dm("!run printf hello > no-sweep.txt"));
+  assert.equal(res.status, "ok");
+  assert.deepEqual(res.attachments ?? [], []);
+  const found = await app.getSession(res.sessionId!);
+  assert.equal(found!.entries.some((e) => e.type === "delivery"), false);
+});
+
+test("workspace sweep: cards cap at 5, overflow is registered and noted in the delivery text", async () => {
+  const { app } = freshApp({ deliverWorkspaceOutputs: true });
+  const res = await app.turn(dm("!run for i in 1 2 3 4 5 6 7; do printf c$i > part-$i.txt; done"));
+  assert.equal(res.status, "ok");
+  assert.equal((res.attachments ?? []).length, 5);
+  const found = await app.getSession(res.sessionId!);
+  const delivery = found!.entries.find((e) => e.type === "delivery");
+  const text = (delivery!.payload as { text: string }).text;
+  assert.match(text, /and 2 more file\(s\) registered to the Files panel: part-6\.txt, part-7\.txt/);
+});
+
+test("workspace sweep: automated turns are not swept", async () => {
+  const { app } = freshApp({ deliverWorkspaceOutputs: true });
+  const res = await app.turn(dm("!run printf hello > cron-out.txt", { origin: { kind: "automation" } }));
+  assert.equal(res.status, "ok");
+  assert.deepEqual(res.attachments ?? [], []);
+});
