@@ -853,15 +853,6 @@ function matchesSeedPack(
   return x.url === url || (upstreamUrl !== undefined && (x.url === upstreamUrl || x.upstreamUrl === upstreamUrl));
 }
 
-function readSnapshotCommit(dir: string): string | null {
-  try {
-    const meta = JSON.parse(readFileSync(join(dir, ".skillpack-meta.json"), "utf8")) as { commit?: unknown };
-    return typeof meta.commit === "string" && meta.commit.trim() ? meta.commit.trim() : null;
-  } catch {
-    return null;
-  }
-}
-
 interface SeedModel {
   id: string;
 }
@@ -1010,15 +1001,13 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
     console.warn("[web-ui] skill packs: core admin not ready after 300s, skipping");
     return;
   }
-  const fetchPackList = async (): Promise<
-    Array<{ id: string; url: string; upstreamUrl?: string; lastImport?: { status?: string; commit?: string } }>
-  > => {
+  const fetchPackList = async (): Promise<Array<{ id: string; url: string; upstreamUrl?: string }>> => {
     const list = await coreFetch("GET", "/v1/admin/skill-packs", "", 10_000, authHeaders());
     if (list.status !== 200) {
       console.warn(`[web-ui] skill packs list failed (${list.status}): ${list.text.slice(0, 200)}`);
       return [];
     }
-    const parsed = JSON.parse(list.text) as { packs?: Array<{ id: string; url: string; upstreamUrl?: string; lastImport?: { status?: string; commit?: string } }> };
+    const parsed = JSON.parse(list.text) as { packs?: Array<{ id: string; url: string; upstreamUrl?: string }> };
     return Array.isArray(parsed.packs) ? parsed.packs : [];
   };
   for (const p of packs) {
@@ -1380,10 +1369,6 @@ const apiRoutes: readonly WebRoute[] = [
         if (!pack) return { name, phase: "pending" };
         if (pack.lastImport?.status === "ok") {
           return { name, phase: "ready", ...(pack.updateAvailable ? { updateAvailable: true } : {}) };
-        }
-        const snapshotCommit = p.local === true ? readSnapshotCommit(absUrl) : null;
-        if (snapshotCommit !== null && pack.lastImport?.commit === snapshotCommit) {
-          return { name, phase: "ready" };
         }
         return { name, phase: "pending" };
       });
