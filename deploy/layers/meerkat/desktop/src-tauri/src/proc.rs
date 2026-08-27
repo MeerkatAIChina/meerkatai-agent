@@ -19,7 +19,7 @@ fn hide_console(cmd: &mut Command) {
 }
 
 #[cfg(windows)]
-fn assign_to_job(child: &Child) {
+fn assign_to_job(child: &Child) -> Result<(), String> {
     use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows::core::PCWSTR;
@@ -49,15 +49,19 @@ fn assign_to_job(child: &Child) {
         }
         Some(job.0 as isize)
     });
-    if let Some(job) = job {
-        unsafe {
-            let _ = AssignProcessToJobObject(HANDLE(*job as *mut _), HANDLE(child.as_raw_handle()));
-        }
+    let Some(job) = job else {
+        return Err("job object unavailable".into());
+    };
+    unsafe {
+        AssignProcessToJobObject(HANDLE(*job as *mut _), HANDLE(child.as_raw_handle()))
+            .map_err(|e| e.to_string())
     }
 }
 
 #[cfg(not(windows))]
-fn assign_to_job(_: &Child) {}
+fn assign_to_job(_: &Child) -> Result<(), String> {
+    Ok(())
+}
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -270,7 +274,9 @@ fn spawn_component(
             cmd.stdout(out).stderr(err);
             hide_console(&mut cmd);
             let child = cmd.spawn()?;
-            assign_to_job(&child);
+            if let Err(e) = assign_to_job(&child) {
+                log_line(&ctx.data_dir, c, &format!("job-assign failed: {e}"));
+            }
             Ok(child)
         }
         Component::Core => {
@@ -324,7 +330,9 @@ fn spawn_component(
                 .stderr(err);
             hide_console(&mut cmd);
             let child = cmd.spawn()?;
-            assign_to_job(&child);
+            if let Err(e) = assign_to_job(&child) {
+                log_line(&ctx.data_dir, c, &format!("job-assign failed: {e}"));
+            }
             Ok(child)
         }
         Component::WebUi => {
@@ -351,7 +359,9 @@ fn spawn_component(
                 .stderr(err);
             hide_console(&mut cmd);
             let child = cmd.spawn()?;
-            assign_to_job(&child);
+            if let Err(e) = assign_to_job(&child) {
+                log_line(&ctx.data_dir, c, &format!("job-assign failed: {e}"));
+            }
             Ok(child)
         }
     }
@@ -402,7 +412,7 @@ struct CrashEvent {
     status: String,
 }
 
-fn log_crash(data_dir: &Path, c: Component, status: &std::process::ExitStatus) {
+fn log_line(data_dir: &Path, c: Component, msg: &str) {
     use std::io::Write;
     let logs = data_dir.join("logs");
     let _ = fs::create_dir_all(&logs);
@@ -415,8 +425,12 @@ fn log_crash(data_dir: &Path, c: Component, status: &std::process::ExitStatus) {
         .append(true)
         .open(logs.join("crash.log"))
     {
-        let _ = writeln!(f, "[{ts}] {} exited: {status}", c.name());
+        let _ = writeln!(f, "[{ts}] {} {msg}", c.name());
     }
+}
+
+fn log_crash(data_dir: &Path, c: Component, status: &std::process::ExitStatus) {
+    log_line(data_dir, c, &format!("exited: {status}"));
 }
 
 fn probe(port: u16, path: &str) -> bool {
