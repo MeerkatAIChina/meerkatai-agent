@@ -1,9 +1,10 @@
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
+const require = createRequire(import.meta.url);
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const payload = join(root, "deploy/layers/meerkat/desktop/payload");
 
@@ -53,6 +54,24 @@ await build({
   outfile: join(payload, "web-ui/dist-server/index.mjs"),
 });
 
-const require = createRequire(import.meta.url);
+const piRequire = createRequire(piCodingAgentEntry);
+const runtimeAssets = [
+  {
+    from: join(dirname(require.resolve("tiktoken/lite")), "tiktoken_bg.wasm"),
+    to: join(payload, "core/dist/tiktoken_bg.wasm"),
+  },
+  {
+    from: join(
+      dirname(piRequire.resolve("@silvia-odwyer/photon-node")),
+      "photon_rs_bg.wasm",
+    ),
+    to: join(payload, "core/photon_rs_bg.wasm"),
+  },
+];
+for (const asset of runtimeAssets) {
+  copyFileSync(asset.from, asset.to);
+  console.log(`staged runtime asset: ${asset.to}`);
+}
+
 const esbuildVersion = require("esbuild/package.json").version;
 console.log(`bundled with esbuild ${esbuildVersion}`);

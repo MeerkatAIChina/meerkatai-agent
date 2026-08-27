@@ -352,6 +352,24 @@ struct ReadyEvent {
 #[derive(Clone, Serialize)]
 struct CrashEvent {
     component: Component,
+    status: String,
+}
+
+fn log_crash(data_dir: &Path, c: Component, status: &std::process::ExitStatus) {
+    use std::io::Write;
+    let logs = data_dir.join("logs");
+    let _ = fs::create_dir_all(&logs);
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs.join("crash.log"))
+    {
+        let _ = writeln!(f, "[{ts}] {} exited: {status}", c.name());
+    }
 }
 
 fn probe(port: u16, path: &str) -> bool {
@@ -432,10 +450,11 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
             continue;
         };
         for (i, c) in order.iter().enumerate() {
-            let exited = matches!(stack.child_mut(*c).try_wait(), Ok(Some(_)));
-            if !exited {
-                continue;
-            }
+            let status = match stack.child_mut(*c).try_wait() {
+                Ok(Some(status)) => status,
+                _ => continue,
+            };
+            log_crash(&ctx.data_dir, *c, &status);
             if severity(*c) == Severity::Degraded {
                 if !respawned[i] {
                     respawned[i] = true;
@@ -450,7 +469,13 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
                 }
                 continue;
             }
-            let _ = app.emit("service-crashed", CrashEvent { component: *c });
+            let _ = app.emit(
+                "service-crashed",
+                CrashEvent {
+                    component: *c,
+                    status: status.to_string(),
+                },
+            );
             if respawned[i] {
                 let _ = app.emit(
                     "component-failed",
@@ -472,7 +497,13 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
             ) {
                 Ok(child) => {
                     *stack.child_mut(*c) = child;
-                    let _ = app.emit("service-restored", CrashEvent { component: *c });
+                    let _ = app.emit(
+                        "service-restored",
+                        CrashEvent {
+                            component: *c,
+                            status: String::new(),
+                        },
+                    );
                 }
                 Err(err) => {
                     let _ = app.emit(

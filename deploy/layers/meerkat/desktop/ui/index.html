@@ -215,8 +215,9 @@
       });
 
       listen("service-crashed", (e) => {
+        const status = e.payload.status ? `（${e.payload.status}）` : "";
         document.getElementById("interrupt-detail").textContent =
-          `组件 ${e.payload.component} 意外退出`;
+          `组件 ${e.payload.component} 意外退出${status}`;
         document.getElementById("interrupt").classList.add("show");
       });
 
