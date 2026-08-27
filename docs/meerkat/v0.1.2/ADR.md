@@ -170,3 +170,15 @@
   - 纯路径去重——outbox 交付的是副本，原件留在 workspace 且 mtime 新，路径集合盖不住，守指引的 agent 每次交付必触发双卡片（设计评审实证的阻断级漏洞），必须加内容哈希；
   - automated turn 同样兜底——cron/wake 产出与「后台任务写入本期不管」的拍板同属一条边界，且 sweep 附件会破坏 poll 静默分支（`orchestrator.ts:3084`），本想静默的轮询 turn 会转成 `status:"ok"` 把回复发出去，cron 频繁打扰用户。
 - **后果**：内核缝改动六处——`orchestrator.ts`（收口块接线 + `DeliveredTracker`）、`attachments.ts`（`collectWorkspaceSweep` 新导出 + `collectOutbound`/`collectNamedOutbound` 返回 hashes）、`surface-tools.ts`（`resolveFiles` 记录 tracker）、`config.ts`（开关）、`wiring.ts`（开关注入 orchestrator deps）、`pi-tools.ts`（FILE_SEND_GUIDANCE 补后台任务交付边界一句）。开关默认关 → 上游所有部署形态语义逐字节不变；automated turn 排除保住 poll 静默分支。已知限制：后台任务 turn 外写入的产物 mtime 相对下一 turn 的 turnStart 已陈旧，mtime 检测在原理上扫不到（非「后续 turn 兜底会带出来」——不成立），FILE_SEND_GUIDANCE 的边界句是这条边界的唯一防线。随主仓升级若上游改动 turn 收口块会产生小冲突，解法同 ADR-006 惯例。回归把守：turn 级集成测试八用例（未交付产出兜底 / post 路径去重 / outbox 原件哈希去重 / 噪声 prune / 开关关闭 / 卡片上限与尾注 / seed 隔离 / automated turn 不兜底）。
+
+## ADR-013：桌面种子包首启 import 改为无条件幂等执行——commit 比对跳过分不清「已同步」与「已物化」
+
+- **状态**：已接受（issue #26）
+- **背景**：ADR-004 引入的 upstream sync 通道与快照 import 通道共用 `lastImport.commit` 做变更基准，但两者的物化范围不同：上游语义里 sync 的 reconcile 目标只含**已导入技能**名单（`app-skills.ts` `syncSkillPack` 取 `importedPackSkills`，上游有测试显式断言「sync 不新增技能」，属刻意设计），reconcile 结束照样把 `lastImport.commit` 推进到 HEAD。web-ui 种子任务（`ensureSkillPacks`）此前以 `snapshotCommit === lastImport.commit` 为跳过条件——sync 先跑（启动即自动）后 commit 被推进，快照 import 永久跳过，**仓库新增技能永远不落盘**（issue #26 实证：activity 14→17 个技能，pack 记录显示最新、skills 表停在旧 14 个）；仓库删除技能同理残留。
+- **决策**：删除 commit 比对跳过逻辑，种子包的 `/import {selected:"all"}` 每次启动无条件执行。import 本身幂等（`upsertSeedSkill` 对未变化技能返回 skipped），成本是一次本地目录的 readTree + reconcile，毫秒级。跳过逻辑原本只是省这次本地读的优化，而它依赖的「commit 相等 ⇒ 全量物化」不变量在 sync 通道存在时不成立——`lastImport.commit` 的语义是「最近 reconcile 的 commit」而非「该 commit 已全量物化」。
+- **理由**：修在毒化发生的消费端（meerkat 自己的桌面种子块），不动上游 sync 语义——上游「sync 只刷新已导入」有明示的测试契约，且对上游多包管理场景（管理员手工精选导入名单）是合理的；桌面种子场景的语义是「pack = 整个快照」，无条件全量 import 才是它的诚实表达。每条启动日志改为输出 import 计数（`N imported, M updated`），物化状态可观测。
+- **被否决**：
+  - 改 core `syncSkillPack` 让 sync 全量 reconcile —— 违背上游明示的测试契约（`test/skill-packs-routes.test.ts` 「sync does NOT add un-imported ones」），且会让「用户手动 archive 包内技能」在每次 sync 后复活，改变上游语义面；
+  - sync 报 updated 后补一次 import —— import 恒走本地快照、sync 走 upstream，upstream 领先快照时两通道每启动互相回摆 commit，不收敛；
+  - 保留跳过、改比对「importedCount vs 快照技能数」—— 需要预读快照目录且 eligibility 规则会合法跳过部分技能，判据脆弱。
+- **后果**：core 文件改动限 `plugins/web-ui/server/index.ts` 种子块一处（删跳过分支 + 日志带计数），core 的 sync/import 语义逐字节不变；已接受取舍：种子包内被手动 archive 的技能会在下次启动时被 import 复活（与快照变更时的既有行为一致，桌面设备为受管形态，可接受）；随主仓升级若上游改动该启动任务段会产生小冲突，解法同 ADR-006 惯例。活体验证：构造「lastImport 已最新但技能缺失」状态后重启，缺失技能自动补齐（修复前复现跳过、修复后 0 imported/0 updated 的幂等日志与 17/17 物化吻合）；`test/skill-packs-routes.test.ts` 23 用例全绿（core 语义未动）。

@@ -1028,7 +1028,6 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
     const upstreamUrl = typeof p.upstreamUrl === "string" && p.upstreamUrl.trim() ? p.upstreamUrl.trim() : undefined;
     const name = seedPackName(p);
     const isLocal = p.local === true;
-    const snapshotCommit = isLocal ? readSnapshotCommit(url) : null;
     skillPackStatus.set(name, { name, phase: "importing" });
     let packId: string | null;
     try {
@@ -1075,21 +1074,18 @@ async function ensureSkillPacks(packs: Array<SeedSkillPack & { url: string }>): 
         packId = (JSON.parse(reg.text) as { pack?: { id?: string } }).pack?.id ?? null;
         if (!packId) throw new Error("no pack id after register");
       }
-      const already =
-        snapshotCommit !== null && found?.lastImport?.status === "ok" && found.lastImport.commit === snapshotCommit;
-      if (already) {
-        console.log(`[web-ui] skill pack snapshot unchanged, import skipped (${name})`);
-      } else {
-        const imp = await coreFetch(
-          "POST",
-          `/v1/admin/skill-packs/${packId}/import`,
-          JSON.stringify({ selected: "all" }),
-          180_000,
-          authHeaders(),
-        );
-        if (imp.status !== 200) throw new Error(`import failed (${imp.status}): ${imp.text.slice(0, 200)}`);
-        console.log(`[web-ui] skill pack import ok (${name})`);
-      }
+      const imp = await coreFetch(
+        "POST",
+        `/v1/admin/skill-packs/${packId}/import`,
+        JSON.stringify({ selected: "all" }),
+        180_000,
+        authHeaders(),
+      );
+      if (imp.status !== 200) throw new Error(`import failed (${imp.status}): ${imp.text.slice(0, 200)}`);
+      const imported = (JSON.parse(imp.text) as { imported?: string[]; updated?: string[] });
+      console.log(
+        `[web-ui] skill pack import ok (${name}: ${imported.imported?.length ?? 0} imported, ${imported.updated?.length ?? 0} updated)`,
+      );
       skillPackStatus.set(name, { name, phase: "ready" });
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
