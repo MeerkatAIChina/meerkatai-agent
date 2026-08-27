@@ -11,6 +11,8 @@ gen_secret() { node -e "console.log(require('node:crypto').randomBytes(32).toStr
 VERIFY_SIGN_SECRET="${VERIFY_SIGN_SECRET:-$(gen_secret)}"
 
 RUN_DIR="$(mktemp -d)"
+cleanup() { kill ${CORE_PID:-} 2>/dev/null || true; sleep 1; cd /; rm -rf "$DATA_DIR" "$RUN_DIR" 2>/dev/null || true; }
+trap cleanup EXIT
 cp -r "$PAYLOAD/core" "$RUN_DIR/core"
 
 cd "$RUN_DIR/core"
@@ -30,7 +32,6 @@ env \
   SKILL_SIGNING_SECRET="$(gen_secret)" \
   "$NODE" dist/index.mjs &
 CORE_PID=$!
-trap 'kill $CORE_PID 2>/dev/null || true; sleep 1; rm -rf "$DATA_DIR" "$RUN_DIR" 2>/dev/null || true' EXIT
 
 if [ -f "$PAYLOAD/sandbox/rootfs.tar.gz" ]; then
   echo "sandbox rootfs staged ($(du -h "$PAYLOAD/sandbox/rootfs.tar.gz" | cut -f1))"

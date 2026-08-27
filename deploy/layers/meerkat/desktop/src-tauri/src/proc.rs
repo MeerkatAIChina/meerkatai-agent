@@ -440,6 +440,7 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
     }
 
     let mut respawned = [false; 3];
+    let mut exit_logged = [false; 3];
     loop {
         std::thread::sleep(Duration::from_secs(2));
         let mut guard = match shared.lock() {
@@ -454,7 +455,10 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
                 Ok(Some(status)) => status,
                 _ => continue,
             };
-            log_crash(&ctx.data_dir, *c, &status);
+            if !exit_logged[i] {
+                exit_logged[i] = true;
+                log_crash(&ctx.data_dir, *c, &status);
+            }
             if severity(*c) == Severity::Degraded {
                 if !respawned[i] {
                     respawned[i] = true;
@@ -497,6 +501,7 @@ pub fn health_poll(app: AppHandle, shared: SharedStack, ctx: StackCtx, ports: Po
             ) {
                 Ok(child) => {
                     *stack.child_mut(*c) = child;
+                    exit_logged[i] = false;
                     let _ = app.emit(
                         "service-restored",
                         CrashEvent {
