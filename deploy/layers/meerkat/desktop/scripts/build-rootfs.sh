@@ -7,8 +7,9 @@ mkdir -p "$OUT"
 
 export PATH="$PATH:/c/Program Files/Docker/Docker/resources/bin"
 
-FINGERPRINT="$(node -e 'import("./src/sandbox/local-sandbox.ts").then(m => m.computeSandboxImageFingerprint(process.cwd())).then(f => console.log(f ?? "dev"))')"
-echo "fingerprint: $FINGERPRINT"
+UPSTREAM_FP="$(node -e 'import("./src/sandbox/local-sandbox.ts").then(m => m.computeSandboxImageFingerprint(process.cwd())).then(f => console.log(f ?? "dev"))')"
+FINGERPRINT="$({ printf '%s\n' "$UPSTREAM_FP"; cat "$DESKTOP/rootfs/Dockerfile" "$DESKTOP/rootfs/egress-lock.sh" "$DESKTOP/rootfs/egress-proxy.mjs"; } | sha256sum | cut -d' ' -f1)"
+echo "fingerprint: $FINGERPRINT (upstream: $UPSTREAM_FP)"
 
 docker build --platform linux/amd64 --build-arg "FINGERPRINT=$FINGERPRINT" \
   -f "$DESKTOP/rootfs/Dockerfile" -t meerkat-sandbox-rootfs "$ROOT"
