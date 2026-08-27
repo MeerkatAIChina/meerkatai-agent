@@ -32,7 +32,7 @@ $StageCls = Join-Path $env:TEMP ("meerkat-cls-" + [Guid]::NewGuid().ToString("N"
 New-Item -ItemType Directory -Force -Path $StageCls | Out-Null
 Copy-Item (Join-Path $Root "deploy\layers\meerkat\classifier\package.json"), (Join-Path $Root "deploy\layers\meerkat\classifier\package-lock.json") $StageCls
 Push-Location $StageCls
-npm ci --omit=dev --omit=optional --ignore-scripts
+npm ci --omit=dev --ignore-scripts
 Pop-Location
 Copy-Item -Recurse (Join-Path $Root "deploy\layers\meerkat\classifier\src") "$Payload\classifier\src"
 Copy-Item (Join-Path $Root "deploy\layers\meerkat\classifier\package.json") "$Payload\classifier\"
