@@ -192,8 +192,9 @@ fn downloads_dir() -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn reveal(path: &Path) {
+    use std::os::windows::process::CommandExt;
     let _ = Command::new("explorer.exe")
-        .arg(format!("/select,{}", path.display()))
+        .raw_arg(format!("/select,\"{}\"", path.display()))
         .spawn();
 }
 
