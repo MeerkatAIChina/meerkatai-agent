@@ -70,8 +70,10 @@ fn export_and_reveal(app: &AppHandle, artifact_id: &str) -> io::Result<()> {
     let bytes = resp.body_mut().read_to_vec().map_err(io::Error::other)?;
     let dir = export_dir(app);
     fs::create_dir_all(&dir)?;
-    let path = unique_path(&dir, &name);
-    fs::write(&path, &bytes)?;
+    let (path, needs_write) = export_path(&dir, &name, &bytes);
+    if needs_write {
+        fs::write(&path, &bytes)?;
+    }
     reveal(&path);
     Ok(())
 }
@@ -156,21 +158,21 @@ fn sanitize_filename(name: &str) -> String {
     trimmed.chars().take(FILENAME_CAP).collect()
 }
 
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let candidate = dir.join(name);
-    if !candidate.exists() {
-        return candidate;
-    }
+fn export_path(dir: &Path, name: &str, bytes: &[u8]) -> (PathBuf, bool) {
     let (stem, ext) = match name.rfind('.') {
         Some(index) if index > 0 => (&name[..index], &name[index..]),
         _ => (name, ""),
     };
+    let mut candidate = dir.join(name);
     let mut counter = 2;
     loop {
-        let candidate = dir.join(format!("{stem} ({counter}){ext}"));
         if !candidate.exists() {
-            return candidate;
+            return (candidate, true);
         }
+        if fs::read(&candidate).map(|existing| existing == bytes).unwrap_or(false) {
+            return (candidate, false);
+        }
+        candidate = dir.join(format!("{stem} ({counter}){ext}"));
         counter += 1;
     }
 }
@@ -325,26 +327,51 @@ mod tests {
     }
 
     #[test]
-    fn unique_path_takes_plain_name_when_free() {
+    fn export_path_takes_plain_name_when_free() {
         let dir = fresh_test_dir("free");
-        assert_eq!(unique_path(&dir, "a.pptx"), dir.join("a.pptx"));
+        assert_eq!(export_path(&dir, "a.pptx", b"x"), (dir.join("a.pptx"), true));
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn unique_path_bumps_counter_on_collision() {
-        let dir = fresh_test_dir("collision");
-        fs::write(dir.join("a.pptx"), b"1").unwrap();
-        fs::write(dir.join("a (2).pptx"), b"2").unwrap();
-        assert_eq!(unique_path(&dir, "a.pptx"), dir.join("a (3).pptx"));
+    fn export_path_reuses_identical_content() {
+        let dir = fresh_test_dir("identical");
+        fs::write(dir.join("a.pptx"), b"same").unwrap();
+        assert_eq!(export_path(&dir, "a.pptx", b"same"), (dir.join("a.pptx"), false));
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn unique_path_treats_leading_dot_as_no_extension() {
+    fn export_path_bumps_counter_on_different_content() {
+        let dir = fresh_test_dir("different");
+        fs::write(dir.join("a.pptx"), b"old").unwrap();
+        assert_eq!(
+            export_path(&dir, "a.pptx", b"new"),
+            (dir.join("a (2).pptx"), true)
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_path_reuses_numbered_copy_with_identical_content() {
+        let dir = fresh_test_dir("numbered-identical");
+        fs::write(dir.join("a.pptx"), b"other").unwrap();
+        fs::write(dir.join("a (2).pptx"), b"same").unwrap();
+        assert_eq!(
+            export_path(&dir, "a.pptx", b"same"),
+            (dir.join("a (2).pptx"), false)
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn export_path_treats_leading_dot_as_no_extension() {
         let dir = fresh_test_dir("leading-dot");
-        fs::write(dir.join(".index"), b"1").unwrap();
-        assert_eq!(unique_path(&dir, ".index"), dir.join(".index (2)"));
+        fs::write(dir.join(".index"), b"old").unwrap();
+        assert_eq!(
+            export_path(&dir, ".index", b"new"),
+            (dir.join(".index (2)"), true)
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
