@@ -17,6 +17,47 @@ fn hide_console(cmd: &mut Command) {
     #[cfg(not(windows))]
     let _ = cmd;
 }
+
+#[cfg(windows)]
+fn assign_to_job(child: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use std::sync::OnceLock;
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+
+    static JOB: OnceLock<Option<isize>> = OnceLock::new();
+    let job = JOB.get_or_init(|| unsafe {
+        let Ok(job) = CreateJobObjectW(None, PCWSTR::null()) else {
+            return None;
+        };
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+        .is_err()
+        {
+            return None;
+        }
+        Some(job.0 as isize)
+    });
+    if let Some(job) = job {
+        unsafe {
+            let _ = AssignProcessToJobObject(HANDLE(*job as *mut _), HANDLE(child.as_raw_handle()));
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn assign_to_job(_: &Child) {}
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -228,7 +269,9 @@ fn spawn_component(
             }
             cmd.stdout(out).stderr(err);
             hide_console(&mut cmd);
-            cmd.spawn()
+            let child = cmd.spawn()?;
+            assign_to_job(&child);
+            Ok(child)
         }
         Component::Core => {
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
@@ -280,7 +323,9 @@ fn spawn_component(
             cmd.stdout(out)
                 .stderr(err);
             hide_console(&mut cmd);
-            cmd.spawn()
+            let child = cmd.spawn()?;
+            assign_to_job(&child);
+            Ok(child)
         }
         Component::WebUi => {
             let (out, err) = log_stdio(&ctx.data_dir, c.name())?;
@@ -305,7 +350,9 @@ fn spawn_component(
                 .stdout(out)
                 .stderr(err);
             hide_console(&mut cmd);
-            cmd.spawn()
+            let child = cmd.spawn()?;
+            assign_to_job(&child);
+            Ok(child)
         }
     }
 }
