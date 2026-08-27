@@ -2,6 +2,7 @@
 
 mod auth;
 mod proc;
+mod reveal;
 mod sandbox;
 mod secrets;
 
@@ -117,6 +118,10 @@ fn main() {
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Meerkat")
                 .inner_size(1200.0, 800.0)
+                .on_new_window({
+                    let handle = app.handle().clone();
+                    move |url, _features| reveal::handle_new_window(&handle, url)
+                })
                 .build()?;
 
             let sandbox_err = sandbox::ensure_rootfs(app.handle(), &payload_dir, &data_dir).err();
