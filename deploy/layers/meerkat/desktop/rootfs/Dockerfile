@@ -4,8 +4,10 @@ RUN printf '[global]\nindex-url = https://mirrors.aliyun.com/pypi/simple/\n' > /
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates git curl wget jq unzip xz-utils \
       python3 python3-pip python3-venv iptables \
+      libpango-1.0-0 libpangoft2-1.0-0 libfontconfig1 libgdk-pixbuf-2.0-0 \
+      fonts-wqy-microhei \
     && pip3 install --break-system-packages --no-cache-dir \
-      pandas python-pptx python-docx openpyxl markdown-it-py reportlab pypdf \
+      pandas python-pptx python-docx openpyxl markdown-it-py reportlab pypdf weasyprint \
     && find /usr/local/lib/python3.11 -type d -name __pycache__ -prune -exec rm -rf {} + \
     && find /usr/local/lib/python3.11 -type d -name "tests" -path "*site-packages*" -prune -exec rm -rf {} + \
     && apt-get clean && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man
