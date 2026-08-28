@@ -32,6 +32,7 @@ export interface Config {
   orgId: string;
   sessionStore: "memory" | "postgres" | "sqlite";
   sqlitePath?: string;
+  artifactStore: "memory" | "postgres" | "sqlite";
   databaseUrl?: string;
   databaseCaCert?: string;
   databaseCaCertFile?: string;
@@ -653,21 +654,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
   const dataDir = resolve(env.DATA_DIR ?? "./data");
-  if (env.SESSION_STORE === "sqlite" && env.DATABASE_URL) {
+  const needsSqlite = env.SESSION_STORE === "sqlite" || env.ARTIFACT_STORE === "sqlite";
+  if (needsSqlite && env.DATABASE_URL) {
     throw new Error(
-      "SESSION_STORE=sqlite cannot be combined with DATABASE_URL — sessions and session locks must share one backend; unset DATABASE_URL or use SESSION_STORE=postgres.",
+      "SESSION_STORE=sqlite or ARTIFACT_STORE=sqlite cannot be combined with DATABASE_URL — sessions, locks, and file artifacts must share one backend; unset DATABASE_URL or use SESSION_STORE=postgres and ARTIFACT_STORE=postgres.",
     );
   }
-  const sqlitePath =
-    env.SESSION_STORE === "sqlite"
-      ? resolve(env.SQLITE_PATH ?? join(dataDir, "meerkat.db"))
-      : undefined;
-  for (const key of ["RUN_STORE", "ARTIFACT_STORE"] as const) {
-    if (env[key] === "sqlite") {
-      throw new Error(
-        `${key}=sqlite is not supported — only SESSION_STORE has a SQLite backend; use ${key}=postgres (with DATABASE_URL) or leave it unset for the in-memory default.`,
-      );
-    }
+  const sqlitePath = needsSqlite ? resolve(env.SQLITE_PATH ?? join(dataDir, "meerkat.db")) : undefined;
+  let artifactStore: "memory" | "postgres" | "sqlite" = "memory";
+  if (env.ARTIFACT_STORE === "postgres") artifactStore = "postgres";
+  else if (env.ARTIFACT_STORE === "sqlite") artifactStore = "sqlite";
+  else if (env.ARTIFACT_STORE) {
+    throw new Error("ARTIFACT_STORE must be one of memory, postgres, sqlite");
   }
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
     throw new Error(
@@ -796,6 +794,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir,
     orgId: env.ORG_ID ?? DEFAULT_ORG_ID,
     sessionStore,
+    artifactStore,
     ...(sqlitePath ? { sqlitePath } : {}),
     ...(env.DATABASE_URL ? { databaseUrl: env.DATABASE_URL } : {}),
     ...(env.DATABASE_CA_CERT ? { databaseCaCert: env.DATABASE_CA_CERT } : {}),

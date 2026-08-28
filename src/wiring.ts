@@ -107,6 +107,7 @@ import {
 } from "./files/durable-byte-store.ts";
 import { createMemoryFileArtifactStore, type FileArtifactStore } from "./files/file-artifact-store.ts";
 import { createPostgresFileArtifactStore } from "./files/postgres-file-artifact-store.ts";
+import { createSqliteFileArtifactStore } from "./files/sqlite-file-artifact-store.ts";
 import { createAwsSandbox, type StoredMicrovm } from "./sandbox/aws-sandbox.ts";
 import { createLocalSandbox } from "./sandbox/local-sandbox.ts";
 import { createNoneSandbox } from "./sandbox/none-sandbox.ts";
@@ -584,7 +585,9 @@ export function buildApp(
       : createLocalDurableByteStore(join(config.dataDir, "docstore"));
   const files: FileArtifactStore = config.databaseUrl
     ? createPostgresFileArtifactStore(config.databaseUrl, fileBytes)
-    : createMemoryFileArtifactStore(fileBytes);
+    : config.artifactStore === "sqlite" && config.sqlitePath
+      ? createSqliteFileArtifactStore(config.sqlitePath, fileBytes)
+      : createMemoryFileArtifactStore(fileBytes);
   const baseMemory: MemoryService = config.databaseUrl
     ? createPostgresMemoryService(config.databaseUrl)
     : createMemoryService(workspace);

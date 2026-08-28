@@ -301,6 +301,7 @@ fn spawn_component(
                         .to_string(),
                 )
                 .env("SESSION_STORE", "sqlite")
+                .env("ARTIFACT_STORE", "sqlite")
                 .env(
                     "CLASSIFIER_URL",
                     format!("http://127.0.0.1:{classifier_port}/classify"),
