@@ -1,6 +1,7 @@
 import { openSqliteDatabase } from "../persistence/sqlite-map.ts";
 import type { ScopeId } from "../types.ts";
-import type { ByteSource, DurableByteStore } from "./durable-byte-store.ts";
+import { Readable } from "node:stream";
+import type { DurableByteStore } from "./durable-byte-store.ts";
 import {
   clampLimit,
   decodeCursor,
@@ -129,7 +130,7 @@ export function createSqliteFileArtifactStore(
     return r;
   }
 
-  async function open(id: string): Promise<{ artifact: FileArtifact; sizeBytes: number; stream: ByteSource } | null> {
+  async function open(id: string): Promise<{ artifact: FileArtifact; sizeBytes: number; stream: Readable } | null> {
     const r = await getRowById(id);
     if (!r || !r.enabled || !r.blobKey) return null;
     const bytes = await byteStore.open(r.blobKey);
