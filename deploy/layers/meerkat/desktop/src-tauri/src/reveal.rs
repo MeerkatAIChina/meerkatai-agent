@@ -38,7 +38,9 @@ fn file_artifact_id(url: &Url) -> Option<String> {
     }
     let segments: Vec<&str> = url.path_segments()?.collect();
     match segments.as_slice() {
-        ["api", "files", id, "content"] if !id.is_empty() => Some((*id).to_string()),
+        ["api", "files", id, "content"] | ["api", "files", id] if !id.is_empty() => {
+            Some((*id).to_string())
+        }
         _ => None,
     }
 }
@@ -256,9 +258,14 @@ mod tests {
     }
 
     #[test]
+    fn file_artifact_id_accepts_bare_file_route() {
+        let url = Url::parse("http://127.0.0.1:8123/api/files/3f8a2b").unwrap();
+        assert_eq!(file_artifact_id(&url).as_deref(), Some("3f8a2b"));
+    }
+
+    #[test]
     fn file_artifact_id_rejects_other_paths() {
         for raw in [
-            "http://127.0.0.1:8123/api/files/abc",
             "http://127.0.0.1:8123/api/files",
             "http://127.0.0.1:8123/api/files/abc/content/extra",
             "http://127.0.0.1:8123/other/files/abc/content",
