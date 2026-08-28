@@ -44,22 +44,27 @@ fn file_artifact_id(url: &Url) -> Option<String> {
 }
 
 fn export_and_reveal(app: &AppHandle, artifact_id: &str) -> io::Result<()> {
-    let port = app
+    let core_port = app
         .try_state::<proc::PortsState>()
-        .and_then(|state| state.0.lock().ok().map(|ports| ports.web_ui))
+        .and_then(|state| state.0.lock().ok().map(|ports| ports.core))
         .filter(|port| *port != 0)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "web-ui port not ready"))?;
-    let secret = app
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "core port not ready"))?;
+    let ctx = app
         .try_state::<proc::StackCtx>()
-        .map(|ctx| ctx.secrets.portal_identity_secret.clone())
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "stack not ready"))?;
-    let token = auth::mint_portal_identity(&secret);
-    let mut resp = ureq::get(format!(
-        "http://127.0.0.1:{port}/api/files/{artifact_id}/content"
-    ))
-    .header("x-portal-identity", &token)
-    .call()
-    .map_err(io::Error::other)?;
+    let core_path = format!("/v1/files/{artifact_id}/content?_sourceAuthNonce={}", auth::source_auth_nonce());
+    let headers = auth::signed_request_headers(
+        &ctx.secrets.core_signing_secret,
+        "GET",
+        &core_path,
+        "",
+    );
+    let mut resp = ureq::get(format!("http://127.0.0.1:{core_port}{core_path}"))
+        .header("x-portal-identity", auth::mint_portal_identity(&ctx.secrets.portal_identity_secret))
+        .header("x-timestamp", &headers[0].1)
+        .header("x-signature", &headers[1].1)
+        .call()
+        .map_err(io::Error::other)?;
     let name = resp
         .headers()
         .get("content-disposition")
