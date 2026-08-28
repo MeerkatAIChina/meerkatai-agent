@@ -54,7 +54,9 @@ fn export_and_reveal(app: &AppHandle, artifact_id: &str) -> io::Result<()> {
     let ctx = app
         .try_state::<proc::StackCtx>()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "stack not ready"))?;
-    let core_path = format!("/v1/files/{artifact_id}/content?_sourceAuthNonce={}", auth::source_auth_nonce());
+    let portal_token = auth::mint_portal_identity(&ctx.secrets.portal_identity_secret);
+    let viewer = auth::portal_identity_subject(&portal_token).unwrap_or_else(|| "meerkat-desktop".to_string());
+    let core_path = format!("/v1/files/{artifact_id}/content?viewer={viewer}&_sourceAuthNonce={}", auth::source_auth_nonce());
     let headers = auth::signed_request_headers(
         &ctx.secrets.core_signing_secret,
         "GET",
@@ -62,7 +64,7 @@ fn export_and_reveal(app: &AppHandle, artifact_id: &str) -> io::Result<()> {
         "",
     );
     let mut resp = ureq::get(format!("http://127.0.0.1:{core_port}{core_path}"))
-        .header("x-portal-identity", auth::mint_portal_identity(&ctx.secrets.portal_identity_secret))
+        .header("x-portal-identity", &portal_token)
         .header("x-timestamp", &headers[0].1)
         .header("x-signature", &headers[1].1)
         .call()

@@ -52,3 +52,10 @@ pub fn source_auth_nonce() -> String {
     let suffix = rand::random::<u64>();
     format!("{now}-{suffix:x}")
 }
+
+pub fn portal_identity_subject(token: &str) -> Option<String> {
+    let payload = token.split('.').next()?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims.get("p")?.as_str().map(|s| s.to_string())
+}
