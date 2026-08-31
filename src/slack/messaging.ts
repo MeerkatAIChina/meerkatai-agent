@@ -8,12 +8,9 @@ import {
   applyReactions,
   botIdentityArgs,
   extractAgentRequests,
-  extractMiniapps,
   extractReactions,
   stripAgentRequestDirectives,
-  stripMiniappDirectives,
   stripReactionDirectives,
-  type MiniappEmbed,
 } from "./lib.ts";
 
 export type SlackConversationKind = "dm" | "channel" | "group";
@@ -59,16 +56,13 @@ export function cleanAgentReplyForSlack(text: string): {
   text: string;
   reactions: ReactionDirective[];
   agentRequests: AgentRequestDirective[];
-  miniapps: MiniappEmbed[];
 } {
   const extractedReactions = extractReactions(text);
   const extractedRequests = extractAgentRequests(extractedReactions.text);
-  const extractedMiniapps = extractMiniapps(extractedRequests.text);
   return {
-    text: extractedMiniapps.text,
+    text: extractedRequests.text,
     reactions: extractedReactions.reactions,
     agentRequests: extractedRequests.requests,
-    miniapps: extractedMiniapps.miniapps,
   };
 }
 
@@ -77,7 +71,7 @@ export function slackSurfaceInstructions(kind: SlackConversationKind): string {
 }
 
 export function stripSlackDirectives(text: string): string {
-  return stripMiniappDirectives(stripAgentRequestDirectives(stripReactionDirectives(text)));
+  return stripAgentRequestDirectives(stripReactionDirectives(text));
 }
 
 export async function applyAndLogReactions(

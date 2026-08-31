@@ -81,13 +81,6 @@ export {
   stripAgentRequestDirectives,
 } from "./agent-requests.ts";
 export {
-  extractMiniapps,
-  miniappActionBlocks,
-  parseMiniappUrl,
-  stripMiniappDirectives,
-  type MiniappEmbed,
-} from "./miniapps.ts";
-export {
   encodeTs,
   decodeTs,
   REACTION_INSTRUCTION,

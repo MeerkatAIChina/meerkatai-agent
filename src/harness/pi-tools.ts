@@ -3,7 +3,6 @@ import { Type } from "typebox";
 import { CONFIG_DEFAULTS, type Config } from "../config.ts";
 import type { CronFireLogEntry, EntryType, ScopeId } from "../types.ts";
 import type { ToolContext, PublishInput, PublishAudienceDescriptor, ShareDirective } from "../tools/primitives.ts";
-import type { MiniappInput } from "../miniapps/miniapp.ts";
 import type { GapWork } from "../sessions/session-store.ts";
 import { NeedsApproval, CommandDenied } from "../tools/primitives.ts";
 import { classifyScopeLabel } from "../classify/scope-classifier.ts";
@@ -88,10 +87,6 @@ function text(s: string) {
 
 function isPolicyNotice(summary: Record<string, unknown>): boolean {
   return summary.blocked !== undefined || summary.denied !== undefined;
-}
-
-function isFirstPartyToolResult(summary: Record<string, unknown>): boolean {
-  return summary.tool === "miniapp" || summary.tool === "publish";
 }
 
 const MAX_TOOL_RESULT_CHARS = 100_000;
@@ -368,6 +363,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     ret: T,
     isError = false,
     sourceScopeId?: ScopeId | null,
+    display?: Record<string, unknown>,
   ): Promise<T> => {
     const t = ret.content
       .filter((c) => c.type === "text")
@@ -384,7 +380,6 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     let persistedSummary = summary;
     const screenExempt =
       isPolicyNotice(summary) ||
-      isFirstPartyToolResult(summary) ||
       (summary.action === "post" &&
         summary.ok === true &&
         result === "[sent]" &&
@@ -423,6 +418,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
         callId,
         isError,
         ...(resultTruncated ? { resultTruncated: true } : {}),
+        ...(display ? { display } : {}),
         result,
       },
       sourceScopeId,
@@ -951,31 +947,31 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     name: "miniapp",
     label: "miniapp",
     description:
-      "Create an interactive playground only when they asked to see, play with, or step a mechanism — " +
-      "not for ordinary Q&A or a long explanation. Self-contained HTML " +
-      "mini-app (a simulation, a visual explainer, a tiny game). Inline CSS/JS, " +
-      "no network, no server. Fill the host frame — one screen, no overflow, no scroll. Use var(--background) var(--foreground) var(--border) " +
-      "var(--secondary) var(--muted-foreground) var(--brand-accent) — never a hardcoded dark palette. " +
-      "Scripts are parsed before store — a broken script is rejected, not sent. " +
-      "Returns a url; include the EXACT `[[miniapp: <url> | <title>]]` directive the tool returned — never " +
-      "invent a file path or sandbox: URL. Use `publish` instead for a long-lived internal app that needs a process and PORT.",
+      "Create a small interactive playground only when the person asks to see, play with, or step through a mechanism. " +
+      "Provide a self-contained HTML document with inline CSS and JavaScript; the browser runs it in an isolated frame " +
+      "without network access. The playground is attached to the turn automatically, so do not add a marker or URL to the reply.",
     parameters: Type.Object({
-      title: Type.String({ description: "Short name shown on the playground card." }),
-      html: Type.Optional(
-        Type.String({ description: "Self-contained HTML document or fragment (inline CSS/JS, no network)." }),
-      ),
-      file: Type.Optional(Type.String({ description: "Workspace path of an HTML file to use instead of `html`." })),
+      title: Type.String({ description: "Short title shown above the playground." }),
+      html: Type.Optional(Type.String({ description: "Self-contained HTML document or fragment." })),
+      file: Type.Optional(Type.String({ description: "Workspace HTML file to use instead of html." })),
     }),
     async execute(callId, params) {
       const tc = ref.current;
       if (!tc) return text("[error] no active tool context");
       await recordCall(callId, { tool: "miniapp", title: params.title, ...(params.file ? { file: params.file } : {}) });
       try {
-        const r = await tc.miniapp(params as MiniappInput);
+        if (params.html === undefined && params.file === undefined) throw new Error("provide html or file");
+        if (params.html !== undefined && params.file !== undefined) throw new Error("provide only one of html or file");
+        const html = params.file !== undefined ? (await tc.read(params.file)).content : params.html;
+        if (html == null) throw new Error(`no such file: ${params.file}`);
+        const artifact = await tc.createPlayground({ title: params.title, html });
         return recordResult(
           callId,
-          { tool: "miniapp", id: r.id, title: r.title, url: r.url },
-          text(`Miniapp "${r.title}" → ${r.url}\nInclude this in your reply so it renders: ${r.directive}`),
+          { tool: "miniapp" },
+          text(`Created playground "${artifact.title}".`),
+          false,
+          undefined,
+          { artifact },
         );
       } catch (e) {
         const msg = errMessage(e);
@@ -3011,9 +3007,9 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     read,
     write,
     publish,
-    miniapp,
     memory,
     history,
+    ...(opts?.surfaceName === "web" ? [miniapp] : []),
     background,
     ...(controlTools ? [cron, webhook, share] : []),
     ...(controlTools || surfaceTools ? [guidance] : []),

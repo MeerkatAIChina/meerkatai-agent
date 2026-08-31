@@ -53,7 +53,6 @@ import type { UiStateStore } from "../surfaces/ui-state.ts";
 import type { RateLimiter } from "../ratelimit/rate-limiter.ts";
 import type { AdvisoryLock } from "../persistence/advisory-lock.ts";
 import type { SlackInstallationStore, SlackSocketAppIdReader } from "../surfaces/slack-installation.ts";
-import type { MiniappStore } from "../miniapps/miniapp.ts";
 
 export interface ServerDeps {
   production?: boolean;
@@ -141,5 +140,4 @@ export interface ServerDeps {
   secretDrops?: SecretDropStore;
   fireDropResolution?: (drop: DropResolution) => Promise<unknown>;
   blobTransfer?: BlobTransferStore;
-  miniapps?: MiniappStore;
 }
