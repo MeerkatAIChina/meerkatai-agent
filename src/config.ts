@@ -728,8 +728,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   let artifactStore: "memory" | "postgres" | "sqlite" = "memory";
   if (env.ARTIFACT_STORE === "postgres") artifactStore = "postgres";
   else if (env.ARTIFACT_STORE === "sqlite") artifactStore = "sqlite";
-  else if (env.ARTIFACT_STORE) {
+  else if (env.ARTIFACT_STORE && env.ARTIFACT_STORE !== "memory") {
     throw new Error("ARTIFACT_STORE must be one of memory, postgres, sqlite");
+  }
+  if (env.RUN_STORE === "sqlite") {
+    throw new Error("RUN_STORE=sqlite is not supported");
   }
   if (env.NODE_ENV === "production" && !env.SANDBOX_BACKEND?.trim()) {
     throw new Error(
