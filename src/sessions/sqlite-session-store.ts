@@ -253,6 +253,10 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
     entriesSince: db.prepare("SELECT * FROM session_entries WHERE session_id = ? AND seq >= ? ORDER BY seq"),
     entriesAll: db.prepare("SELECT * FROM session_entries WHERE session_id = ? ORDER BY seq"),
     deleteEntries: db.prepare("DELETE FROM session_entries WHERE session_id = ?"),
+    clearSecurityTaint: db.prepare(
+      "UPDATE session_entries SET payload = json_remove(payload, '$.securityTainted') WHERE session_id = ? AND payload LIKE '%\"securityTainted\"%' RETURNING 1",
+    ),
+    sessionExists: db.prepare("SELECT 1 FROM sessions WHERE id = ?"),
     tapeCount: db.prepare("SELECT COUNT(*) AS n FROM session_tape WHERE session_id = ?"),
     insertTape: db.prepare(
       "INSERT INTO session_tape (session_id, seq, kind, harness, payload, scope_label, bare_text, ts, change_time, hidden, overheard, author, entry_seq, covers_entry_seq, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -417,6 +421,12 @@ export function createSqliteSessionStore(sqlitePath: string, opts: StoreOptions 
       const rows = q.entriesSince.all(sessionId, since) as Row[];
       const filtered = rows.map(rowToEntry);
       return opts?.limit !== undefined ? filtered.slice(-opts.limit) : filtered;
+    },
+
+    async clearSecurityTaint(sessionId) {
+      const updated = q.clearSecurityTaint.all(sessionId) as Row[];
+      if (updated.length > 0) return true;
+      return q.sessionExists.get(sessionId) !== undefined;
     },
 
     async appendTape(lease, rec: NewTapeRecord): Promise<TapeRecord> {

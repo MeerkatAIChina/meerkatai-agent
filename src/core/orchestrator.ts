@@ -56,7 +56,8 @@ import {
   isValidCapabilityTimezone,
   type CapabilityClaims,
 } from "../auth/capability-token.ts";
-import type { GapWork, HarnessLlmRequestRecord, HarnessTurnResult } from "../harness/harness.ts";
+import type { CodexTurnAuth, GapWork, HarnessLlmRequestRecord, HarnessTurnResult } from "../harness/harness.ts";
+import type { ProviderKeys } from "../harness/pi-harness.ts";
 import { forModelContext } from "../harness/context-compaction.ts";
 import {
   renderSecurityPolicyPrompt,
@@ -65,7 +66,7 @@ import {
   unscreenedNotice,
 } from "../security/security-posture.ts";
 import type { SensitivityVerdict } from "../security/sensitivity-classifier.ts";
-import { commandApprovalId } from "./approval-id.ts";
+import { commandApprovalId, inputApprovalId } from "./approval-id.ts";
 import { createPerTurnStrategy } from "../memory/strategies/per-turn.ts";
 import { DEFAULT_MEMORY_POLICY, recallMemoryScopes, writableMemoryScope } from "../memory/policy.ts";
 import { createMemoryMap } from "../persistence/durable-map.ts";
@@ -139,7 +140,13 @@ import { randomUUID } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import type { SkillResolution, GrantedSkillRef } from "../skills/skill-store.ts";
 import type { Orchestrator, OrchestratorDeps, OrchestratorInput } from "./orchestrator/types.ts";
-import { isHarnessId, modelSupportedByHarness, resolveModel } from "../model/pi-models.ts";
+import {
+  CODEX_SUBSCRIPTION_PROVIDER,
+  isHarnessId,
+  modelSupportedByHarness,
+  resolveModel,
+} from "../model/pi-models.ts";
+import { resolveIndividualAuthRouting } from "./individual-auth-routing.ts";
 import {
   MAX_AUTO_ATTACHMENT_SCREEN_BYTES,
   approvalGrantId,

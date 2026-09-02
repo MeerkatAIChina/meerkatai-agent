@@ -42,7 +42,7 @@ export interface Config {
   securityPosture: SecurityPosture;
   sandboxBackend: "aws" | "local" | "sprites" | "smolmachines" | "none" | "wsl2";
   sandboxSecondaryBackend?: "aws" | "local" | "sprites" | "smolmachines" | "none" | "wsl2";
-  deployProvider: "docker" | "aws";
+  deployProvider: "docker" | "aws" | "fly";
   egressServiceHosts?: string[];
   brandingDefault?: OrgBranding;
   modelId?: string;
@@ -847,6 +847,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     numEnvStrict("RUN_MAX_AGE_MS", env.RUN_MAX_AGE_MS) ??
     (turnWallClockMs > 0 ? 2 * turnWallClockMs : CONFIG_DEFAULTS.runMaxAgeMs);
   const slack = slackPluginConfigFromEnv(env);
+  const memoryProviderConfig = parseMemoryProviderConfig(env.MEMORY_PROVIDER_CONFIG, env);
   const classifierUrl = env.CLASSIFIER_URL?.trim() || undefined;
   const classifierTimeoutMs = numEnvStrict("CLASSIFIER_TIMEOUT_MS", env.CLASSIFIER_TIMEOUT_MS) ?? 15_000;
   const classifierFallbackModel = env.CLASSIFIER_FALLBACK_MODEL?.trim() || undefined;

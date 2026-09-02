@@ -612,7 +612,7 @@ export function buildApp(
     : config.artifactStore === "sqlite" && config.sqlitePath
       ? createSqliteFileArtifactStore(config.sqlitePath, fileBytes)
       : createMemoryFileArtifactStore(fileBytes);
-  const baseMemory: MemoryService = config.databaseUrl
+  const defaultMemory: MemoryService = config.databaseUrl
     ? createPostgresMemoryService(config.databaseUrl)
     : createMemoryService(workspace);
   // Session storage is built further down; trace-derived providers only read it after the first turn.
