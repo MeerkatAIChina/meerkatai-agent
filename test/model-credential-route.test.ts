@@ -8,9 +8,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { createInsecureTestServer } from "../src/api/server.ts";
 import { buildApp, type BuiltApp } from "../src/wiring.ts";
+import { providerKeysPresent, harnessCarriedModelAuth } from "../src/config.ts";
 import { testConfig } from "./support/test-config.ts";
 import { createModelCredentialStore, type StoredModelCredential } from "../src/model/model-credential-store.ts";
 import { createMemoryMap } from "../src/persistence/durable-map.ts";
+import { getRequiredModel } from "../src/model/pi-models.ts";
 
 const ADMIN = { "content-type": "application/json", "x-admin-actor": "admin-alice@default-org" };
 
@@ -22,23 +24,18 @@ function start(
   built: BuiltApp;
   close: () => Promise<void>;
 } {
-  const built = buildApp(
-    testConfig({
-      dataDir: mkdtempSync(join(tmpdir(), "model-credential-route-")),
-      ...config,
-    }),
-    { modelCredentialFetch },
-  );
+  const appConfig = testConfig({
+    dataDir: mkdtempSync(join(tmpdir(), "model-credential-route-")),
+    ...config,
+  });
+  const built = buildApp(appConfig, { modelCredentialFetch });
   const server = createInsecureTestServer(built.app, {
     config: built.config,
     modelCredentials: built.modelCredentials,
     modelCredentialFetch,
     harnessId: config.harness ?? "pi",
-    providerKeys: {
-      anthropic: Boolean(config.anthropicApiKey),
-      openai: Boolean(config.openaiApiKey),
-      openrouter: Boolean(config.openrouterApiKey),
-    },
+    ...(harnessCarriedModelAuth(appConfig) ? { harnessCarriedModelAuth: harnessCarriedModelAuth(appConfig) } : {}),
+    providerKeys: providerKeysPresent(appConfig),
     admin: built.admin,
     auditLog: built.auditLog,
   });
@@ -149,8 +146,20 @@ test("OpenRouter catalog exposes runtime-supported tool models as selectable bas
           supported_parameters: ["tools"],
         },
         {
-          id: "vendor/not-in-the-pinned-runtime",
-          name: "Future Model",
+          id: "stealth/ox-alpha",
+          name: "Ox Alpha",
+          context_length: 1_048_576,
+          pricing: { prompt: "0", completion: "0" },
+          top_provider: { max_completion_tokens: 131_072 },
+          architecture: { input_modalities: ["text", "image", "video"] },
+          supported_parameters: ["tools", "reasoning", "reasoning_effort"],
+        },
+        {
+          id: "future/incomplete-model",
+          name: "Incomplete Future Model",
+          context_length: 128_000,
+          pricing: { prompt: "0", completion: "0" },
+          architecture: { input_modalities: ["text"] },
           supported_parameters: ["tools"],
         },
         {
@@ -172,16 +181,23 @@ test("OpenRouter catalog exposes runtime-supported tool models as selectable bas
     assert.deepEqual(models, [
       { id: "openrouter/auto", name: "OpenRouter Auto", provider: "openrouter" },
       { id: "anthropic/claude-sonnet-4.5", name: "Anthropic: Claude Sonnet 4.5", provider: "openrouter" },
+      { id: "stealth/ox-alpha", name: "Ox Alpha", provider: "openrouter" },
     ]);
+    const dynamic = getRequiredModel("stealth/ox-alpha");
+    assert.equal(dynamic.provider, "openrouter");
+    assert.equal(dynamic.contextWindow, 1_048_576);
+    assert.equal(dynamic.maxTokens, 131_072);
+    assert.deepEqual(dynamic.input, ["text", "image"]);
+    assert.deepEqual(dynamic.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
     assert.equal(requested, "https://openrouter.ai/api/v1/models?supported_parameters=tools&sort=most-popular");
 
     const selected = await fetch(`${srv.base}/v1/admin/scopes/org%3Adefault-org/base-model`, {
       method: "PUT",
       headers: ADMIN,
-      body: JSON.stringify({ modelId: "anthropic/claude-sonnet-4.5" }),
+      body: JSON.stringify({ modelId: "stealth/ox-alpha" }),
     });
     assert.equal(selected.status, 200);
-    assert.equal(srv.built.config.getBaseModel("org:default-org"), "anthropic/claude-sonnet-4.5");
+    assert.equal(srv.built.config.getBaseModel("org:default-org"), "stealth/ox-alpha");
 
     const governance = await fetch(`${srv.base}/v1/admin/scopes/org%3Adefault-org`, { headers: ADMIN });
     assert.equal(governance.status, 200);
@@ -190,9 +206,9 @@ test("OpenRouter catalog exposes runtime-supported tool models as selectable bas
       modelsByHarness: Record<string, Array<{ id: string; name: string }>>;
       runtime: { harnessId: string; modelId: string };
     };
-    assert.ok(governanceBody.baseModelOptions.some((model) => model.id === "anthropic/claude-sonnet-4.5"));
-    assert.ok(governanceBody.modelsByHarness.pi!.some((model) => model.id === "anthropic/claude-sonnet-4.5"));
-    assert.equal(governanceBody.runtime.modelId, "anthropic/claude-sonnet-4.5");
+    assert.ok(governanceBody.baseModelOptions.some((model) => model.id === "stealth/ox-alpha"));
+    assert.ok(governanceBody.modelsByHarness.pi!.some((model) => model.id === "stealth/ox-alpha"));
+    assert.equal(governanceBody.runtime.modelId, "stealth/ox-alpha");
 
     const runtime = await fetch(`${srv.base}/v1/runtime-config?principalId=alice&scopeId=personal%3Aalice`);
     assert.equal(runtime.status, 200);
@@ -201,25 +217,25 @@ test("OpenRouter catalog exposes runtime-supported tool models as selectable bas
       modelCatalog: Record<string, { name: string; provider: string }>;
       effective: { harnessId: string; modelId: string };
     };
-    assert.ok(runtimeBody.modelsByHarness.pi!.includes("anthropic/claude-sonnet-4.5"));
-    assert.deepEqual(runtimeBody.modelCatalog["anthropic/claude-sonnet-4.5"], {
-      name: "Anthropic: Claude Sonnet 4.5",
+    assert.ok(runtimeBody.modelsByHarness.pi!.includes("stealth/ox-alpha"));
+    assert.deepEqual(runtimeBody.modelCatalog["stealth/ox-alpha"], {
+      name: "Ox Alpha",
       provider: "openrouter",
     });
-    assert.deepEqual(runtimeBody.effective, { harnessId: "pi", modelId: "anthropic/claude-sonnet-4.5" });
+    assert.deepEqual(runtimeBody.effective, { harnessId: "pi", modelId: "stealth/ox-alpha" });
 
     const surface = await fetch(`${srv.base}/v1/surface-config`);
     assert.equal(surface.status, 200);
     const surfaceBody = (await surface.json()) as { webuiModels: string[]; baseModel: string };
-    assert.ok(surfaceBody.webuiModels.includes("anthropic/claude-sonnet-4.5"));
-    assert.equal(surfaceBody.baseModel, "anthropic/claude-sonnet-4.5");
+    assert.ok(surfaceBody.webuiModels.includes("stealth/ox-alpha"));
+    assert.equal(surfaceBody.baseModel, "stealth/ox-alpha");
 
     const turn = await srv.built.app.turn({
       surface: "web",
       actor: { externalId: "alice" },
       conversation: { kind: "dm", threadRef: "web:alice:openrouter-catalog" },
       text: "hello",
-      model: "anthropic/claude-sonnet-4.5",
+      model: "stealth/ox-alpha",
       async: true,
     });
     assert.equal(turn.status, "queued");
@@ -396,6 +412,75 @@ test("surface-config reports whether any model provider is configured", async ()
     await srv.built.modelCredentials.set("anthropic", "working-admin-key", "admin-alice@default-org");
     const after = await fetch(`${srv.base}/v1/surface-config`);
     assert.equal(((await after.json()) as { modelProviderConfigured?: boolean }).modelProviderConfigured, true);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("surface-config respects an admin-disabled environment provider", async () => {
+  const srv = start({ anthropicApiKey: "deployment-anthropic-key" });
+  try {
+    const before = await fetch(`${srv.base}/v1/surface-config`);
+    assert.equal(((await before.json()) as { modelProviderConfigured?: boolean }).modelProviderConfigured, true);
+    const disabled = await fetch(`${srv.base}/v1/admin/model-providers/anthropic`, {
+      method: "DELETE",
+      headers: ADMIN,
+    });
+    assert.equal(disabled.status, 200);
+    const after = await fetch(`${srv.base}/v1/surface-config`);
+    assert.equal(((await after.json()) as { modelProviderConfigured?: boolean }).modelProviderConfigured, false);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("surface-config reports Codex ChatGPT OAuth without making it a Pi credential", async () => {
+  const srv = start({ harness: "codex", codexAuthFile: "/tmp/codex-auth.json" });
+  try {
+    const surface = await fetch(`${srv.base}/v1/surface-config`);
+    assert.equal(surface.status, 200);
+    assert.equal(((await surface.json()) as { modelProviderConfigured?: boolean }).modelProviderConfigured, true);
+  } finally {
+    await srv.close();
+  }
+});
+
+test("a claude harness with an OAuth token counts as configured without corrupting store statuses", async () => {
+  const srv = start({
+    harness: "claude",
+    claudeProcessEnv: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-test" } as NodeJS.ProcessEnv,
+  });
+  try {
+    const surface = await fetch(`${srv.base}/v1/surface-config`);
+    assert.equal(surface.status, 200);
+    assert.equal(((await surface.json()) as { modelProviderConfigured?: boolean }).modelProviderConfigured, true);
+
+    const providers = await fetch(`${srv.base}/v1/admin/model-providers`, { headers: ADMIN });
+    assert.equal(providers.status, 200);
+    const body = (await providers.json()) as {
+      providers: Array<{ provider: string; configured: boolean; source: string }>;
+      harnessAuth?: { harnessId: string; provider: string };
+    };
+    assert.deepEqual(body.harnessAuth, { harnessId: "claude", provider: "anthropic" });
+    assert.deepEqual(
+      body.providers.find((item) => item.provider === "anthropic"),
+      { provider: "anthropic", configured: false, source: "absent" },
+    );
+  } finally {
+    await srv.close();
+  }
+});
+
+test("a claude harness without any token stays unconfigured", async () => {
+  const srv = start({ harness: "claude" });
+  try {
+    const surface = await fetch(`${srv.base}/v1/surface-config`);
+    assert.equal(surface.status, 200);
+    assert.equal(((await surface.json()) as { modelProviderConfigured?: boolean }).modelProviderConfigured, false);
+
+    const providers = await fetch(`${srv.base}/v1/admin/model-providers`, { headers: ADMIN });
+    assert.equal(providers.status, 200);
+    assert.equal("harnessAuth" in ((await providers.json()) as Record<string, unknown>), false);
   } finally {
     await srv.close();
   }

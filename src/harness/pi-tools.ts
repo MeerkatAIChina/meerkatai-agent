@@ -369,6 +369,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     ret: T,
     isError = false,
     sourceScopeId?: ScopeId | null,
+    display?: Record<string, unknown>,
   ): Promise<T> => {
     const t = ret.content
       .filter((c) => c.type === "text")
@@ -424,6 +425,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
         callId,
         isError,
         ...(resultTruncated ? { resultTruncated: true } : {}),
+        ...(display ? { display } : {}),
         result,
       },
       sourceScopeId,
@@ -944,6 +946,43 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
       } catch (e) {
         const msg = errMessage(e);
         return recordResult(callId, { tool: "publish", error: msg }, text(`[publish failed] ${msg}`), true);
+      }
+    },
+  });
+
+  const miniapp = defineTool({
+    name: "miniapp",
+    label: "miniapp",
+    description:
+      "Create a small interactive playground only when the person asks to see, play with, or step through a mechanism. " +
+      "Provide a self-contained HTML document with inline CSS and JavaScript; the browser runs it in an isolated frame " +
+      "without network access. The playground is attached to the turn automatically, so do not add a marker or URL to the reply.",
+    parameters: Type.Object({
+      title: Type.String({ description: "Short title shown above the playground." }),
+      html: Type.Optional(Type.String({ description: "Self-contained HTML document or fragment." })),
+      file: Type.Optional(Type.String({ description: "Workspace HTML file to use instead of html." })),
+    }),
+    async execute(callId, params) {
+      const tc = ref.current;
+      if (!tc) return text("[error] no active tool context");
+      await recordCall(callId, { tool: "miniapp", title: params.title, ...(params.file ? { file: params.file } : {}) });
+      try {
+        if (params.html === undefined && params.file === undefined) throw new Error("provide html or file");
+        if (params.html !== undefined && params.file !== undefined) throw new Error("provide only one of html or file");
+        const html = params.file !== undefined ? (await tc.read(params.file)).content : params.html;
+        if (html == null) throw new Error(`no such file: ${params.file}`);
+        const artifact = await tc.createPlayground({ title: params.title, html });
+        return recordResult(
+          callId,
+          { tool: "miniapp" },
+          text(`Created playground "${artifact.title}".`),
+          false,
+          undefined,
+          { artifact },
+        );
+      } catch (e) {
+        const msg = errMessage(e);
+        return recordResult(callId, { tool: "miniapp", error: msg }, text(`[miniapp failed] ${msg}`), true);
       }
     },
   });
@@ -2977,6 +3016,7 @@ export function createPiTools(ref: ToolContextRef, opts?: PiToolsOptions): ToolD
     publish,
     memory,
     history,
+    ...(opts?.surfaceName === "web" ? [miniapp] : []),
     background,
     ...(controlTools ? [cron, webhook, share] : []),
     ...(controlTools || surfaceTools ? [guidance] : []),

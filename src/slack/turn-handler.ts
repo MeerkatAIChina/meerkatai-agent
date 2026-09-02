@@ -27,6 +27,7 @@ import {
   encodeDeliveryTarget,
   groupDmDisplayName,
   hasContent,
+  hydrateSlackFiles,
   isExternallyShared,
   isMpim,
   type SurfaceHeaderClient,
@@ -126,6 +127,7 @@ export function createTurnHandler(deps: {
   serializer: ConversationSerializer;
   approvals: Approvals;
   ackEmoji: AckEmojiPicker;
+  ackEmojiCandidates?: () => readonly string[] | null;
   ids: BotIdentity;
   threads: ReturnType<typeof createThreadTracker>;
   deduper: ReturnType<typeof createDeduper>;
@@ -328,7 +330,10 @@ export function createTurnHandler(deps: {
           addReaction: (name) => client.reactions.add({ channel: inc.channel, timestamp: inc.ts, name }).then(() => {}),
           removeReaction: (name) =>
             client.reactions.remove({ channel: inc.channel, timestamp: inc.ts, name }).then(() => {}),
-          emojiCandidates: [...DEFAULT_ACK_REACTIONS],
+          emojiCandidates: (() => {
+            const override = deps.ackEmojiCandidates?.();
+            return override?.length ? [...override] : [...DEFAULT_ACK_REACTIONS];
+          })(),
           emojiPick: ackEmoji.requestAckEmoji(text, ackEmoji.ackPickCandidates(client), {
             channel: inc.channel,
             ts: inc.ts,
@@ -396,7 +401,13 @@ export function createTurnHandler(deps: {
     }
 
     const ownFiles = inc.files.map((f) => (f.user || !inc.userId ? f : { ...f, user: inc.userId }));
-    const inboundFiles = earlierFiles.length ? [...ownFiles, ...earlierFiles] : ownFiles;
+    const inboundFiles = await hydrateSlackFiles(
+      earlierFiles.length ? [...ownFiles, ...earlierFiles] : ownFiles,
+      async (id) => {
+        const response = await client.files.info({ file: id });
+        return response?.file as SlackFile | undefined;
+      },
+    );
     const resolveFileAuthor = async (userId: string | undefined): Promise<string | undefined> =>
       userId ? (await classifyUserCached(client, userId)).actor.displayName : undefined;
     const { attachments, issues } = await processInboundFiles(

@@ -8,12 +8,14 @@ import {
   type MemoryRecallMode,
 } from "./memory/policy.ts";
 import { parseMemoryStrategyKind, type MemoryStrategyKind } from "./memory/strategy.ts";
+import { parseMemoryProviderConfig, type MemoryProviderConfig } from "./memory/provider-config.ts";
 import { sanitizeBranding } from "./resolution/branding.ts";
 import type { OrgBranding } from "./resolution/config-store.ts";
 import { validateCoreSecretEnv } from "./deployment/secret-schema.ts";
 import { DEFAULT_CAPTURE_QUIET_MS } from "./memory/strategies/per-turn.ts";
 import { parseSecurityPosture, type SecurityPosture } from "./security/security-posture.ts";
 import { slackPluginConfigFromEnv, type SlackPluginConfig } from "./slack/config.ts";
+import { codexAuthFileForEnv, readCodexOAuthAuthFile } from "./harness/codex-auth-file.ts";
 import {
   MODEL_PROVIDERS,
   defaultModelForProvider,
@@ -47,6 +49,11 @@ export interface Config {
   opencodeModel?: string;
   codexModel?: string;
   codexBinPath?: string;
+  codexAuthFile?: string;
+  /** Keychain credential id holding the Codex ChatGPT OAuth auth.json (production path). */
+  codexAuthCredential?: string;
+  /** Keychain credential id holding a Claude Code subscription token (production path). */
+  claudeAuthCredential?: string;
   codexProcessEnv: NodeJS.ProcessEnv;
   claudeModel?: string;
   claudeBinPath?: string;
@@ -63,6 +70,7 @@ export interface Config {
   piSystemCacheSplit: boolean;
   sessionTapeMode: "shadow" | "serve";
   adminGrants?: string;
+  emailAuthPrincipals?: string[];
   rateLimitPerWindow: number;
   rateLimitWindowMs: number;
   budgetUsdPerWindow?: number;
@@ -126,6 +134,7 @@ export interface Config {
   memoryRecall: MemoryRecallMode;
   memoryCapture: MemoryCaptureMode;
   memoryStrategy: MemoryStrategyKind;
+  memoryProviderConfig?: MemoryProviderConfig;
   memoryConsolidateAfter?: number;
   memoryCaptureQuietMs: number;
   memoryCaptureMaxTurns?: number;
@@ -159,6 +168,7 @@ export interface Config {
   spritesSandbox: SpritesSandboxEnv;
   smolmachinesSandbox: SmolmachinesSandboxEnv;
   awsDeploy: AwsDeployEnv;
+  flyDeploy: FlyDeployEnv;
 }
 
 export function configuredModelForHarness(config: Config, harness: string): string | undefined {
@@ -173,11 +183,25 @@ export function providerKeysPresent(config: Config): ModelProviderAvailability {
     anthropic: Boolean(config.anthropicApiKey),
     openai: Boolean(config.openaiApiKey),
     openrouter: Boolean(config.openrouterApiKey),
+    ...(config.harness === "codex" && (config.codexAuthFile || config.codexAuthCredential) ? { codexOAuth: true } : {}),
   };
 }
 
 export function baseModelProviders(config: Config): ModelProviderAvailability | undefined {
   return config.modelProvider ? onlyProvider(config.modelProvider) : undefined;
+}
+
+export function harnessCarriedModelAuth(config: Config): ModelProvider | undefined {
+  if (
+    config.harness === "claude" &&
+    (config.claudeAuthCredential ||
+      config.claudeProcessEnv.CLAUDE_CODE_OAUTH_TOKEN ||
+      config.claudeProcessEnv.ANTHROPIC_AUTH_TOKEN)
+  )
+    return "anthropic";
+  if (config.harness === "codex" && (config.codexAuthCredential || config.codexProcessEnv.CODEX_ACCESS_TOKEN))
+    return "openai";
+  return undefined;
 }
 
 interface AwsSandboxEnv {
@@ -240,6 +264,7 @@ function awsSandboxEnv(env: NodeJS.ProcessEnv): AwsSandboxEnv {
     ...(numEnvStrict("AWS_SANDBOX_SNAPSHOT_INTERVAL_MS", env.AWS_SANDBOX_SNAPSHOT_INTERVAL_MS) !== undefined
       ? { snapshotIntervalMs: numEnvStrict("AWS_SANDBOX_SNAPSHOT_INTERVAL_MS", env.AWS_SANDBOX_SNAPSHOT_INTERVAL_MS) }
       : {}),
+    ...(env.QM_CORE_CONTAINER ? { coreContainer: env.QM_CORE_CONTAINER } : {}),
     ...(numEnvStrict("SANDBOX_TIMEOUT_SEC", env.SANDBOX_TIMEOUT_SEC) !== undefined
       ? { defaultTimeoutSec: numEnvStrict("SANDBOX_TIMEOUT_SEC", env.SANDBOX_TIMEOUT_SEC) }
       : {}),
@@ -260,6 +285,7 @@ interface LocalSandboxEnv {
   dockerBin?: string;
   cpus?: number;
   memoryMb?: number;
+  coreContainer?: string;
   defaultTimeoutSec?: number;
 }
 
@@ -429,6 +455,24 @@ function awsDeployEnv(env: NodeJS.ProcessEnv): AwsDeployEnv {
           ),
         }
       : {}),
+  };
+}
+
+interface FlyDeployEnv {
+  token: string;
+  appPrefix: string;
+  baseImage: string;
+  org: string;
+  region?: string;
+}
+
+function flyDeployEnv(env: NodeJS.ProcessEnv): FlyDeployEnv {
+  return {
+    token: env.FLY_DEPLOY_API_TOKEN ?? "",
+    appPrefix: env.FLY_DEPLOY_APP_PREFIX ?? "",
+    baseImage: env.FLY_DEPLOY_BASE_IMAGE ?? "",
+    org: env.FLY_ORG ?? "",
+    ...(env.FLY_REGION ? { region: env.FLY_REGION } : {}),
   };
 }
 
@@ -638,9 +682,28 @@ function modelProviderEnvStrict(env: NodeJS.ProcessEnv): ModelProvider | undefin
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const missingSecrets = validateCoreSecretEnv(env);
+  const harness = harnessEnvStrict(env.HARNESS);
+  const codexAuthCredential = env.CODEX_AUTH_CREDENTIAL?.trim() || undefined;
+  const claudeAuthCredential = env.CLAUDE_AUTH_CREDENTIAL?.trim() || undefined;
+  const codexAuthCandidate = harness === "codex" && !codexAuthCredential ? codexAuthFileForEnv(env, true) : undefined;
+  const codexOAuthConfigured = Boolean(codexAuthCandidate && readCodexOAuthAuthFile(codexAuthCandidate));
+  const secretEnv =
+    codexOAuthConfigured && codexAuthCandidate
+      ? { ...env, CODEX_AUTH_FILE: codexAuthCandidate }
+      : { ...env, CODEX_AUTH_FILE: undefined };
+  const missingSecrets = validateCoreSecretEnv(secretEnv);
   if (missingSecrets.length) {
     throw new Error(`missing or insecure required core secrets: ${missingSecrets.join(", ")}`);
+  }
+  if (harness === "codex" && !env.OPENAI_API_KEY?.trim() && !codexOAuthConfigured && !codexAuthCredential) {
+    throw new Error(
+      "HARNESS=codex needs OPENAI_API_KEY, a keychain credential via CODEX_AUTH_CREDENTIAL, or a readable ChatGPT OAuth auth.json via CODEX_AUTH_FILE (or ~/.codex/auth.json)",
+    );
+  }
+  if (env.NODE_ENV === "production" && codexOAuthConfigured) {
+    throw new Error(
+      "CODEX_AUTH_FILE is supported for local Codex harnesses only; production must use CODEX_AUTH_CREDENTIAL (keychain custody)",
+    );
   }
   const modelProvider = modelProviderEnvStrict(env);
   if (env.NODE_ENV === "production" && harnessEnvStrict(env.HARNESS) === "mock") {
@@ -726,9 +789,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const publicApiUrl = env.PUBLIC_API_URL ?? env.AGENT_API_URL;
   const publicUrl = env.PUBLIC_WEB_URL ?? publicApiUrl;
-  const deployProvider: "aws" | "docker" = env.DEPLOY_PROVIDER === "aws" ? "aws" : "docker";
+  const deployProvider = env.DEPLOY_PROVIDER ?? "docker";
+  if (deployProvider !== "aws" && deployProvider !== "docker" && deployProvider !== "fly") {
+    throw new Error(
+      `DEPLOY_PROVIDER=${JSON.stringify(deployProvider)} is not recognized (expected aws, docker, or fly)`,
+    );
+  }
   let runStore: "memory" | "postgres" = env.SESSION_STORE === "postgres" ? "postgres" : "memory";
   if (env.RUN_STORE === "memory" || env.RUN_STORE === "postgres") runStore = env.RUN_STORE;
+  const codexEnv = { ...env };
+  if (codexOAuthConfigured && codexAuthCandidate) codexEnv.CODEX_AUTH_FILE = codexAuthCandidate;
+  else delete codexEnv.CODEX_AUTH_FILE;
   const providerBaseUrls = providerBaseUrlsFromEnv(env);
   const codexProcessEnv = Object.fromEntries(
     [
@@ -747,7 +818,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       "CODEX_ACCESS_TOKEN",
       "HOME",
       "CODEX_HOME",
-    ].flatMap((name) => (env[name] === undefined ? [] : [[name, env[name]]])),
+      "CODEX_AUTH_FILE",
+    ].flatMap((name) => (codexEnv[name] === undefined ? [] : [[name, codexEnv[name]]])),
   ) as NodeJS.ProcessEnv;
   const claudeProcessEnv = Object.fromEntries(
     [
@@ -799,7 +871,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(env.DATABASE_URL ? { databaseUrl: env.DATABASE_URL } : {}),
     ...(env.DATABASE_CA_CERT ? { databaseCaCert: env.DATABASE_CA_CERT } : {}),
     ...(env.DATABASE_CA_CERT_FILE ? { databaseCaCertFile: env.DATABASE_CA_CERT_FILE } : {}),
-    harness: harnessEnvStrict(env.HARNESS),
+    harness,
     securityPosture: securityPostureEnvStrict(env.HARNESS_SECURITY_POSTURE),
     securityScreenBackend,
     ...(securityScreenBackend === "proxy"
@@ -827,6 +899,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(env.OPENCODE_MODEL || env.PI_MODEL ? { opencodeModel: env.OPENCODE_MODEL || env.PI_MODEL } : {}),
     ...(env.CODEX_MODEL ? { codexModel: env.CODEX_MODEL } : {}),
     ...(env.CODEX_BIN ? { codexBinPath: env.CODEX_BIN } : {}),
+    ...(codexOAuthConfigured && codexAuthCandidate ? { codexAuthFile: codexAuthCandidate } : {}),
+    ...(codexAuthCredential ? { codexAuthCredential } : {}),
+    ...(claudeAuthCredential ? { claudeAuthCredential } : {}),
     codexProcessEnv,
     ...(env.CLAUDE_MODEL ? { claudeModel: env.CLAUDE_MODEL } : {}),
     ...(env.CLAUDE_BIN ? { claudeBinPath: env.CLAUDE_BIN } : {}),
@@ -840,6 +915,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(modelProvider ? { modelProvider } : {}),
     providerBaseUrls,
     ...(env.ADMIN_GRANTS ? { adminGrants: env.ADMIN_GRANTS } : {}),
+    ...(env.AUTH_ALLOWED_EMAILS
+      ? {
+          emailAuthPrincipals: [
+            ...new Set(
+              env.AUTH_ALLOWED_EMAILS.split(",")
+                .map((email) => email.trim().toLowerCase())
+                .filter(Boolean),
+            ),
+          ],
+        }
+      : {}),
     piCaptureRequests: boolEnvStrict("PI_CAPTURE_REQUESTS", env.PI_CAPTURE_REQUESTS) ?? true,
     piSystemCacheSplit: boolEnvStrict("PI_SYSTEM_CACHE_SPLIT", env.PI_SYSTEM_CACHE_SPLIT) ?? false,
     sessionTapeMode: env.SESSION_TAPE_MODE === "shadow" ? "shadow" : "serve",
@@ -916,6 +1002,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     memoryRecall: parseMemoryRecallMode(env.MEMORY_RECALL),
     memoryCapture: parseMemoryCaptureMode(env.MEMORY_CAPTURE),
     memoryStrategy: parseMemoryStrategyKind(env.MEMORY_STRATEGY),
+    ...(memoryProviderConfig ? { memoryProviderConfig } : {}),
     ...(numEnvStrict("MEMORY_CONSOLIDATE_AFTER", env.MEMORY_CONSOLIDATE_AFTER) !== undefined
       ? { memoryConsolidateAfter: numEnvStrict("MEMORY_CONSOLIDATE_AFTER", env.MEMORY_CONSOLIDATE_AFTER) }
       : {}),
@@ -971,5 +1058,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     spritesSandbox: spritesSandboxEnv(env),
     smolmachinesSandbox: smolmachinesSandboxEnv(env),
     awsDeploy: awsDeployEnv(env),
+    flyDeploy: flyDeployEnv(env),
   };
 }

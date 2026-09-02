@@ -3,6 +3,7 @@ import type {
   PendingApproval,
   PendingApprovalRecord,
   Permission,
+  Principal,
   ScopeId,
   Session,
   SessionEntry,
@@ -28,6 +29,7 @@ import type { RunSignal, RunSignalStore } from "../runs/run-signal-store.ts";
 import type { TaskStore, TaskStatus } from "../tasks/task-store.ts";
 import type { ModelGateway } from "../model/model-gateway.ts";
 import type { ModelCredentialStore } from "../model/model-credential-store.ts";
+import type { UserModelCredentialStore } from "../model/user-model-credential-store.ts";
 import type { CustomProviderStore } from "../model/custom-provider-store.ts";
 import type { McpServerStore } from "../mcp/mcp-server-store.ts";
 import type { McpToolService } from "../mcp/mcp-tool-service.ts";
@@ -42,6 +44,7 @@ import type { CapabilityClaims } from "../auth/capability-token.ts";
 import type { ScopedConfigStore } from "../resolution/config-store.ts";
 import { type AdminService } from "../admin/admin-service.ts";
 import type { CronStore, CreateCronInput, CronPatch } from "../cron/cron-store.ts";
+import type { CronFirePage } from "../cron/cron-fire-store.ts";
 import type { WebhookStore, CreateWebhookInput } from "../webhooks/webhook-store.ts";
 import type { DeliveryStore } from "../delivery/delivery-store.ts";
 import type {
@@ -95,6 +98,7 @@ import type { ModelProviderAvailability } from "../model/pi-models.ts";
 import type { RuntimeChoice } from "../harness/harness-router.ts";
 import { type ReachOpts, type ReachResolution, type ReachTarget } from "../reach/reach.ts";
 import { type Project, type ProjectStore } from "../projects/project-store.ts";
+import type { SearchHit } from "../search/core-search.ts";
 
 interface DeploymentVersionView {
   version: number;
@@ -286,6 +290,11 @@ export interface App {
   ): Promise<{ entry: SessionEntry } | null>;
   listSessions(principalId: string): Promise<Session[]>;
   searchSessions(principalId: string, query: string, limit?: number): Promise<SessionSearchHit[]>;
+  search(
+    query: string,
+    principals: readonly Principal[],
+    limit?: number,
+  ): Promise<{ hits: SearchHit[]; failedBackends: string[] }>;
   sessionBackground(sessionId: string, viewer: string): Promise<SessionBackgroundView | null>;
   readSessionBackgroundOutput(
     sessionId: string,
@@ -349,6 +358,7 @@ export interface App {
   ): Promise<number>;
   createCron(input: CreateCronInput): Promise<Cron>;
   getCron(id: string): Promise<Cron | null>;
+  getCronRuns(id: string, limit?: number): Promise<CronFirePage>;
   listCrons(): Promise<Cron[]>;
   listCronsForViewer(principalId: string): Promise<{ owned: Cron[]; visible: VisibleCron[] }>;
   updateCron(id: string, patch: CronPatch): Promise<Cron | null>;
@@ -519,6 +529,7 @@ export interface AppDeps {
   tasks?: TaskStore;
   modelGateway: ModelGateway;
   modelCredentials?: ModelCredentialStore;
+  userModelCredentials?: UserModelCredentialStore;
   mcpServers?: McpServerStore;
   mcpToolService?: McpToolService;
   modelCredentialFetch?: typeof fetch;
@@ -537,6 +548,7 @@ export interface AppDeps {
   webhooks: WebhookStore;
   deliveries: DeliveryStore;
   directory: DirectoryStore;
+  emailAuthMembers?: DirectoryMember[];
   projects?: ProjectStore;
   deploy: DeployService;
   deploymentLayer?: DeploymentLayerRuntime;

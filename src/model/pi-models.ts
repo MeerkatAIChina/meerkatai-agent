@@ -7,6 +7,18 @@ const getModel = getBuiltinModel as unknown as (provider: string, id: string) =>
 
 export const DEFAULT_AGENT_MODEL_ID = "claude-opus-5";
 export const DEFAULT_CODEX_MODEL_ID = "gpt-5.6-sol";
+/**
+ * pi-ai's ChatGPT-subscription provider: the same model ids as "openai",
+ * served from the Codex backend and authenticated with a ChatGPT OAuth
+ * access token instead of an API key. Model ids are namespaced "codex/<id>"
+ * so an id can never silently flip between metered and subscription serving.
+ */
+export const CODEX_SUBSCRIPTION_PROVIDER = "openai-codex";
+const CODEX_SUBSCRIPTION_PREFIX = "codex/";
+
+export function codexSubscriptionModelId(id: string): string {
+  return id.startsWith(CODEX_SUBSCRIPTION_PREFIX) ? id : CODEX_SUBSCRIPTION_PREFIX + id;
+}
 export const THINKING_LEVELS = ["auto", "low", "medium", "high", "xhigh", "max", "ultracode"] as const;
 export const HARNESS_IDS = ["pi", "opencode", "codex", "claude", "mock"] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
@@ -94,9 +106,10 @@ export const MODEL_REGISTRY: readonly ModelEntry[] = [
 ];
 
 const REGISTRY_BY_ID = new Map(MODEL_REGISTRY.map((m) => [m.id, m]));
+const OPENROUTER_CATALOG_MODELS = new Map<string, PiModel>();
 
 export function modelDisplayName(id: string): string {
-  return REGISTRY_BY_ID.get(id)?.name ?? id;
+  return REGISTRY_BY_ID.get(id)?.name ?? OPENROUTER_CATALOG_MODELS.get(id)?.name ?? id;
 }
 
 export const DEFAULT_WEBUI_MODEL_IDS: readonly string[] = MODEL_REGISTRY.filter((m) => m.webui).map((m) => m.id);
@@ -130,6 +143,35 @@ function cloneModel(model: PiModel, id: string, name: string, overrides: Partial
     ...(model.thinkingLevelMap ? { thinkingLevelMap: { ...model.thinkingLevelMap } } : {}),
     ...(model.compat ? { compat: { ...(model.compat as Record<string, unknown>) } as PiModel["compat"] } : {}),
   };
+}
+
+export interface OpenRouterCatalogModel {
+  id: string;
+  name: string;
+  contextWindow: number;
+  maxTokens: number;
+  input: ("text" | "image")[];
+  reasoning: boolean;
+  cost: { input: number; output: number };
+}
+
+export function registerOpenRouterCatalogModel(definition: OpenRouterCatalogModel): PiModel | undefined {
+  const template = builtinModel("openrouter/auto");
+  if (!template) return undefined;
+  const model = cloneModel(template, definition.id, definition.name, {
+    contextWindow: definition.contextWindow,
+    maxTokens: definition.maxTokens,
+    reasoning: definition.reasoning,
+    cost: {
+      input: definition.cost.input,
+      output: definition.cost.output,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
+  });
+  model.input = [...definition.input];
+  OPENROUTER_CATALOG_MODELS.set(model.id, model);
+  return model;
 }
 
 export function resolveModel(id: string): PiModel | undefined {
@@ -204,6 +246,11 @@ export interface ModelProviderAvailability {
   anthropic: boolean;
   openai: boolean;
   openrouter: boolean;
+  codexOAuth?: boolean;
+}
+
+function providerFlags(value: ModelProviderAvailability): ModelProviderAvailability {
+  return { anthropic: value.anthropic, openai: value.openai, openrouter: value.openrouter };
 }
 
 export function modelServiceable(id: string, providers: ModelProviderAvailability): boolean {
@@ -227,9 +274,10 @@ export function modelProviderAvailabilityFor(
   configKeys: ModelProviderAvailability,
   managedKeys: ModelProviderAvailability = configKeys,
 ): ModelProviderAvailability {
-  if (harness === "pi") return managedKeys;
-  if (harness === "opencode") return { ...configKeys, openrouter: false };
-  if (harness === "codex") return configKeys;
+  if (harness === "pi") return providerFlags(managedKeys);
+  if (harness === "opencode") return { ...providerFlags(configKeys), openrouter: false };
+  if (harness === "codex")
+    return { ...providerFlags(configKeys), openai: configKeys.openai || Boolean(configKeys.codexOAuth) };
   return ALL_PROVIDERS_AVAILABLE;
 }
 

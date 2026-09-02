@@ -155,6 +155,19 @@ function withSecurityHeaders(headers: Record<string, string>): Record<string, st
 }
 
 const UNTRUSTED_CONTENT_SANDBOX_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
+const PLAYGROUND_CSP = [
+  "sandbox allow-scripts allow-pointer-lock",
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  "img-src data: blob:",
+  "media-src data: blob:",
+  "font-src data:",
+  "connect-src 'none'",
+  "worker-src blob:",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
 
 interface ViteDevServer {
   middlewares(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void): void;
@@ -1248,20 +1261,78 @@ type WebRoute = { handle: (c: WebCtx) => unknown } & (
   { method: string; path: string } | { match: (method: string, pathname: string) => boolean }
 );
 
+async function streamFileArtifact(c: WebCtx, playground = false): Promise<unknown> {
+  const { res, user, url } = c;
+  const id = c.params.id!;
+  const corePath = withSourceAuthNonce(
+    `/v1/files/${encodeURIComponent(id)}/content?viewer=${encodeURIComponent(user)}`,
+    CORE_SIGNING_SECRET,
+  );
+  const portalTok = portalTokenStore.getStore();
+  const r = await fetch(`${CORE}${corePath}`, {
+    headers: {
+      ...signedHeaders(CORE_SIGNING_SECRET, "GET", corePath, ""),
+      ...(portalTok ? { [PORTAL_IDENTITY_HEADER]: portalTok } : {}),
+    },
+    redirect: "manual",
+  });
+  if (!r.ok || !r.body) {
+    res.writeHead(r.status === 404 ? 404 : 502, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: r.status === 404 ? "not_found" : "upstream_error" }));
+  }
+  const contentType = r.headers.get("content-type") ?? "application/octet-stream";
+  if (playground && !contentType.toLowerCase().startsWith("text/html")) {
+    res.writeHead(415, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: "not_a_playground" }));
+  }
+  const asSource = playground && url.searchParams.get("source") === "1";
+  const length = r.headers.get("content-length");
+  // Playgrounds are framed, never downloaded, so they carry no disposition.
+  const disposition = playground ? null : r.headers.get("content-disposition");
+  res.writeHead(200, {
+    "content-type": asSource ? "text/plain; charset=utf-8" : contentType,
+    ...(length ? { "content-length": length } : {}),
+    ...(disposition ? { "content-disposition": disposition } : {}),
+    "content-security-policy": playground ? PLAYGROUND_CSP : UNTRUSTED_CONTENT_SANDBOX_CSP,
+    "referrer-policy": "no-referrer",
+    ...(playground ? { "x-frame-options": "SAMEORIGIN" } : {}),
+    "x-content-type-options": "nosniff",
+  });
+  return Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]).pipe(res);
+}
+
 const apiRoutes: readonly WebRoute[] = [
   {
     match: (_method, pathname) => pathname === "/me",
     handle: async (c) => {
       const { req, res, user } = c;
       res.setHeader("set-cookie", sessionCookie(user));
-      const permissions = await userPermissions();
+      const [permissions, workspaceUrl, authStatus] = await Promise.all([
+        userPermissions(),
+        slackWorkspaceUrl(),
+        coreFetch("GET", `/v1/user-model-auth/status?principalId=${encodeURIComponent(user)}`, "", 5_000).catch(
+          () => null,
+        ),
+      ]);
+      if (authStatus === null || authStatus.status !== 200) {
+        return json(res, 503, {
+          error: "unavailable",
+          message: "the assistant is briefly unavailable — retry shortly",
+        });
+      }
+      const parsed = JSON.parse(authStatus.text) as {
+        individualModelAuth?: boolean;
+        connections?: { provider: string }[];
+      };
       return json(res, 200, {
         user,
         org: ORG,
         mode: AUTH_MODE,
-        slackWorkspaceUrl: await slackWorkspaceUrl(),
+        slackWorkspaceUrl: workspaceUrl,
         impersonatedBy: resolveIdentity(req)?.impersonator ?? null,
         permissions,
+        individualModelAuth: parsed.individualModelAuth === true,
+        modelAuthConnected: (parsed.connections?.length ?? 0) > 0,
       });
     },
   },
@@ -1900,37 +1971,50 @@ const apiRoutes: readonly WebRoute[] = [
   },
   {
     method: "GET",
-    path: "/api/files/:id/content",
+    path: "/api/files/by-name/content",
     handle: async (c) => {
-      const { res, user } = c;
-      const id = c.params.id!;
-      const corePath = withSourceAuthNonce(
-        `/v1/files/${encodeURIComponent(id)}/content?viewer=${encodeURIComponent(user)}`,
-        CORE_SIGNING_SECRET,
-      );
-      const portalTok = portalTokenStore.getStore();
-      const r = await fetch(`${CORE}${corePath}`, {
-        headers: {
-          ...signedHeaders(CORE_SIGNING_SECRET, "GET", corePath, ""),
-          ...(portalTok ? { [PORTAL_IDENTITY_HEADER]: portalTok } : {}),
-        },
-        redirect: "manual",
-      });
-      if (!r.ok || !r.body) {
-        res.writeHead(r.status === 404 ? 404 : 502, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ error: r.status === 404 ? "not_found" : "upstream_error" }));
+      const { res, url, user } = c;
+      const name = url.searchParams.get("name")?.trim();
+      if (!name) return json(res, 400, { error: "bad_request", message: "name required" });
+      let cursor: string | undefined;
+      let match: { id: string; createdAt: number } | undefined;
+      for (let page = 0; page < 50; page++) {
+        const qs = new URLSearchParams({ viewer: user, limit: "200" });
+        if (cursor) qs.set("cursor", cursor);
+        const listed = await coreFetch("GET", `/v1/files?${qs.toString()}`);
+        if (listed.status !== 200) return relay(res, listed);
+        let body: {
+          owned?: Array<{ id?: string; name?: string; createdAt?: number; openable?: boolean }>;
+          shared?: Array<{ id?: string; name?: string; createdAt?: number; openable?: boolean }>;
+          nextCursor?: string;
+        };
+        try {
+          body = JSON.parse(listed.text) as typeof body;
+        } catch {
+          return json(res, 502, { error: "upstream_error" });
+        }
+        for (const file of [...(body.owned ?? []), ...(body.shared ?? [])]) {
+          if (file.name !== name || file.openable === false || typeof file.id !== "string") continue;
+          const createdAt = typeof file.createdAt === "number" ? file.createdAt : 0;
+          if (!match || createdAt > match.createdAt) match = { id: file.id, createdAt };
+        }
+        cursor = body.nextCursor;
+        if (!cursor) break;
       }
-      res.writeHead(200, {
-        "content-type": r.headers.get("content-type") ?? "application/octet-stream",
-        ...(r.headers.get("content-length") ? { "content-length": r.headers.get("content-length")! } : {}),
-        ...(r.headers.get("content-disposition")
-          ? { "content-disposition": r.headers.get("content-disposition")! }
-          : {}),
-        "content-security-policy": UNTRUSTED_CONTENT_SANDBOX_CSP,
-        "x-content-type-options": "nosniff",
-      });
-      return Readable.fromWeb(r.body as Parameters<typeof Readable.fromWeb>[0]).pipe(res);
+      if (!match) return json(res, 404, { error: "not_found" });
+      res.writeHead(302, { location: `/api/files/${encodeURIComponent(match.id)}/content` });
+      return res.end();
     },
+  },
+  {
+    method: "GET",
+    path: "/api/files/:id/content",
+    handle: (c) => streamFileArtifact(c),
+  },
+  {
+    method: "GET",
+    path: "/api/playgrounds/:id",
+    handle: (c) => streamFileArtifact(c, true),
   },
   {
     method: "GET",
@@ -2042,6 +2126,64 @@ const apiRoutes: readonly WebRoute[] = [
     handle: async (c) => {
       const { res, user } = c;
       return relayCore(res, "GET", `/v1/connectors/oauth/status?principalId=${encodeURIComponent(user)}`);
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/user-model-auth/status",
+    handle: async (c) =>
+      relayCore(c.res, "GET", `/v1/user-model-auth/status?principalId=${encodeURIComponent(c.user)}`),
+  },
+  {
+    method: "POST",
+    path: "/api/user-model-auth/api-key",
+    handle: async (c) => {
+      const p = JSON.parse((await readBody(c.req)) || "{}") as { provider?: unknown; apiKey?: unknown };
+      const body = JSON.stringify({ principalId: c.user, provider: p.provider, apiKey: p.apiKey });
+      return relayCore(c.res, "POST", "/v1/user-model-auth/api-key", body);
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/user-model-auth/disconnect",
+    handle: async (c) => {
+      const p = JSON.parse((await readBody(c.req)) || "{}") as { provider?: unknown };
+      return relayCore(
+        c.res,
+        "POST",
+        "/v1/user-model-auth/disconnect",
+        JSON.stringify({ principalId: c.user, provider: p.provider }),
+      );
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/user-model-auth/chatgpt/start",
+    handle: async (c) =>
+      relayCore(c.res, "POST", "/v1/user-model-auth/chatgpt/start", JSON.stringify({ principalId: c.user })),
+  },
+  {
+    method: "POST",
+    path: "/api/user-model-auth/chatgpt/poll",
+    handle: async (c) => {
+      const p = JSON.parse((await readBody(c.req)) || "{}") as { deviceAuthId?: unknown; userCode?: unknown };
+      const body = JSON.stringify({ principalId: c.user, deviceAuthId: p.deviceAuthId, userCode: p.userCode });
+      return relayCore(c.res, "POST", "/v1/user-model-auth/chatgpt/poll", body);
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/user-model-auth/claude/start",
+    handle: async (c) =>
+      relayCore(c.res, "POST", "/v1/user-model-auth/claude/start", JSON.stringify({ principalId: c.user })),
+  },
+  {
+    method: "POST",
+    path: "/api/user-model-auth/claude/complete",
+    handle: async (c) => {
+      const p = JSON.parse((await readBody(c.req)) || "{}") as { code?: unknown; verifier?: unknown };
+      const body = JSON.stringify({ principalId: c.user, code: p.code, verifier: p.verifier });
+      return relayCore(c.res, "POST", "/v1/user-model-auth/claude/complete", body);
     },
   },
   {
@@ -2304,10 +2446,16 @@ const apiRoutes: readonly WebRoute[] = [
       const attachments: CoreAttachment[] = [];
       let approval: { requestId: string; approved: boolean; scope?: string } | undefined;
       let proactiveOpener = false;
+      let clientTurnId: string | undefined;
       try {
         const p = JSON.parse(await readBody(req));
         text = String(p.text ?? "");
         if (p.proactiveOpener === true) proactiveOpener = true;
+        if (
+          typeof p.clientTurnId === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p.clientTurnId)
+        )
+          clientTurnId = p.clientTurnId;
         if (p.approval && typeof p.approval.requestId === "string" && typeof p.approval.approved === "boolean") {
           approval = {
             requestId: p.approval.requestId,
@@ -2375,6 +2523,7 @@ const apiRoutes: readonly WebRoute[] = [
         ...(attachments.length ? { attachments } : {}),
         ...(approval ? { approval } : {}),
         ...(proactiveOpener ? { proactiveOpener: true } : {}),
+        ...(clientTurnId ? { idempotencyKey: `web:${user}:${clientTurnId}` } : {}),
       };
       return postTurnAndMint(res, turn, user, threadRef);
     },

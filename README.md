@@ -4,6 +4,10 @@ A multiplayer agent harness for work. In Slack and on the web.
 
 ![The QM web UI: two concurrent sessions, a sidebar of personal files, crons, keychain, deploys, memory, and skills](./docs/screenshots/web-ui-hero.png)
 
+## Setup
+
+Tell your coding agent of choice `Let's deploy https://github.com/yc-software/qm`. From here, it should follow the deployment guide in this repo.
+
 ## What is QM?
 
 Most agents are designed like personal assistants. You can make one work for a whole
@@ -75,8 +79,8 @@ uses Bolt; the web UI builds with Vite and renders with Lit.
 The core itself is generic. Everything specific to one company — org config, custom tools
 and skills, sandbox image, infrastructure — lives in a **deployment directory** that the
 [`qm` CLI](./cli/README.md) validates and deploys. Every substrate (harness, session
-store, sandbox, memory) sits behind an interface, so production implementations swap in
-via one wiring file.
+store, sandbox, memory) sits behind an interface. Memory can also be routed by scope to
+[external providers](./docs/memory-providers.md) while retaining the built-in notebook.
 
 ## Security and secrets
 

@@ -85,6 +85,11 @@ export interface PersistedWebuiModels {
   scopeId: ScopeId;
   ids: string[];
 }
+export interface PersistedAckEmoji {
+  scopeId: ScopeId;
+  names: string[];
+}
+
 export interface PersistedPeopleDirectoryUrl {
   scopeId: ScopeId;
   url: string;
@@ -184,11 +189,17 @@ export interface ScopedConfigStore {
   getInteractiveFastMode(): boolean;
   setInteractiveFastMode(on: boolean): void;
   getInteractiveFastModeDurable(): Promise<boolean>;
+  getIndividualModelAuth(): boolean;
+  setIndividualModelAuth(on: boolean): void;
+  getIndividualModelAuthDurable(): Promise<boolean>;
   getBaseModelOwnDurable(id: ScopeId): Promise<string | null>;
   getWebuiModels(id: ScopeId): string[] | null;
   setWebuiModels(id: ScopeId, ids: string[] | null): void;
   getBaseModelDurable(id: ScopeId): Promise<string | null>;
   getWebuiModelsDurable(id: ScopeId): Promise<string[] | null>;
+  getAckEmoji(id: ScopeId): string[] | null;
+  setAckEmoji(id: ScopeId, names: string[] | null): void;
+  getAckEmojiDurable(id: ScopeId): Promise<string[] | null>;
   getPeopleDirectoryUrl(id: ScopeId): string | null;
   setPeopleDirectoryUrl(id: ScopeId, url: string | null): void;
   getBranding(id: ScopeId): OrgBranding | null;
@@ -227,8 +238,10 @@ export function createMemoryConfigStore(
     approvedHarnesses?: DurableMap<PersistedApprovedHarnesses>;
     orgAmbient?: DurableMap<PersistedScopedFlag>;
     interactiveFastMode?: DurableMap<PersistedScopedFlag>;
+    individualModelAuth?: DurableMap<PersistedScopedFlag>;
     webuiModels?: DurableMap<PersistedWebuiModels>;
     peopleDirectoryUrls?: DurableMap<PersistedPeopleDirectoryUrl>;
+    ackEmoji?: DurableMap<PersistedAckEmoji>;
     branding?: DurableMap<PersistedBranding>;
     browseMaxSteps?: DurableMap<PersistedBrowseMaxSteps>;
     browseModels?: DurableMap<PersistedBrowseModel>;
@@ -252,8 +265,10 @@ export function createMemoryConfigStore(
   let approvedHarnesses: string[] | null = null;
   let orgAmbient = true;
   let interactiveFastMode = false;
+  let individualModelAuth = false;
   const webuiModels = new Map<ScopeId, string[]>();
   const peopleDirectoryUrls = new Map<ScopeId, string>();
+  const ackEmoji = new Map<ScopeId, string[]>();
   const branding = new Map<ScopeId, OrgBranding>();
   const browseMaxSteps = new Map<ScopeId, number>();
   const browseModels = new Map<ScopeId, string>();
@@ -271,8 +286,10 @@ export function createMemoryConfigStore(
   const approvedHarnessStore = opts.approvedHarnesses ?? createMemoryMap<PersistedApprovedHarnesses>();
   const orgAmbientStore = opts.orgAmbient ?? createMemoryMap<PersistedScopedFlag>();
   const interactiveFastModeStore = opts.interactiveFastMode ?? createMemoryMap<PersistedScopedFlag>();
+  const individualModelAuthStore = opts.individualModelAuth ?? createMemoryMap<PersistedScopedFlag>();
   const webuiModelStore = opts.webuiModels ?? createMemoryMap<PersistedWebuiModels>();
   const peopleDirectoryUrlStore = opts.peopleDirectoryUrls ?? createMemoryMap<PersistedPeopleDirectoryUrl>();
+  const ackEmojiStore = opts.ackEmoji ?? createMemoryMap<PersistedAckEmoji>();
   const brandingStore = opts.branding ?? createMemoryMap<PersistedBranding>();
   const browseMaxStepsStore = opts.browseMaxSteps ?? createMemoryMap<PersistedBrowseMaxSteps>();
   const browseModelStore = opts.browseModels ?? createMemoryMap<PersistedBrowseModel>();
@@ -422,8 +439,10 @@ export function createMemoryConfigStore(
           approvedHarnesses = (await approvedHarnessStore.get(org))?.ids ?? null;
           orgAmbient = (await orgAmbientStore.get(org))?.on ?? true;
           interactiveFastMode = (await interactiveFastModeStore.get(org))?.on ?? false;
+          individualModelAuth = (await individualModelAuthStore.get(org))?.on ?? false;
           for (const r of await webuiModelStore.all()) webuiModels.set(r.scopeId, r.ids);
           for (const r of await peopleDirectoryUrlStore.all()) peopleDirectoryUrls.set(r.scopeId, r.url);
+          for (const r of await ackEmojiStore.all()) ackEmoji.set(r.scopeId, r.names);
           for (const r of await brandingStore.all()) branding.set(r.scopeId, r.branding);
           for (const r of await browseMaxStepsStore.all()) browseMaxSteps.set(r.scopeId, r.steps);
           for (const r of await browseModelStore.all()) browseModels.set(r.scopeId, r.modelId);
@@ -794,6 +813,14 @@ export function createMemoryConfigStore(
       );
     },
     getInteractiveFastModeDurable: async () => (await interactiveFastModeStore.get(org))?.on ?? false,
+    getIndividualModelAuth: () => individualModelAuth,
+    setIndividualModelAuth(on) {
+      individualModelAuth = on;
+      persist(`individualModelAuth:${org}`, "individual model auth switch", () =>
+        individualModelAuthStore.put(org, { scopeId: org, on }),
+      );
+    },
+    getIndividualModelAuthDurable: async () => (await individualModelAuthStore.get(org))?.on ?? false,
     getBaseModelOwnDurable: async (id) => (await baseModelStore.get(id))?.modelId ?? null,
     getBaseModelDurable: async (id) =>
       (await baseModelStore.get(id))?.modelId ??
@@ -810,6 +837,21 @@ export function createMemoryConfigStore(
     },
     getWebuiModelsDurable: async (id) =>
       (await webuiModelStore.get(id))?.ids ?? (await webuiModelStore.get(org))?.ids ?? null,
+    getAckEmoji: (id) => ackEmoji.get(id) ?? null,
+    setAckEmoji(id, names) {
+      if (!names || !names.length) {
+        ackEmoji.delete(id);
+        persist(`ackEmoji:${id}`, "ack emoji", () => ackEmojiStore.delete(id));
+      } else {
+        ackEmoji.set(id, names);
+        persist(`ackEmoji:${id}`, "ack emoji", () => ackEmojiStore.put(id, { scopeId: id, names }));
+      }
+    },
+    getAckEmojiDurable: async (id) => {
+      const pending = pendingWrites.get(`ackEmoji:${id}`);
+      if (pending) await pending;
+      return (await ackEmojiStore.get(id))?.names ?? null;
+    },
     getPeopleDirectoryUrl: (id) => peopleDirectoryUrls.get(id) ?? null,
     setPeopleDirectoryUrl(id, url) {
       if (url === null) {
@@ -942,6 +984,7 @@ export function createMemoryConfigStore(
         brandingRow,
         orgAmbientRow,
         interactiveFastModeRow,
+        individualModelAuthRow,
         channelHeaderPinRow,
       ] = await Promise.all([
         soulStore.get(id),
@@ -956,6 +999,7 @@ export function createMemoryConfigStore(
         brandingStore.get(id),
         id === org ? orgAmbientStore.get(org) : null,
         id === org ? interactiveFastModeStore.get(org) : null,
+        id === org ? individualModelAuthStore.get(org) : null,
         channelHeaderPinStore.get(id),
       ]);
       let refreshedSoul = soul;
@@ -995,6 +1039,7 @@ export function createMemoryConfigStore(
       if (id === org) approvedHarnesses = approved?.ids ?? null;
       if (id === org) orgAmbient = orgAmbientRow?.on ?? true;
       if (id === org) interactiveFastMode = interactiveFastModeRow?.on ?? false;
+      if (id === org) individualModelAuth = individualModelAuthRow?.on ?? false;
       if (brandingRow) branding.set(id, brandingRow.branding);
       else branding.delete(id);
       if (channelHeaderPinRow) channelHeaderPin.set(id, channelHeaderPinRow.on);
@@ -1011,9 +1056,16 @@ export function createMemoryConfigStore(
         `model:${id}`,
         `turnWallClock:${id}`,
         `branding:${id}`,
-        ...(id === org ? [`approvedHarnesses:${org}`, `orgAmbient:${org}`, `interactiveFastMode:${org}`] : []),
+        ...(id === org
+          ? [
+              `approvedHarnesses:${org}`,
+              `orgAmbient:${org}`,
+              `interactiveFastMode:${org}`,
+              `individualModelAuth:${org}`,
+            ]
+          : []),
         `channelHeaderPin:${id}`,
-        ...(id === org ? [`approvedHarnesses:${org}`, `orgAmbient:${org}`] : []),
+        `ackEmoji:${id}`,
       ];
       await Promise.all(
         keys.map(async (key) => {

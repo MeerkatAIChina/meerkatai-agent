@@ -16,6 +16,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Sparkles,
   Webhook,
   type IconNode,
 } from "lucide";
@@ -40,13 +41,15 @@ import { ensureDeliveryStream, mainConversation, onExitCanvas } from "./conversa
 import { clearAllDrafts, saveDraft, storedDraft } from "./drafts";
 import { deepLinkPath, isPlainLeftClick, parseDeepLink, UI_BASE } from "./deep-link";
 import {
-  addBlankPane,
   adoptRemoteSplit,
   canvasToast,
   drawCanvas,
   exitSplitIfActive,
+  focusedPaneSession,
   loadPersistedSplit,
   mountRestoredCanvas,
+  openBlankInFocusedPane,
+  openThreadInFocusedPane,
   restoredCanvasNeedsSessionList,
   splitState,
 } from "./split";
@@ -56,11 +59,12 @@ import {
   openSession,
   closeOpenSessionMenu,
   refreshSessions,
-  renderChatsPage,
   renderList,
   resetSessionsState,
+  sessionTitle,
   sessionsState,
   toggleWebOnly,
+  sessionSelectionBar,
 } from "./sessions";
 import { openCronById, renderCronsPage, resetActiveCron, routeCronsHistory } from "./crons";
 import { openWebhookById, renderWebhooksPage, resetActiveWebhook, routeWebhooksHistory } from "./webhooks";
@@ -70,11 +74,13 @@ import { openChatSearch, SEARCH_HOTKEY_LABEL } from "./search";
 import { hideTooltip, showTooltip } from "./tooltip";
 import { clearConnectorNotice, noteConnectorResult, renderConnectors, resetKeychainState } from "./connectors";
 import { renderDeploys } from "./deploys";
+import { openModelConnectManager, renderModelConnectGate } from "./model-connect";
 import { renderMemory, resetMemoryState } from "./memory";
 import { renderSkills } from "./skills";
 import { contextsState, ensureContexts, renderContexts, resetContextsState, resolveProjectScope } from "./contexts";
 import { appState, can, isView, type AuthMode, type Me, type View } from "./shell-state";
 import { trapDialogFocus } from "./dialog-focus";
+import { activeSessionForDocumentTitle, updateDocumentTitle } from "./document-title";
 export { appState, can, type Me, type View } from "./shell-state";
 
 let authMode: AuthMode = "portal";
@@ -209,6 +215,7 @@ export async function signOut(): Promise<void> {
   resetContextsState();
   resetKeychainState();
   mainConversation().composer.resetComposer();
+  updateDocumentTitle();
   if (!portal) {
     renderAuthGate({ kind: "dev" });
     return;
@@ -490,6 +497,7 @@ export function mountShell(): void {
 }
 
 export function renderSidebarTop(): void {
+  syncDocumentTitle();
   if (!appState.topEl) return;
   const navRow = (v: View, glyph: IconNode, label: string) =>
     html`<a
@@ -523,7 +531,7 @@ export function renderSidebarTop(): void {
         title=${splitState.active ? i18n("New session") : i18n("New chat")}
         @click=${() => {
           closeSidebarOnNarrowView();
-          if (!addBlankPane()) mainConversation().newChat();
+          openBlankInFocusedPane();
         }}
       >
         ${icon(ICON.newChat, 17)}<span>${splitState.active ? i18n("New session") : i18n("New chat")}</span>
@@ -585,6 +593,26 @@ export function renderSidebarTop(): void {
   );
 }
 
+export function syncDocumentTitle(): void {
+  if (!appState.me) {
+    updateDocumentTitle();
+    return;
+  }
+  const state = mainConversation().state;
+  const active = splitState.active
+    ? focusedPaneSession()
+    : activeSessionForDocumentTitle(sessionsState.list, {
+        openingKey: sessionsState.openingKey,
+        sessionId: state.sessionId,
+        threadRef: state.threadRef,
+      });
+  updateDocumentTitle(
+    appState.currentView,
+    active ? sessionTitle(active) : null,
+    Boolean(active || (!splitState.active && state.threadRef)),
+  );
+}
+
 function onNavClick(e: Event): void {
   const target = e.target as Element | null;
   const row = target?.closest<HTMLAnchorElement>(".navrow[data-view]");
@@ -615,8 +643,8 @@ export function switchView(v: View): void {
   syncUrlFromState();
   switch (v) {
     case "chats":
-      if (splitState.active) drawCanvas();
-      else void renderChatsPage();
+      mountRestoredCanvas();
+      drawCanvas();
       renderList();
       break;
     case "webhooks":
@@ -651,8 +679,7 @@ export function switchView(v: View): void {
 function refreshActiveView(v: View): void {
   switch (v) {
     case "chats":
-      if (splitState.active) void refreshSessions({ silent: true, refreshContexts: true });
-      else void renderChatsPage();
+      void refreshSessions({ silent: true, refreshContexts: true });
       break;
     case "contexts":
       void renderContexts();
@@ -855,6 +882,11 @@ export async function boot(): Promise<void> {
   appState.me = (await r.json()) as Me;
   authMode = appState.me.mode ?? "portal";
   clearPortalAttempt();
+  if (appState.me.individualModelAuth && !appState.me.modelAuthConnected) {
+    shellMounted = false;
+    renderModelConnectGate();
+    return;
+  }
   const personalScope = `personal:${appState.me.user}`;
   const runtimeConfig = await fetchRuntimeConfig(personalScope);
   if (runtimeConfig) {
@@ -918,7 +950,7 @@ export async function boot(): Promise<void> {
   } else if (wantedSession) {
     const match = sessionsState.list.find((s) => s.id === wantedSession);
     if (match) {
-      exitSplitIfActive();
+      mountRestoredCanvas();
       await openSession(match, entriesPrefetch ?? undefined);
     } else if (mountRestoredCanvas()) {
       canvasToast("That conversation wasn't found, or you don't have access to it.");
@@ -929,9 +961,9 @@ export async function boot(): Promise<void> {
     }
   } else if (connectedProvider && sessionsState.list.length) {
     const recent = [...sessionsState.list].sort((a, b) => activityOf(b) - activityOf(a))[0]!;
-    exitSplitIfActive();
+    mountRestoredCanvas();
     await openSession(recent);
-  } else if (!mountRestoredCanvas() && !mainConversation().state.threadRef) {
-    mainConversation().newChat();
+  } else {
+    mountRestoredCanvas();
   }
 }

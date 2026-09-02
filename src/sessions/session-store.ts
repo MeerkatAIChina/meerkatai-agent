@@ -451,12 +451,13 @@ export interface SessionStore {
 
   append(lease: Lease, entry: NewEntry): Promise<SessionEntry>;
   getEntries(sessionId: string, opts?: GetEntriesOptions): Promise<SessionEntry[]>;
+  clearSecurityTaint(sessionId: string): Promise<boolean>;
 
   appendTape(lease: Lease, rec: NewTapeRecord): Promise<TapeRecord>;
   getTape(sessionId: string, opts?: GetTapeOptions): Promise<TapeRecord[]>;
   tapeCoverage(sessionId: string): Promise<number>;
 
-  recordLlmRequest(sessionId: string, rec: NewLlmRequest): Promise<LlmRequestRecord>;
+  recordLlmRequest(sessionId: string, rec: NewLlmRequest, signal?: AbortSignal): Promise<LlmRequestRecord>;
   listLlmRequests(sessionId: string, opts?: ListLlmRequestsOptions): Promise<LlmRequestRecord[]>;
 
   addParticipant(sessionId: string, principalId: string, title?: string, opts?: AddParticipantOptions): Promise<void>;
