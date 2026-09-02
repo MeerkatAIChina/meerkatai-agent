@@ -292,12 +292,13 @@ interface LocalSandboxEnv {
 interface Wsl2SandboxEnv {
   distro: string;
   egressPath?: string;
+  hostEnv: NodeJS.ProcessEnv;
 }
 
 function wsl2SandboxEnv(env: NodeJS.ProcessEnv): Wsl2SandboxEnv {
   const d = env.WSL2_SANDBOX_DISTRO?.trim();
   const p = env.SANDBOX_EGRESS_PATH?.trim();
-  return { distro: d || "meerkat-sandbox", ...(p ? { egressPath: p } : {}) };
+  return { distro: d || "meerkat-sandbox", hostEnv: env, ...(p ? { egressPath: p } : {}) };
 }
 
 function localSandboxEnv(env: NodeJS.ProcessEnv): LocalSandboxEnv {

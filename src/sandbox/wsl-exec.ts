@@ -11,7 +11,9 @@ export function spawnWslExec(wslBin = "wsl.exe"): WslExec {
         { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true, encoding: "buffer" },
         (err, stdout, stderr) => {
           if (err && typeof err.code !== "number") return reject(err);
-          const code = typeof err?.code === "number" ? err.code : err ? 1 : 0;
+          let code = 0;
+          if (err && typeof err.code === "number") code = err.code;
+          else if (err) code = 1;
           resolve({
             code,
             stdout: decodeWslOut(Buffer.from(stdout)),

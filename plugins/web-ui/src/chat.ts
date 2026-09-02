@@ -1336,7 +1336,7 @@ export function createChatSurface(
           <div class="assistant-body">
             ${showWork ? workBlock(work, isStreaming) : nothing} ${assistantContent(msg, isStreaming, showWork)}
             ${assistantFileList(deliveredFiles)}
-            ${msg.stopReason === "error" && msg.errorMessage ? html`<div class="composer-error inline">${msg.errorMessage}</div>` : nothing}
+            ${errorTpl}
             ${msg.stopReason === "aborted" ? html`<div class="stopped-note">${icon(Ban, 13)}<span>${i18n("Stopped")}</span></div>` : nothing}
             ${isStreaming ? nothing : messageMeta(msg, index)}
           </div>
@@ -1814,12 +1814,12 @@ export function createChatSurface(
   function backgroundJobRow(j: SessionBackgroundView["jobs"][number]): TemplateResult {
     const open = bgPanel.openJob === j.processId;
     const out = bgPanel.output.get(j.processId);
-    const status =
-      out?.state === "exited"
-        ? out.exitCode !== undefined
-          ? tr("exited ({code})")(out.exitCode)
-          : String(i18n("exited"))
-        : timeLeft(j.expiresAt);
+    let status: string;
+    if (out?.state === "exited") {
+      status = out.exitCode !== undefined ? tr("exited ({code})")(out.exitCode) : String(i18n("exited"));
+    } else {
+      status = timeLeft(j.expiresAt);
+    }
     return html`
       <div class="bg-row ${open ? "open" : ""}">
         <button
@@ -2040,17 +2040,6 @@ export function createChatSurface(
     const secs = workSeconds(work);
     if (work.status === "failed") return secs > 0 ? tr("Failed after {secs}s")(secs) : String(i18n("Failed"));
     return workedLabel(String(i18n("Worked")), secs);
-  }
-
-  function approvalSummaryLine(a: PendingApproval): TemplateResult | typeof nothing {
-    if (!a.summary) return nothing;
-    if (!a.summaryDetail || a.summaryDetail === a.summary) {
-      return html`<div class="approval-summary-line">${a.summary}</div>`;
-    }
-    return html`<details class="approval-summary-detail">
-      <summary class="approval-summary-line">${a.summary}</summary>
-      <div class="approval-detail-text">${a.summaryDetail}</div>
-    </details>`;
   }
 
   function approvalSummaryView(a: PendingApproval, expanded = false): TemplateResult {

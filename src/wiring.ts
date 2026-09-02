@@ -607,11 +607,14 @@ export function buildApp(
           ...(config.s3Prefix ? { prefix: config.s3Prefix } : {}),
         })
       : createLocalDurableByteStore(join(config.dataDir, "docstore"));
-  const files: FileArtifactStore = config.databaseUrl
-    ? createPostgresFileArtifactStore(config.databaseUrl, fileBytes)
-    : config.artifactStore === "sqlite" && config.sqlitePath
-      ? createSqliteFileArtifactStore(config.sqlitePath, fileBytes)
-      : createMemoryFileArtifactStore(fileBytes);
+  let files: FileArtifactStore;
+  if (config.databaseUrl) {
+    files = createPostgresFileArtifactStore(config.databaseUrl, fileBytes);
+  } else if (config.artifactStore === "sqlite" && config.sqlitePath) {
+    files = createSqliteFileArtifactStore(config.sqlitePath, fileBytes);
+  } else {
+    files = createMemoryFileArtifactStore(fileBytes);
+  }
   const defaultMemory: MemoryService = config.databaseUrl
     ? createPostgresMemoryService(config.databaseUrl)
     : createMemoryService(workspace);

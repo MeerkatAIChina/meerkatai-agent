@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ALLOWLIST = ["MeerkatAI", "MAPID", "API", "Webhook", "Harness", "token", "GitHub", "Markdown", "PDF", "DOCX", "PPTX", "Excel", "web UI", "Gmail unread digest", "GitLab CI watch", "path: value1, value2"];

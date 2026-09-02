@@ -81,6 +81,20 @@ function editAudience(scopeId: string | undefined): string {
   return scopeId ? scopeTitle(scopeId) : String(i18n("this context"));
 }
 
+function editChangeSummary(e: {
+  description: string;
+  originalDescription: string;
+  body: string;
+  originalBody: string;
+}): string {
+  if (e.description === e.originalDescription) {
+    if (e.body === e.originalBody) return String(i18n("Description unchanged; instructions unchanged."));
+    return String(i18n("Description unchanged; instructions changed."));
+  }
+  if (e.body === e.originalBody) return String(i18n("Description changed; instructions unchanged."));
+  return String(i18n("Description changed; instructions changed."));
+}
+
 async function startEdit(s: SkillItem): Promise<void> {
   if (!s.id) return;
   const request = ++editRequestSeq;
@@ -312,15 +326,7 @@ function editorPane() {
               <strong>${tr("Publish this change to {scope}?")(scopeTitle(e.scopeId ?? null))}</strong>
               <div class="card-meta">
                 ${i18n("Everyone in this context can invoke the updated instructions.")}
-                ${
-                  e.description === e.originalDescription
-                    ? e.body === e.originalBody
-                      ? i18n("Description unchanged; instructions unchanged.")
-                      : i18n("Description unchanged; instructions changed.")
-                    : e.body === e.originalBody
-                      ? i18n("Description changed; instructions unchanged.")
-                      : i18n("Description changed; instructions changed.")
-                }
+                ${editChangeSummary(e)}
               </div>
             </div>`
           : nothing

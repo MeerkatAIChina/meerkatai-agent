@@ -464,6 +464,18 @@ export function mountShell(): void {
             ${isDesktop()
               ? html`<a class="icon-btn subtle" href=${withPortalToken(withBase("/setup"))} title=${i18n("Settings")} aria-label=${i18n("Settings")}>${icon(Settings, 17)}</a>`
               : nothing}
+            ${
+              appState.me?.individualModelAuth
+                ? html`<button
+                    class="icon-btn subtle"
+                    title="Manage AI account"
+                    aria-label="Manage AI account"
+                    @click=${openModelConnectManager}
+                  >
+                    ${icon(Sparkles, 17)}
+                  </button>`
+                : nothing
+            }
             <theme-toggle .includeSystem=${true} title=${i18n("Color scheme: light / dark / system")}></theme-toggle>
             <button class="icon-btn subtle" title=${i18n("Sign out")} aria-label=${i18n("Sign out")} @click=${signOut}>
               ${icon(LogOut, 17)}
@@ -558,7 +570,9 @@ export function renderSidebarTop(): void {
           `,
         )}
       </nav>
-      ${html`
+      ${
+        sessionSelectionBar() ??
+        html`
         <div class="section-label recents-label">
           <span>${i18n("Sessions")}</span>
           <button
@@ -847,7 +861,7 @@ function openAppEditChat(slug: string): void {
     return;
   }
   if (!storedDraft(threadRef)) saveDraft(threadRef, tr("Update my deployed app \"{slug}\": ")(slug));
-  mainConversation().mountContinuable(threadRef, null, null, []);
+  openThreadInFocusedPane(threadRef);
   renderList();
 }
 

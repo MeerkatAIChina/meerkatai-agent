@@ -32,9 +32,13 @@ const FENCE_PATH = "/opt/qm/egress-lock.sh";
 
 export type WslSpawn = (args: string[], env: Record<string, string>) => ChildProcess;
 
-export function spawnWslChild(args: string[], env: Record<string, string>): ChildProcess {
+export function spawnWslChild(
+  args: string[],
+  env: Record<string, string>,
+  hostEnv: NodeJS.ProcessEnv = {},
+): ChildProcess {
   return spawn("wsl.exe", args, {
-    env: { ...process.env, ...env, WSLENV: Object.keys(env).join(":") },
+    env: { ...hostEnv, ...env, WSLENV: Object.keys(env).join(":") },
     stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
   });
@@ -45,6 +49,7 @@ export interface Wsl2SandboxOptions {
   agentToken: string;
   wsl?: WslExec;
   spawnWsl?: WslSpawn;
+  hostEnv?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
   defaultTimeoutSec?: number;
   agentPortForTest?: number;
@@ -78,6 +83,9 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
   const token = opts.agentToken;
   const defaultTimeoutSec = opts.defaultTimeoutSec ?? 600;
   const queue = createKeyedQueue<string>();
+  const defaultSpawnWsl: WslSpawn | undefined = opts.agentPortForTest
+    ? undefined
+    : (args, env) => spawnWslChild(args, env, opts.hostEnv);
 
   let agentPort: number | undefined;
   let agentChild: ChildProcess | undefined;
@@ -89,7 +97,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
     if (!opts.egress || fenceApplied) return;
     const port = await freePort();
     const allow = opts.egress.allowlist.join(",");
-    const spawner = opts.spawnWsl ?? (opts.agentPortForTest ? undefined : spawnWslChild);
+    const spawner = opts.spawnWsl ?? defaultSpawnWsl;
     if (spawner) {
       proxyChild = spawner(["-d", distro, "-u", "root", "--exec", "node", PROXY_PATH], {
         EGRESS_PORT: String(port),
@@ -192,7 +200,7 @@ export function createWsl2Sandbox(workspace: WorkspaceStore, opts: Wsl2SandboxOp
         }
       }
       const port = opts.agentPortForTest ?? (await freePort());
-      const spawner = opts.spawnWsl ?? (opts.agentPortForTest ? undefined : spawnWslChild);
+      const spawner = opts.spawnWsl ?? defaultSpawnWsl;
       if (spawner) {
         agentChild = spawner(["-d", distro, "-u", "root", "--exec", "node", AGENT_PATH], {
           AGENT_PORT: String(port),
