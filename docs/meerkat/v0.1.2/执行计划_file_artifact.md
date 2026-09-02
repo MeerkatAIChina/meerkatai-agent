@@ -1,4 +1,6 @@
-# 执行计划
+# 执行计划：桌面端文件 Artifact 持久化（SQLite）
+
+> 本执行计划对应 v0.1.2 需求六（桌面端文件 Artifact 持久化），由 `docs/meerkat/v0.1.5/执行计划.md` 归并而来。
 
 ## 任务拆分
 
@@ -103,7 +105,7 @@
 
 **步骤**：
 
-1. 新建 `docs/meerkat/v0.1.5/ADR.md`。
+1. 在 `docs/meerkat/v0.1.2/ADR.md` 中新增 ADR-014。
 2. 记录：为何选 SQLite、为何共用 meerkat.db、与 DATABASE_URL 互斥、历史数据不可迁移。
 
 **验收标准**：
@@ -140,6 +142,6 @@
 3. `feat(config): support ARTIFACT_STORE=sqlite and widen sqlitePath parsing (#34)`
 4. `feat(wiring): route fileArtifactStore to sqlite when configured (#34)`
 5. `feat(desktop): enable sqlite artifact store in core launch (#34)`
-6. `docs(v0.1.5): add ADR for sqlite file artifact persistence (#34)`
+6. `docs(v0.1.2): add ADR-014 for sqlite file artifact persistence (#34)`
 
 提交后创建 PR，并在 #34 中引用。
