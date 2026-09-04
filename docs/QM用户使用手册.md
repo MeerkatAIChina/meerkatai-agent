@@ -185,6 +185,89 @@ agent **发布出来的可运行应用**：
 
 ---
 
+## 添加自定义模型（完整流程）
+
+> 想让 agent 使用**任意 OpenAI/Anthropic 兼容端点**的模型（比如你自己的网关、DeepSeek、国产第三方、LiteLLM 网关等），需要**两个步骤配合完成**：
+> ① 在 **Onboarding** 注册 provider（让系统认识"有这么个模型 + key 在哪"）；
+> ② 在 **Governance** 把它加进模型白名单并设为可选（让网页端能选到它）。
+> 只做①或只做②，网页端都用不了——两步缺一不可。
+
+### 前提：理解 OpenAI vs Anthropic 兼容协议
+
+填表前先确认你的模型端点属于哪种协议，这决定了选哪个 Protocol：
+
+| | OpenAI-compatible | Anthropic-compatible |
+|---|---|---|
+| 典型 | GPT、DeepSeek、绝大多数国产第三方、LiteLLM 网关 | Claude 原生接口 |
+| Base URL 形态 | 常带 `/v1`（如 `https://api.deepseek.com/v1`） | 常无 `/v1`（如 `https://api.anthropic.com`） |
+| 鉴权 header | `Authorization: Bearer <key>` | `x-api-key: <key>` |
+
+> **记法**：OpenAI 协议是事实标准，绝大多数网关和国产第三方都兼容它。拿不准就优先选 **OpenAI-compatible**。选错协议会导致鉴权/请求格式对不上而报错。
+
+### 第一步：在 Onboarding 注册 provider
+
+1. 治理台左侧 **Admin → Onboarding**（Custom providers 区块在这，不在 Governance）；
+2. 在下方表单填：
+   | 字段 | 说明 | 例子 |
+   |---|---|---|
+   | **Provider id (slug)** | 小写字母+数字+连字符，唯一内部标识 | `meerkat` |
+   | **Display name** | 显示名 | `Meerkat` |
+   | **Protocol** | OpenAI / Anthropic 兼容（见上表） | `OpenAI-compatible` |
+   | **Base URL** | API 端点 | `https://你的网关/v1` |
+   | **API key** | 写入口令（只写不读，留空=保留旧 key） | `sk-...` |
+   | **Models** | **每行一个**模型，`模型id \| 显示名 \| context \| maxTokens` | 见下 |
+   | **Validate key** | 勾选=保存时验证 key（网关无 models 列表就去掉勾） | 默认勾选 |
+3. 点 **Save provider**。成功后上面表格会出现这一条。
+
+**Models 文本框格式**：每行一个模型，一行内用竖线 `|` 分隔 4 段：
+
+```
+模型id | 显示名 | contextWindow | maxTokens
+```
+
+| 位置 | 含义 | 不填默认 |
+|---|---|---|
+| 第 1 段 **模型id** | 请求里透传给网关的 model 名，**大小写必须和网关完全一致** | 必填 |
+| 第 2 段 **显示名** | 展示名 | 取 id |
+| 第 3 段 **context** | 上下文窗口（token），256k 填 `262144`、1M 填 `1000000` | 128000 |
+| 第 4 段 **maxTokens** | 单次输出上限，8k 填 `8192`、16k 填 `16384` | 8192 |
+
+> ⚠️ **模型 id 大小写极其关键**：QM 会把你填的 id 原样发给网关。网关通常对模型名**大小写敏感**——例如你注册成小写 `meerkat-triz-v1`，但网关只授权大写 `Meerkat-TRIZ-v1`，发消息就会 403（网关报 `key_model_access_denied`）。**务必填与网关文档/授权列表一字不差的大小写。**
+>
+> 另注意：**provider 的 slug 必须小写**（有格式校验），但**模型 id 可以大写**——provider id 是内部标识，模型 id 才透传给网关，两者独立。
+
+多模型直接**换行**分行写即可，每行一个：
+```
+my-small | My Small | 262144 | 8192
+my-large | My Large | 524288 | 16384
+```
+
+### 第二步：在 Governance 选择 model
+
+1. 治理台左侧 **Admin → Governance**，切到 **org** scope；
+2. 找到 **Models & browsing → Web UI model picker / Allowed models** 卡片；
+3. 点 **`+ Add model`**，输入第一步里填的那个**模型 id**（和网关一致的大小写）→ 它会变成一个 chip；
+4. （可选）在 **Default** 下拉把它设为默认模型；
+5. 点 **Save**（会出现绿色 "Saved"）。
+
+> ⚠️ **必须加进 Allowed models**，否则网页端选它发消息会报 403 "that model is not enabled for the web UI"。Allowed models 是 org 级白名单，决定网页聊天框能选哪些模型。
+
+### 验证
+
+- **直接验证 key/模型**（可选）：用 curl 调你的网关确认模型名、key 可用；
+- **网页端发消息**：web-ui 聊天框 → 选模型下拉 → 选刚加的模型 → 发一句话，看能否正常回复。
+
+### 常见报错
+
+| 报错 | 原因与处理 |
+|---|---|
+| `403: key_model_access_denied ... Tried to access xxx` | 模型 id 大小写/拼写和网关不一致 → 去改 model id 为网关确切的写法，并同步改 Allowed models |
+| `403: that model is not enabled for the web UI` | 没加进 Governance → Allowed models 白名单 |
+| Onboarding 里已保存的 provider 表格"消失" | 多为前端刷新/异步加载问题——先刷新页面；配置在 Postgres `custom_model_providers` 表仍在 |
+| Onboarding "Base model" 一直显示 Needs a key | **误报**：Onboarding 只检查内置 provider（anthropic/openai/openrouter）的 key，看不到自定义 provider。自定义模型默认值会一直显示这个提示，可忽略，不影响使用 |
+
+---
+
 # 附录 A：常见任务怎么做
 
 | 任务 | 操作路径 |
@@ -195,6 +278,7 @@ agent **发布出来的可运行应用**：
 | 定时任务 | web-ui → 对话里直接说"每天 xx 点做 xx" → Crons 里管理 |
 | 换默认模型 | admin → Governance（org scope）→ Models & browsing → Runtime |
 | 网页端可选哪些模型 | admin → Governance（org scope）→ Web UI model picker → 加/减模型 → Save |
+| 添加自定义模型（第三方网关/自己的模型） | ① Onboarding → Custom providers → 填 provider → Save；② Governance → Allowed models → `+ Add model` → Save（详见"添加自定义模型"章节） |
 | 看 agent 某次回复为什么是这样 | admin → Sessions → 找到会话 → 看对话记录 + tool calls + LLM 请求 |
 | 控制 agent 能上哪些网 | admin → Egress → 加白/禁域名 |
 | 查谁改过配置 | admin → Audit |
