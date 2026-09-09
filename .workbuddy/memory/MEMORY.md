@@ -36,7 +36,7 @@
 - **上游 dev-instance 工具链不适配 Windows 原生**：supervisor 用 Unix domain socket（`scripts/dev/supervisor/main.ts:656` 监听 `supervisor.sock`），Windows 原生 Node 报 `EACCES`。全仓库无 Windows 支持，只有 `linux` 特判。
 - 坑 ①：`dev-instance.sh` 的 `pwd` 输出 `/e/...` 传给 Windows node 解析成 `E:\e\...`（绕法：直接 `node scripts/dev/cli.ts up` 用相对路径）。
 - 坑 ②：dev 实例默认强制 `ANTHROPIC_API_KEY`，除非 `DEV_INSTANCE_ALLOW_MOCK=1`。
-- **本机 WSL2 可用**：发行版 `docker-desktop`、`meerkat-sandbox`、`Ubuntu-24.04`。但 `wsl.exe`/`reg.exe` 被 WorkBuddy 沙箱 Program Blacklist 拦，无法代操作 WSL。
+- **本机 WSL2 可用**：发行版 `docker-desktop`、`meerkat-sandbox`、`Ubuntu-24.04`。（2026-09-09 起 `wsl.exe` 与 Windows Docker 都能代操作了，之前记的「沙箱拦截」已过时：可直接 `wsl.exe -d Ubuntu-24.04 -- bash -lc "..."`、`docker exec qm-dev-postgres ...`。）
 - **正确跑法 = 进 WSL（已成功跑通）**：代码放 `~/`（不能 `/mnt/e/...`）、WSL 内 node 已备好（nvm 默认 v24.15.0）。关键坑：
   - WSL PATH 被 Windows `/mnt/c/...` 污染，需 `export PATH="/home/zamir/.nvm/versions/node/v24.15.0/bin:$PATH"`；
   - `bash -lc` 里 source nvm 会失效，用绝对路径 node 最稳；
@@ -69,6 +69,20 @@ DEV_INSTANCE_IDLE_HOURS=0 ANTHROPIC_API_KEY=sk-ant-dummy-for-pi-harness \
 - 本地 Postgres 由 supervisor 自动用 Docker 拉（镜像 `postgres:16-alpine`、端口 55432、容器 `qm-dev-postgres`、卷 `qm-dev-postgres-data`、密码 `qm-dev`）。
 - 已生成 `.env`（`HARNESS=pi`/`ORG_ID=acme` 生效）。
 
+## Meerkat-TRIZ-v1 部署与 YaRN 1M（2026-09-09 实测）
+- 服务器 `192.168.60.102`（host `spark-f5a5`，NVIDIA GB10，121G 统一内存，**很紧：已用 112G / 可用 8.7G**）。SSH 密码认证（`meerkat/meerkat123`），Windows 无 sshpass，用托管 venv 的 **paramiko** 连。
+- vLLM 跑 Docker 容器 `meerkat-triz-vllm-nvfp4-v2`，镜像 `vllm/vllm-openai:v0.25.0`（**vLLM 0.25.0**），host 网络、端口 8000；公网入口 `106.14.33.55:4100` 是另一台阿里云 ECS 反代进内网。
+- 模型只读挂载（modelscope 缓存）：base `unsloth--Qwen3.6-35B-A3B-NVFP4-Fast` → `/models/base`；adapter `ujDesign--Meerkat-TRIZ-v1` → `/models/adapter`。
+- 当前启动参数：`--max-model-len 262144`、`--max_new_tokens 81920`（**已从 16384 升过**，输出硬顶 6 万字）、`--dtype float16`、`--enable-lora --lora-modules Meerkat-TRIZ-v1=/models/adapter --max-lora-rank 64`。
+- 模型 config：qwen3_5_moe，40 层（10 全注意力 GQA 2KV 头 + 30 Gated DeltaNet 线性注意力），rope_theta=1e7，partial_rotary_factor=0.25，head_dim 256，量化 mixed-precision（注意力/lm_head=fp8，MoE=nvfp4）。`rope_type` 在 `text_config.rope_parameters`，当前为 `default`。
+- **mRoPE 3D 位置编码（关键）**：`text_config.rope_parameters` = `mrope_interleaved:true` + `mrope_section:[11,11,10]`（T/H/W 三段，多模态用）。启用 YaRN 时**必须保留这两个字段**，不能照抄 Qwen3-Next 的 `--rope-scaling`（那是 `qwen3_next` 旧路径）。
+- **KV cache 已是 fp8**（`quantization_config.kv_cache_scheme.num_bits=8`）。1M 的 KV cache ≈ **10.1GB**（非 fp16 20GB），当前 256K ≈ 2.5GB，**增量仅 +7.6GB**。30 层 DeltaNet 是 O(1) 状态不吃 KV cache，只有 10/40 层随上下文增长。可用内存 7GB 与之**刚好临界**，需降 `--gpu-memory-utilization`(0.83→~0.7) 或回收 cache 腾 ~8GB。
+- **YaRN 扩 1M（官方确认，Qwen3.5/3.6=qwen3_5_moe 路径）**：`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1` + `--hf-overrides '{"text_config":{"rope_parameters":{mrope_interleaved:true,mrope_section:[11,11,10],rope_type:"yarn",factor:4.0,original_max_position_embeddings:262144}}}'` + `--max-model-len 1010000`。来源：Qwen3.5-122B-A10B/397B-A17B 官方模型卡。
+- **qm 侧必须同步改**：`custom_model_providers` 表 `meerkat-vllm` 两模型 `contextWindow=262144/maxTokens=8192`。pi-harness 有 output-budget guard（按 `contextWindow - prompt - 安全余量` 钳 max_tokens），vLLM 扩 1M 后 qm 侧 `contextWindow` 不改会被钳回 256K。
+- 静态 YaRN 副作用：短文本(<256K)轻微掉点；"10万字输出"≈150K tokens 本身在原生 256K 内，其实不需要 YaRN，只需放开输出上限。
+- 完整调研报告：`docs/meerkat/v0.1.3/YaRN扩展可行性调研.md`。
+
 ## 用户偏好
 - 学习阶段，关注架构/概念讲解，会追问"是什么/为什么"；喜欢对照代码讲清边界（认证 vs 授权、第三方服务 vs 依赖）。
 - 目标：把 qm 在本地跑起来（暂不起 Slack、mock 模式、本地 Postgres）。
+- 当前主线：Meerkat-TRIZ-v1（Qwen3.6-35B-A3B）YaRN 扩展上下文到 1M；调研文档在 `docs/meerkat/v0.1.3/`。
